@@ -30,12 +30,14 @@ export async function createA1LeadTask(lead, agentName, instruction) {
 
 export async function callA1McpTool(toolName, payload) {
   if (!hasSecret(config.A1_MCP_URL)) return { ok: false, skipped: true, reason: 'A1_MCP_URL is not configured' };
+  const authHeader = config.A1_MCP_AUTH_HEADER || 'x-a1-mcp-key';
+  const authValue = authHeader.toLowerCase() === 'authorization' ? `Bearer ${config.A1_MCP_API_KEY}` : config.A1_MCP_API_KEY;
 
   const response = await fetch(config.A1_MCP_URL, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...(hasSecret(config.A1_MCP_API_KEY) ? { 'x-a1-mcp-key': config.A1_MCP_API_KEY } : {}),
+      ...(hasSecret(config.A1_MCP_API_KEY) ? { [authHeader]: authValue } : {}),
     },
     body: JSON.stringify({
       jsonrpc: '2.0',

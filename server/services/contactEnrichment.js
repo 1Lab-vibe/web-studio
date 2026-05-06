@@ -1,4 +1,5 @@
 import { config, hasSecret } from '../config.js';
+import { searchContactsViaA1Yandex } from './a1YandexSearch.js';
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
@@ -54,10 +55,15 @@ async function searchEmails(lead) {
 
 export async function enrichContacts(lead) {
   const websiteEmails = await findEmailsOnWebsite(lead.url);
-  const searchEmailsFound = websiteEmails.length ? [] : await searchEmails(lead);
-  const emails = unique([...websiteEmails, ...searchEmailsFound]);
+  const a1Yandex = websiteEmails.length ? { emails: [], urls: [] } : await searchContactsViaA1Yandex(lead);
+  const a1YandexEmails = unique((a1Yandex.text?.match(EMAIL_RE) || []).map(normalizeEmail));
+  const searchEmailsFound = websiteEmails.length || a1YandexEmails.length ? [] : await searchEmails(lead);
+  const emails = unique([...websiteEmails, ...a1YandexEmails, ...searchEmailsFound]);
   const channels = [];
-  if (emails.length) channels.push({ type: 'email', value: emails[0], confidence: websiteEmails.length ? 0.85 : 0.55 });
+  if (emails.length) {
+    const confidence = websiteEmails.length ? 0.85 : a1YandexEmails.length ? 0.65 : 0.55;
+    channels.push({ type: 'email', value: emails[0], confidence });
+  }
   if (lead.phone) channels.push({ type: 'phone_call', value: lead.phone, confidence: 0.7 });
   if (lead.phone) channels.push({ type: 'sms_requires_consent', value: lead.phone, confidence: 0.2 });
 
@@ -65,6 +71,11 @@ export async function enrichContacts(lead) {
     emails,
     phone: lead.phone || '',
     channels,
+    sources: {
+      website: { emails: websiteEmails.length },
+      a1Yandex: { ok: Boolean(a1Yandex.ok), skipped: Boolean(a1Yandex.skipped), emails: a1YandexEmails.length, reason: a1Yandex.reason || '' },
+      googleCse: { enabled: hasSecret(config.GOOGLE_CSE_ID), emails: searchEmailsFound.length },
+    },
     policy: {
       phoneColdAdsAllowed: false,
       reason: 'Реклама по сетям электросвязи требует предварительного согласия адресата; без согласия телефон лучше использовать для ручного звонка/уточнения контакта, а не для рекламной рассылки.',
