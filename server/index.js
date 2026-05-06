@@ -110,6 +110,6 @@ if (config.AUTONOMY_ENABLED) {
   });
 }
 
-app.listen(config.PORT, '127.0.0.1', () => {
-  console.log(`Web Studio API listening on http://127.0.0.1:${config.PORT}`);
+app.listen(config.PORT, config.HOST, () => {
+  console.log(`Web Studio API listening on http://${config.HOST}:${config.PORT}`);
 });

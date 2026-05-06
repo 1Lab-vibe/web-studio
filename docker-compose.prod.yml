@@ -9,6 +9,7 @@ services:
       - .env
     environment:
       NODE_ENV: production
+      HOST: 0.0.0.0
       PORT: 8787
       PUBLIC_BASE_URL: https://webstudio.1true.ru
       WEB_ORIGIN: https://webstudio.1true.ru

@@ -8,6 +8,7 @@ const boolFromEnv = z
 
 const envSchema = z.object({
   NODE_ENV: z.string().default('development'),
+  HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().default(8787),
   WEB_ORIGIN: z.string().default('http://127.0.0.1:5173'),
   AUTONOMY_ENABLED: boolFromEnv,
