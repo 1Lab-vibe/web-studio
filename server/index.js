@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { Store } from './store.js';
 import { Orchestrator } from './orchestrator.js';
-import { answerCallback, isAdminTelegramUser } from './services/telegram.js';
+import { answerCallback, isAdminTelegramUser, setTelegramCommands } from './services/telegram.js';
 import { registerMcpRoutes } from './mcp.js';
 import { registerAuth } from './auth.js';
 import { handleA1Webhook } from './services/a1Webhook.js';
@@ -122,6 +122,17 @@ app.post('/api/telegram/webhook', async (req, res) => {
   }
 
   const callback = req.body?.callback_query;
+  if (callback || req.body?.message) {
+    const source = callback ? callback.from : req.body.message.from;
+    const chat = callback?.message?.chat || req.body.message.chat;
+    console.log('Telegram webhook received', {
+      updateId: req.body?.update_id,
+      userId: source?.id,
+      chatId: chat?.id,
+      text: req.body?.message?.text || callback?.data || '',
+      isAdmin: isAdminTelegramUser(source?.id, chat?.id),
+    });
+  }
   const data = callback?.data || '';
   const match = data.match(/^approval:([^:]+):(approved|rejected|pause_niche)$/);
   if (match) {
@@ -169,3 +180,9 @@ if (config.AUTONOMY_ENABLED) {
 app.listen(config.PORT, config.HOST, () => {
   console.log(`Web Studio API listening on http://${config.HOST}:${config.PORT}`);
 });
+
+setTelegramCommands()
+  .then((result) => {
+    if (!result.skipped) console.log('Telegram bot commands configured', { ok: result.ok });
+  })
+  .catch((error) => console.error('Telegram command setup failed', error));

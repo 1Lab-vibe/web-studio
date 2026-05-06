@@ -7,7 +7,14 @@ export async function handleAdminTelegramMessage(store, orchestrator, message) {
   if (!chatId || !text.startsWith('/')) return { ok: false, skipped: true };
 
   const [command, ...args] = text.split(/\s+/);
-  if (command === '/actions') {
+  const normalizedCommand = command.split('@')[0];
+
+  if (normalizedCommand === '/start' || normalizedCommand === '/help') {
+    await sendTelegramTo(chatId, adminHelpText());
+    return { ok: true };
+  }
+
+  if (normalizedCommand === '/actions') {
     const actions = orchestrator.topActions(8);
     await sendTelegramTo(
       chatId,
@@ -18,34 +25,31 @@ export async function handleAdminTelegramMessage(store, orchestrator, message) {
     return { ok: true };
   }
 
-  if (command === '/lead') {
+  if (normalizedCommand === '/lead') {
     const lead = findLead(store, args[0]);
     if (!lead) return sendNotFound(chatId);
     await sendTelegramTo(chatId, leadSummary(lead));
     return { ok: true };
   }
 
-  if (command === '/handoff') {
+  if (normalizedCommand === '/handoff') {
     const lead = findLead(store, args[0]);
     if (!lead) return sendNotFound(chatId);
     await sendTelegramTo(chatId, handoffPrompt(lead));
     return { ok: true };
   }
 
-  if (command === '/help') {
-    await sendTelegramTo(
-      chatId,
-      [
-        '<b>Web Studio admin commands</b>',
-        '/actions — топ действий оркестратора',
-        '/lead &lt;id&gt; — краткая карточка лида',
-        '/handoff &lt;id&gt; — prompt для Lovable, чтобы вернуть URL/код без rebuild',
-      ].join('\n'),
-    );
-    return { ok: true };
-  }
+  await sendTelegramTo(chatId, `Неизвестная команда: <code>${escapeHtml(command)}</code>\n\n${adminHelpText()}`);
+  return { ok: true };
+}
 
-  return { ok: false, skipped: true };
+export function adminHelpText() {
+  return [
+    '<b>Web Studio admin commands</b>',
+    '/actions - топ действий оркестратора',
+    '/lead &lt;id&gt; - краткая карточка лида',
+    '/handoff &lt;id&gt; - prompt для Lovable, чтобы вернуть URL/код без rebuild',
+  ].join('\n');
 }
 
 function findLead(store, idOrPrefix = '') {
@@ -67,7 +71,7 @@ function leadSummary(lead) {
     `Lane: <code>${escapeHtml(lead.lane || '')}</code>`,
     `Status: <code>${escapeHtml(lead.status || '')}</code>`,
     `FitScore: <code>${escapeHtml(lead.fitScore ?? lead.priority ?? 0)}</code>`,
-    `Lovable: <code>${escapeHtml(lead.mockup?.status || lead.mockup?.handoffStatus || 'none')}</code>`,
+    `Lovable: <code>${escapeHtml(lead.mockup?.handoffStatus || lead.mockup?.status || 'none')}</code>`,
     lead.mockup?.buildOpenedAt ? `Build opened: <code>${escapeHtml(lead.mockup.buildOpenedAt)}</code>` : '',
     customerBotLink(lead) ? `Customer bot: ${escapeHtml(customerBotLink(lead))}` : '',
   ].filter(Boolean).join('\n');

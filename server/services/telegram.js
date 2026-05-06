@@ -56,3 +56,20 @@ export async function answerCallback(callbackQueryId, text) {
     body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
   });
 }
+
+export async function setTelegramCommands() {
+  if (!hasSecret(config.TELEGRAM_BOT_TOKEN)) return { ok: false, skipped: true };
+  const commands = [
+    { command: 'help', description: 'Команды Web Studio' },
+    { command: 'actions', description: 'Топ действий оркестратора' },
+    { command: 'lead', description: 'Карточка лида: /lead <id>' },
+    { command: 'handoff', description: 'Lovable handoff prompt: /handoff <id>' },
+  ];
+  const response = await fetch(telegramUrl('setMyCommands'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ commands, scope: { type: 'default' } }),
+  });
+  if (!response.ok) return { ok: false, status: response.status, error: await response.text() };
+  return { ok: true, data: await response.json() };
+}
