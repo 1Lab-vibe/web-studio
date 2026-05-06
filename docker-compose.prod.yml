@@ -17,7 +17,10 @@ services:
       A1_MCP_URL: ${A1_MCP_URL:-https://mcp.1lab.one/mcp}
       LOVABLE_STORAGE_STATE: /app/data/lovable-storage-state.json
       LOVABLE_CHROME_USER_DATA_DIR: /app/data/lovable-chrome-profile
-      LOVABLE_HEADLESS: "false"
+      LOVABLE_HEADLESS: "true"
+      LOVABLE_BROWSER_CHANNEL: ""
+      LOVABLE_USE_CHROME_PROFILE: "false"
+      LOVABLE_CDP_URL: http://127.0.0.1:9222
     volumes:
       - web_studio_data:/app/data
     networks:

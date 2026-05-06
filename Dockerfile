@@ -1,4 +1,4 @@
-FROM node:24-alpine AS deps
+FROM mcr.microsoft.com/playwright:v1.59.1-noble AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install
@@ -7,7 +7,7 @@ FROM deps AS build
 COPY . .
 RUN npm run build
 
-FROM node:24-alpine AS runtime
+FROM mcr.microsoft.com/playwright:v1.59.1-noble AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
