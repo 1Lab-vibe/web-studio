@@ -128,6 +128,18 @@ app.get('/api/lovable/tools', async (req, res) => {
   res.status(result.ok || result.skipped ? 200 : 502).json(result);
 });
 
+app.get('/oauth/lovable-client-metadata.json', (req, res) => {
+  const redirectUri = req.query.redirect_uri || 'http://127.0.0.1:8789/oauth/callback';
+  res.json({
+    client_name: 'Web Studio Lovable OAuth',
+    redirect_uris: [redirectUri],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+    scope: 'offline projects:create projects:read projects:write workspaces:read workspaces:write',
+  });
+});
+
 app.post('/api/a1/webhook', async (req, res) => {
   if (config.A1_WEBHOOK_SECRET) {
     const got = req.header('x-a1-webhook-secret');
