@@ -235,8 +235,8 @@ function App() {
   const loadBackend = async () => {
     try {
       const [healthResponse, leadsResponse] = await Promise.all([
-        fetch('http://127.0.0.1:8787/api/health'),
-        fetch('http://127.0.0.1:8787/api/leads'),
+        fetch('/api/health'),
+        fetch('/api/leads'),
       ]);
       const health = await healthResponse.json();
       const leadData = await leadsResponse.json();
@@ -255,7 +255,7 @@ function App() {
   }, []);
 
   const runBackendAction = async (action) => {
-    await fetch(`http://127.0.0.1:8787/api/orchestrator/${action}`, { method: 'POST' });
+    await fetch(`/api/orchestrator/${action}`, { method: 'POST' });
     await loadBackend();
   };
 
