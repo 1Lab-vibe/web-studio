@@ -48,7 +48,7 @@ export function adminHelpText() {
     '<b>Web Studio admin commands</b>',
     '/actions - топ действий оркестратора',
     '/lead &lt;id&gt; - краткая карточка лида',
-    '/handoff &lt;id&gt; - prompt для Lovable, чтобы вернуть URL/код без rebuild',
+    '/handoff &lt;id&gt; - prompt для Lovable, чтобы вернуть GitHub repo/URL/код без rebuild',
   ].join('\n');
 }
 
@@ -72,6 +72,7 @@ function leadSummary(lead) {
     `Status: <code>${escapeHtml(lead.status || '')}</code>`,
     `FitScore: <code>${escapeHtml(lead.fitScore ?? lead.priority ?? 0)}</code>`,
     `Lovable: <code>${escapeHtml(lead.mockup?.handoffStatus || lead.mockup?.status || 'none')}</code>`,
+    lead.mockup?.githubUrl ? `GitHub repo: ${escapeHtml(lead.mockup.githubUrl)}` : '',
     lead.mockup?.buildOpenedAt ? `Build opened: <code>${escapeHtml(lead.mockup.buildOpenedAt)}</code>` : '',
     customerBotLink(lead) ? `Customer bot: ${escapeHtml(customerBotLink(lead))}` : '',
   ].filter(Boolean).join('\n');
@@ -86,7 +87,8 @@ function handoffPrompt(lead) {
       `The landing page for Web Studio lead "${lead.name}" has already been created in this Lovable project.`,
       'Do not rebuild from scratch and do not resend the original generation prompt.',
       'Please hand the result back to Web Studio now.',
-      `Call attach_lovable_url with leadId "${lead.id}", url, publishedUrl if available, projectName, and short notes.`,
+      `Preferred: call attach_lovable_repo with leadId "${lead.id}", githubUrl, repoName if available, branch, projectName, and short notes.`,
+      `If there is a public preview instead, call attach_lovable_url with leadId "${lead.id}", url or publishedUrl, projectName, and short notes.`,
       'If files can be exported, call deploy_static_project instead.',
     ].join('\n')),
   ].join('\n');

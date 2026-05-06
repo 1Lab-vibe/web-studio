@@ -31,9 +31,16 @@ Exposed tools:
 - `list_top_leads`
 - `get_landing_brief`
 - `get_lovable_prompt`
+- `get_lovable_handoff_request`
+- `attach_lovable_repo`
 - `attach_lovable_url`
+- `deploy_static_project`
 
-Lovable can read lead context and then write the created Lovable URL back through `attach_lovable_url`.
+Lovable can read lead context and then write the result back in three ways:
+
+- `attach_lovable_repo` when Lovable creates/connects a GitHub repository. This is the preferred path now because Web Studio can deploy the repo under `/projects/<slug>` and render media from our own domain.
+- `attach_lovable_url` when Lovable has a public preview or published URL.
+- `deploy_static_project` when Lovable can export static files directly.
 
 ## 2. Browser automation fallback
 

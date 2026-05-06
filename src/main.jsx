@@ -35,6 +35,7 @@ const agentMeta = {
   Scout: { role: 'ищет лиды в Яндекс/Google Maps', icon: Radar, tone: 'red' },
   Diagnoser: { role: 'готовит диагноз, hero angle и pitch', icon: ClipboardCheck, tone: 'blue' },
   Builder: { role: 'создает top-5 мокапов через Lovable', icon: Wand2, tone: 'teal' },
+  Coder: { role: 'деплоит GitHub repo и делает простые правки сайта', icon: Bot, tone: 'black' },
   Filmer: { role: 'готовит скриншоты и вертикальное видео', icon: Film, tone: 'amber' },
   Checker: { role: 'проверяет персонализацию и AI-маркеры', icon: ShieldCheck, tone: 'teal' },
   Pitcher: { role: 'отправляет сообщение в правильный канал', icon: Send, tone: 'blue' },

@@ -11,7 +11,7 @@ export async function prepareLovableMockup(lead) {
     skipped: true,
     mode: 'lovable_personal_mcp',
     status: 'waiting_lovable_project',
-    reason: 'Lovable connects to this app through personal MCP. Create the project inside Lovable, then call attach_lovable_url.',
+    reason: 'Lovable connects to this app through personal MCP. Create the project inside Lovable, then call attach_lovable_repo or attach_lovable_url.',
     prompt,
     buildUrl: lovableBuildUrl(prompt),
     updatedAt: new Date().toISOString(),
