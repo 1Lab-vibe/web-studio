@@ -48,7 +48,7 @@ export function adminHelpText() {
     '<b>Web Studio admin commands</b>',
     '/actions - топ действий оркестратора',
     '/lead &lt;id&gt; - краткая карточка лида',
-    '/handoff &lt;id&gt; - prompt для Lovable, чтобы вернуть GitHub repo/URL/код без rebuild',
+    '/handoff &lt;id&gt; - prompt для Lovable, чтобы вернуть публичный URL/код без rebuild',
   ].join('\n');
 }
 
@@ -87,8 +87,9 @@ function handoffPrompt(lead) {
       `The landing page for Web Studio lead "${lead.name}" has already been created in this Lovable project.`,
       'Do not rebuild from scratch and do not resend the original generation prompt.',
       'Please hand the result back to Web Studio now.',
-      `Preferred: call attach_lovable_repo with leadId "${lead.id}", githubUrl, repoName if available, branch, projectName, and short notes.`,
-      `If there is a public preview instead, call attach_lovable_url with leadId "${lead.id}", url or publishedUrl, projectName, and short notes.`,
+      `Preferred: call attach_lovable_url with leadId "${lead.id}", url or publishedUrl, projectName, and short notes.`,
+      'Web Studio Coder will deploy that URL under /projects/<slug> and continue the pipeline.',
+      'If a real public GitHub repo exists, attach_lovable_repo is supported. Do not pass lovable.code.storage internal remotes.',
       'If files can be exported, call deploy_static_project instead.',
     ].join('\n')),
   ].join('\n');

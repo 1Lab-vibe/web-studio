@@ -38,9 +38,9 @@ Exposed tools:
 
 Lovable can read lead context and then write the result back in three ways:
 
-- `attach_lovable_repo` when Lovable creates/connects a GitHub repository. This is the preferred path now because Web Studio can deploy the repo under `/projects/<slug>` and render media from our own domain.
-- `attach_lovable_url` when Lovable has a public preview or published URL.
+- `attach_lovable_url` when Lovable has a public preview or published URL. This is the preferred path. Web Studio Coder then deploys a local project under `/projects/<slug>` and Filmer renders media from our own domain.
 - `deploy_static_project` when Lovable can export static files directly.
+- `attach_lovable_repo` only when there is a real public GitHub repository URL. Do not pass `lovable.code.storage` internal remotes; Web Studio cannot read them.
 
 ## 2. Browser automation fallback
 

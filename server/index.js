@@ -13,6 +13,7 @@ import { registerAuth } from './auth.js';
 import { handleA1Webhook } from './services/a1Webhook.js';
 import { handleCustomerTelegramMessage } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
+import { deployLeadPublicUrlProject } from './services/projectPublisher.js';
 
 const app = express();
 const store = new Store(config.DATA_DIR);
@@ -20,7 +21,22 @@ await store.load();
 const orchestrator = new Orchestrator(store);
 
 app.set('trust proxy', true);
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'", 'https:', 'data:', 'blob:'],
+        scriptSrc: ["'self'", "'unsafe-inline'", 'https:', 'blob:'],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
+        imgSrc: ["'self'", 'https:', 'data:', 'blob:'],
+        connectSrc: ["'self'", 'https:', 'wss:'],
+        frameSrc: ["'self'", 'https:'],
+        fontSrc: ["'self'", 'https:', 'data:'],
+        baseUri: ["'self'", 'https:'],
+      },
+    },
+  }),
+);
 app.use(cors({ origin: config.WEB_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '15mb' }));
 registerMcpRoutes(app, store);
@@ -73,6 +89,14 @@ app.get('/api/leads/:id/lovable/open', async (req, res) => {
   });
   await store.addEvent(lead.id, 'lovable.build_opened', `Lovable build URL opened manually at ${openedAt}`);
   res.redirect(302, url);
+});
+
+app.post('/api/leads/:id/coder/deploy', async (req, res) => {
+  const result = await deployLeadPublicUrlProject(store, req.params.id, {
+    url: req.body?.url,
+    projectName: req.body?.projectName,
+  });
+  res.status(result.ok ? 200 : 409).json(result);
 });
 
 app.post('/api/orchestrator/scout', async (req, res) => {

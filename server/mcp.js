@@ -8,8 +8,8 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { config, hasSecret } from './config.js';
 import { calculateFitScore } from './services/scoring.js';
 import { renderLeadVideo } from './services/filmer.js';
-import { sendTelegram } from './services/telegram.js';
 import { crmAddEvent, syncA1CrmLead } from './services/a1Client.js';
+import { projectSlug } from './services/projectPublisher.js';
 
 function mcpText(data) {
   return {
@@ -20,15 +20,6 @@ function mcpText(data) {
       },
     ],
   };
-}
-
-function projectSlug(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || randomUUID();
 }
 
 function safeProjectPath(root, filePath) {
@@ -100,11 +91,10 @@ function landingPrompt(lead) {
     'Use real Russian UI copy. Keep the design practical for this exact industry.',
     '',
     'After the landing page is created, hand the result back to Web Studio through MCP.',
-    'Preferred: if Lovable created or connected a GitHub repository, call attach_lovable_repo.',
-    `Call attach_lovable_repo with leadId "${lead.id}", githubUrl, repoName if available, branch, projectName, and short notes.`,
-    'If Lovable has a public preview or published URL, call attach_lovable_url instead.',
+    'Preferred: call attach_lovable_url with a public preview or published URL.',
     `Call attach_lovable_url with leadId "${lead.id}", url or publishedUrl, projectName, and short notes.`,
-    'The orchestrator will deploy GitHub repos under /projects/<slug> before screenshots/video, so a published Lovable URL is optional.',
+    'Web Studio Coder will deploy that public URL under /projects/<slug>, then Filmer will create screenshots/video from our domain.',
+    'If a real public GitHub repository is available, attach_lovable_repo is also supported, but do not use Lovable internal code storage URLs.',
   ].join('\n');
 }
 
@@ -203,11 +193,11 @@ export function registerMcpRoutes(app, store) {
             'Do not rebuild from scratch and do not resend the original generation prompt.',
             'Please hand the result back to Web Studio now.',
             '',
-            'Preferred: connect/export the project to GitHub and call Web Studio Orchestrator MCP tool attach_lovable_repo.',
-            `Call attach_lovable_repo with leadId "${lead.id}", githubUrl, repoName if available, branch, and short notes.`,
-            '',
-            'If there is already a public preview or published URL, call attach_lovable_url.',
+            'Preferred: call Web Studio Orchestrator MCP tool attach_lovable_url with a public preview or published URL.',
             `Call attach_lovable_url with leadId "${lead.id}", url or publishedUrl, projectName, and short notes.`,
+            '',
+            'If a real public GitHub repository is available, call attach_lovable_repo. Do not pass lovable.code.storage internal remotes.',
+            `Call attach_lovable_repo with leadId "${lead.id}", githubUrl, repoName if available, branch, and short notes.`,
             '',
             'If this project can export files, call deploy_static_project instead with leadId, projectName, and all static files.',
             'Web Studio will deploy it under /projects/<slug>, then make screenshots/video and continue the pipeline.',
@@ -383,18 +373,21 @@ export function registerMcpRoutes(app, store) {
         }
         let lead = await store.updateLead(leadId, {
           mockup: {
+            ...(store.getLead(leadId)?.mockup ?? {}),
             ok: true,
             mode: 'lovable_mcp_connector',
+            status: 'public_url_attached',
             url: url || primaryUrl,
             projectName: projectName || '',
             publishedUrl: publishedUrl || '',
             githubUrl: githubUrl || '',
             sourceUrl: sourceUrl || '',
             notes: notes || '',
+            handoffStatus: 'url_received',
             updatedAt: new Date().toISOString(),
           },
-          lane: 'Видео',
-          owner: 'Filmer',
+          owner: 'Coder',
+          status: 'public_url_attached',
         });
         if (!lead) return mcpText({ error: 'Lead not found' });
         await store.addEvent(leadId, 'lovable.url.attached', `Lovable URL attached: ${primaryUrl}`);
@@ -406,26 +399,9 @@ export function registerMcpRoutes(app, store) {
           payload: { webstudioLeadId: lead.id, url, publishedUrl, githubUrl, sourceUrl, projectName },
           idempotencyKey: `webstudio:${lead.id}:lovable.url.attached:${primaryUrl}`,
         });
-        const video = await renderLeadVideo(lead);
-        if (!video.ok) {
-          lead = await store.updateLead(leadId, { video, status: 'needs_review' });
-          await store.addEvent(leadId, 'video.failed', `Filmer не смог собрать видео: ${video.reason}`);
-          await sendTelegram(
-            [
-              '<b>Filmer требует решения</b>',
-              `${lead.name} · ${lead.city} · ${lead.niche}`,
-              `Ошибка: ${video.reason}`,
-              `Lovable URL: ${primaryUrl}`,
-              'Лид оставлен в Видео со статусом needs_review.',
-            ].join('\n'),
-          );
-          return mcpText({ ok: false, lead, video });
-        }
-        lead = await store.updateLead(leadId, { video, lane: 'Проверка', owner: 'Checker', status: 'in_progress' });
-        await store.addEvent(leadId, 'video.created', `Filmer собрал видео: ${video.videoUrl}`);
-        await store.addEvent(leadId, 'lead.advanced', 'Лид передан агенту Checker');
+        await store.addEvent(leadId, 'coder.deploy_queued', 'Coder queued deploy from public Lovable URL');
         await syncA1CrmLead(lead, 'lovable_url_attached');
-        return mcpText({ ok: true, lead });
+        return mcpText({ ok: true, lead, nextAction: 'Coder will deploy this public URL under /projects/<slug>, then run Filmer.' });
       },
     );
 

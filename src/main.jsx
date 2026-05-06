@@ -220,6 +220,9 @@ function App() {
   const advanceLead = (leadId) =>
     runAction('advance', () => fetch(`/api/leads/${leadId}/advance`, { method: 'POST', credentials: 'include' }), 'Лид передан дальше');
 
+  const deployLead = (leadId) =>
+    runAction('coder-deploy', () => fetch(`/api/leads/${leadId}/coder/deploy`, { method: 'POST', credentials: 'include' }), 'Coder задеплоил проект');
+
   const decideApproval = (approvalId, decision) =>
     runAction(
       decision,
@@ -277,6 +280,7 @@ function App() {
             approval={activeApproval}
             busy={busy}
             onAdvance={advanceLead}
+            onDeploy={deployLead}
             onDecision={decideApproval}
           />
           <Timeline lead={activeLead} events={activeEvents} />
@@ -684,7 +688,7 @@ function ControlDeck({ metrics, approvals, outreachQueue = [] }) {
   );
 }
 
-function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
+function LeadInspector({ lead, approval, busy, onAdvance, onDeploy, onDecision }) {
   if (!lead) {
     return (
       <section className="panel lead-inspector empty-state">
@@ -722,6 +726,12 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
         <a className="lovable-link primary" href={lead.mockup.publishedUrl} target="_blank" rel="noreferrer">
           <Globe2 size={16} />
           Открыть публичный сайт
+        </a>
+      )}
+      {lead.mockup?.deployedUrl && (
+        <a className="lovable-link primary" href={lead.mockup.deployedUrl} target="_blank" rel="noreferrer">
+          <Globe2 size={16} />
+          Открыть деплой Web Studio
         </a>
       )}
       {lead.mockup?.githubUrl && (
@@ -783,6 +793,11 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
         <button type="button" disabled={Boolean(busy)}>
           <MessageSquareText size={16} /> Checker eval
         </button>
+        {(lead.mockup?.url || lead.mockup?.publishedUrl) && lead.mockup?.status !== 'deployed' && (
+          <button type="button" disabled={Boolean(busy)} onClick={() => onDeploy(lead.id)}>
+            <Globe2 size={16} /> Coder deploy
+          </button>
+        )}
         <button type="button" disabled={Boolean(busy) || lead.status === 'waiting_approval'} onClick={() => onAdvance(lead.id)}>
           <ArrowRight size={16} /> Передать дальше
         </button>

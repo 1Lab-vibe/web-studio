@@ -8,6 +8,7 @@ import { renderLeadVideo } from './services/filmer.js';
 import { enrichContacts } from './services/contactEnrichment.js';
 import { approvalKeyboard, sendTelegram } from './services/telegram.js';
 import { enrichLeadScore, topLovableCandidates } from './services/scoring.js';
+import { deployLeadPublicUrlProject } from './services/projectPublisher.js';
 
 const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
 
@@ -186,6 +187,10 @@ export class Orchestrator {
     if (!locked) return { ok: false, error: 'Lead is locked by another agent' };
 
     try {
+      if (lead.owner === 'Coder' && (lead.status === 'public_url_attached' || lead.mockup?.status === 'public_url_attached')) {
+        return await deployLeadPublicUrlProject(this.store, lead.id);
+      }
+
       if (lead.lane === 'Разведка') {
         Object.assign(lead, await diagnoseLead(lead));
         enrichLeadScore(lead);
@@ -394,6 +399,9 @@ export class Orchestrator {
 
 function actionForLead(lead, topLovableIds) {
   if (lead.status === 'waiting_approval') return { action: 'approve_or_reject', label: 'Ждет approval', score: 100, autoRunnable: false };
+  if (lead.mockup?.status === 'public_url_attached' || lead.status === 'public_url_attached') {
+    return { action: 'deploy_public_url', label: 'Деплой публичного URL', score: lead.fitScore ?? 0, autoRunnable: true };
+  }
   if (lead.mockup?.status === 'github_repo_attached' || lead.status === 'repo_attached') {
     return { action: 'deploy_github_repo', label: 'Деплой GitHub repo', score: lead.fitScore ?? 0, autoRunnable: false };
   }
@@ -426,11 +434,11 @@ function lovableHandoffRequest(lead) {
       'Do not rebuild from scratch and do not resend the original generation prompt.',
       'Please hand the result back to Web Studio now.',
       '',
-      'Preferred: connect/export the project to GitHub and call Web Studio Orchestrator MCP tool attach_lovable_repo.',
-      `Call attach_lovable_repo with leadId "${lead.id}", githubUrl, repoName if available, branch, projectName, and short notes.`,
-      '',
-      'If there is already a public preview or published URL, call attach_lovable_url.',
+      'Preferred: call Web Studio Orchestrator MCP tool attach_lovable_url with a public preview or published URL.',
       `Call attach_lovable_url with leadId "${lead.id}", url or publishedUrl, projectName, and short notes.`,
+      '',
+      'If a real public GitHub repository is available, call attach_lovable_repo. Do not pass lovable.code.storage internal remotes.',
+      `Call attach_lovable_repo with leadId "${lead.id}", githubUrl, repoName if available, branch, projectName, and short notes.`,
       '',
       'If this project can export files, call deploy_static_project instead with leadId, projectName, and all static files.',
       'Web Studio will deploy it under /projects/<slug>, then make screenshots/video and continue the pipeline.',
