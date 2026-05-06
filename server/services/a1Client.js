@@ -42,7 +42,8 @@ export async function callA1McpTool(toolName, payload) {
       });
       await client.connect(transport);
       const data = await client.callTool({ name: toolName, arguments: payload });
-      if (data?.isError) return { ok: false, error: mcpErrorText(data), data };
+      const embeddedError = mcpEmbeddedError(data);
+      if (data?.isError || embeddedError) return { ok: false, error: embeddedError || mcpErrorText(data), data };
       return { ok: true, data };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -64,7 +65,8 @@ export async function callA1McpTool(toolName, payload) {
 
   if (!response.ok) return { ok: false, status: response.status, error: await response.text() };
   const data = await response.json();
-  if (data?.error || data?.result?.isError) return { ok: false, error: mcpErrorText(data?.result || data), data };
+  const embeddedError = mcpEmbeddedError(data?.result || data);
+  if (data?.error || data?.result?.isError || embeddedError) return { ok: false, error: embeddedError || mcpErrorText(data?.result || data), data };
   return { ok: true, data };
 }
 
@@ -241,6 +243,17 @@ function mcpErrorText(data) {
   return data?.content?.find?.((item) => item.type === 'text')?.text || data?.error?.message || 'MCP tool returned an error';
 }
 
+function mcpEmbeddedError(data) {
+  const text = data?.content?.find?.((item) => item.type === 'text')?.text;
+  if (!text) return '';
+  try {
+    const parsed = JSON.parse(text);
+    return parsed?.ok === false ? parsed?.error?.message || parsed?.error?.code || 'MCP tool returned ok:false' : '';
+  } catch {
+    return '';
+  }
+}
+
 function qText(value) {
   return `'${String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
 }
@@ -250,7 +263,14 @@ function qUuid(value) {
 }
 
 function qJson(value) {
-  return `${qText(JSON.stringify(value ?? null))}`;
+  let json = 'null';
+  try {
+    json = JSON.stringify(value ?? null);
+  } catch {
+    json = 'null';
+  }
+  const tag = `$A1_${randomUUID().replace(/-/g, '')}$`;
+  return `${tag}${json}${tag}`;
 }
 
 function qNumber(value) {
