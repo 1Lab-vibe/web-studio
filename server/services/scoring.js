@@ -21,11 +21,22 @@ export function nicheWeight(lead) {
   return nicheWeights.find(([pattern]) => pattern.test(text))?.[1] ?? 6;
 }
 
+export function contactScore(lead) {
+  const emails = Array.isArray(lead.contacts?.emails) ? lead.contacts.emails.filter(Boolean) : [];
+  const hasEmailChannel = Array.isArray(lead.contacts?.channels)
+    ? lead.contacts.channels.some((channel) => channel?.type === 'email' && channel?.value)
+    : false;
+  const hasPhone = Boolean(lead.phone || lead.contacts?.phone);
+  if (emails.length || hasEmailChannel) return 18;
+  if (hasPhone) return 4;
+  return 0;
+}
+
 export function calculateFitScore(lead) {
   const priority = Number(lead.priority ?? 50);
   const dealScore = Math.min(25, Math.round(Number(lead.deal ?? 0) / 15000));
   const replyScore = Math.max(0, Math.min(20, Number(lead.replyRate ?? 12)));
-  return Math.min(100, Math.round(priority * 0.35 + dealScore + replyScore + siteGapScore(lead) * 0.6 + nicheWeight(lead)));
+  return Math.min(100, Math.round(priority * 0.3 + dealScore + replyScore + siteGapScore(lead) * 0.5 + nicheWeight(lead) + contactScore(lead)));
 }
 
 export function enrichLeadScore(lead) {
@@ -38,6 +49,7 @@ export function enrichLeadScore(lead) {
     replyRate: Number(lead.replyRate ?? 0),
     siteGap: siteGapScore(lead),
     nicheWeight: nicheWeight(lead),
+    contactScore: contactScore(lead),
     updatedAt: new Date().toISOString(),
   };
   return lead;

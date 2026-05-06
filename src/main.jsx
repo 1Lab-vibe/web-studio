@@ -41,6 +41,33 @@ const agentMeta = {
   Mobile: { role: 'ведет положительные ответы и созвоны', icon: Smartphone, tone: 'black' },
 };
 
+function formatRub(value) {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return 'нет оценки';
+  return `${amount.toLocaleString('ru-RU')} ₽`;
+}
+
+function primaryEmail(lead) {
+  const emails = Array.isArray(lead?.contacts?.emails) ? lead.contacts.emails.filter(Boolean) : [];
+  const emailChannel = Array.isArray(lead?.contacts?.channels)
+    ? lead.contacts.channels.find((channel) => channel?.type === 'email' && channel?.value)
+    : null;
+  return emails[0] || emailChannel?.value || '';
+}
+
+function scoringSummary(lead) {
+  const scoring = lead?.scoring || {};
+  const parts = [
+    `priority ${scoring.priority ?? lead?.priority ?? 0}`,
+    `deal ${formatRub(scoring.deal ?? lead?.deal)}`,
+    `reply ${scoring.replyRate ?? lead?.replyRate ?? 0}%`,
+    `siteGap ${scoring.siteGap ?? 0}`,
+    `niche ${scoring.nicheWeight ?? 0}`,
+    `contacts ${scoring.contactScore ?? 0}`,
+  ];
+  return parts.join(' · ');
+}
+
 function App() {
   const [auth, setAuth] = useState({ loading: true, authenticated: false, authEnabled: true, user: null });
   const [backend, setBackend] = useState({
@@ -486,6 +513,8 @@ function Funnel({ leads, activeLeadId, onSelect }) {
                       <small>{lead.rating || 0}★</small>
                       <small>{lead.reviews ?? 0} отзывов</small>
                       <small>{lead.source === 'google_places' ? 'Google' : 'Яндекс'}</small>
+                      <small>fit {lead.fitScore ?? lead.priority ?? 0}</small>
+                      <small>{primaryEmail(lead) ? 'email' : 'no email'}</small>
                     </span>
                     <span className="lead-foot">
                       <span>{lead.site || 'сайт не определен'}</span>
@@ -585,6 +614,7 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
       </section>
     );
   }
+  const email = primaryEmail(lead);
   return (
     <section className="panel lead-inspector">
       <div className="inspector-head">
@@ -592,7 +622,7 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
           <strong>{lead.name}</strong>
           <span>{lead.city} · {lead.niche}</span>
         </div>
-        <span className="score">{lead.priority ?? 50}</span>
+        <span className="score">{lead.fitScore ?? lead.priority ?? 50}</span>
       </div>
 
       {lead.mockup?.buildUrl && (
@@ -607,6 +637,24 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
           Открыть Lovable preview
         </a>
       )}
+      {lead.mockup?.publishedUrl && (
+        <a className="lovable-link primary" href={lead.mockup.publishedUrl} target="_blank" rel="noreferrer">
+          <Globe2 size={16} />
+          Открыть публичный сайт
+        </a>
+      )}
+      {lead.mockup?.githubUrl && (
+        <a className="lovable-link primary" href={lead.mockup.githubUrl} target="_blank" rel="noreferrer">
+          <Globe2 size={16} />
+          Открыть GitHub проекта
+        </a>
+      )}
+      {lead.mockup?.sourceUrl && (
+        <a className="lovable-link primary" href={lead.mockup.sourceUrl} target="_blank" rel="noreferrer">
+          <Globe2 size={16} />
+          Открыть исходники
+        </a>
+      )}
       {lead.video?.videoUrl && (
         <a className="lovable-link primary" href={lead.video.videoUrl} target="_blank" rel="noreferrer">
           <Film size={16} />
@@ -615,6 +663,9 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
       )}
 
       <div className="fact-grid">
+        <Fact label="FitScore" value={lead.fitScore ?? lead.priority ?? 0} />
+        <Fact label="Оценка сайта" value={formatRub(lead.deal)} />
+        <Fact label="Email" value={email || 'не найден'} />
         <Fact label="Рейтинг" value={`${lead.rating || 0}★`} />
         <Fact label="Отзывы" value={lead.reviews ?? 0} />
         <Fact label="Источник" value={lead.source === 'google_places' ? 'Google' : 'Яндекс'} />
@@ -643,6 +694,7 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
       <TextBlock title="Диагноз" text={lead.diagnosis || 'Еще не подготовлен. Передай лида дальше, чтобы Diagnoser сформировал диагноз.'} />
       <TextBlock title="Hero angle" text={lead.angle || 'Еще не подготовлен'} />
       <TextBlock title={`Сообщение · ${lead.channel || 'канал не выбран'}`} text={lead.message || 'Еще не подготовлено'} />
+      <TextBlock title="Скоринг" text={scoringSummary(lead)} />
       <div className="action-grid">
         <button type="button" disabled={Boolean(busy)}>
           <MessageSquareText size={16} /> Checker eval

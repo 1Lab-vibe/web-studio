@@ -27,7 +27,13 @@ export class Orchestrator {
     const result = await this.scoutSources();
     if (!result.ok) return result;
     const saved = [];
-    for (const lead of result.leads ?? []) saved.push(await this.store.upsertLead(lead));
+    for (const lead of result.leads ?? []) {
+      let savedLead = await this.store.upsertLead(lead);
+      const contacts = await enrichContacts(savedLead);
+      savedLead = await this.store.updateLead(savedLead.id, enrichLeadScore({ ...savedLead, contacts }));
+      saved.push(savedLead);
+      await this.store.addEvent(savedLead.id, 'contacts.enriched', `Contact enrichment finished: ${contacts.emails?.length || 0} email(s)`);
+    }
     this.store.state.metrics.scannedToday += saved.length;
     await this.store.save();
     return { ok: true, saved, sources: result.sources ?? [] };

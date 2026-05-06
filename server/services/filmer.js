@@ -81,7 +81,7 @@ export async function renderLeadVideo(lead) {
   if (!config.FILMER_ENABLED) {
     return { ok: false, skipped: true, reason: 'FILMER_ENABLED is false' };
   }
-  const url = lead.mockup?.url || lead.mockup?.previewUrl || '';
+  const url = lead.mockup?.publishedUrl || lead.mockup?.url || lead.mockup?.previewUrl || '';
   if (!url) {
     return { ok: false, skipped: false, reason: 'Lovable preview URL is missing' };
   }

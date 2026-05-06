@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import * as z from 'zod/v4';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -17,6 +19,23 @@ function mcpText(data) {
       },
     ],
   };
+}
+
+function projectSlug(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || randomUUID();
+}
+
+function safeProjectPath(root, filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!normalized || normalized.includes('\0') || normalized.split('/').some((part) => part === '..')) return null;
+  const target = path.resolve(root, normalized);
+  if (!target.startsWith(path.resolve(root) + path.sep) && target !== path.resolve(root)) return null;
+  return target;
 }
 
 function requireMcpAuth(req, res) {
@@ -79,9 +98,10 @@ function landingPrompt(lead) {
     '',
     'Use real Russian UI copy. Keep the design practical for this exact industry.',
     '',
-    'After the landing page is created, use the connected Web Studio Orchestrator MCP tool attach_lovable_url.',
-    `Call attach_lovable_url with leadId "${lead.id}", the current Lovable project or preview URL, and short notes.`,
-    'This write-back is required so the orchestrator can move the lead from Lovable to Video.',
+    'After the landing page is created, publish it if Lovable can provide a public URL.',
+    'Then use the connected Web Studio Orchestrator MCP tool attach_lovable_url.',
+    `Call attach_lovable_url with leadId "${lead.id}", the current Lovable project or preview URL, short notes, and publishedUrl/githubUrl/sourceUrl if available.`,
+    'The orchestrator needs a public publishedUrl or deployable githubUrl/sourceUrl to create screenshots and video without Lovable authentication.',
   ].join('\n');
 }
 
@@ -141,7 +161,7 @@ export function registerMcpRoutes(app, store) {
         inputSchema: { leadId: z.string() },
       },
       async ({ leadId }) => {
-        const lead = store.getLead(leadId);
+        let lead = store.getLead(leadId);
         if (!lead) return mcpText({ error: 'Lead not found' });
         return mcpText(landingBrief(lead));
       },
@@ -163,6 +183,67 @@ export function registerMcpRoutes(app, store) {
     );
 
     server.registerTool(
+      'deploy_static_project',
+      {
+        title: 'Deploy static project',
+        description: 'Deploy built static landing page files under webstudio.1true.ru/projects/<slug>.',
+        inputSchema: {
+          leadId: z.string(),
+          projectName: z.string().min(1).max(120),
+          files: z.array(
+            z.object({
+              path: z.string().min(1).max(300),
+              content: z.string(),
+            }),
+          ).min(1).max(80),
+          notes: z.string().optional(),
+        },
+      },
+      async ({ leadId, projectName, files, notes }) => {
+        const lead = store.getLead(leadId);
+        if (!lead) return mcpText({ error: 'Lead not found' });
+        const slug = projectSlug(projectName || lead.name);
+        const root = path.resolve(config.DATA_DIR, 'projects', slug);
+        await fs.mkdir(root, { recursive: true });
+        const written = [];
+        for (const file of files) {
+          const target = safeProjectPath(root, file.path);
+          if (!target) return mcpText({ error: `Unsafe file path: ${file.path}` });
+          await fs.mkdir(path.dirname(target), { recursive: true });
+          await fs.writeFile(target, file.content, 'utf8');
+          written.push(file.path);
+        }
+        const publicUrl = `${config.PUBLIC_BASE_URL.replace(/\/$/, '')}/projects/${slug}/`;
+        lead = await store.updateLead(leadId, {
+          mockup: {
+            ...(lead.mockup ?? {}),
+            ok: true,
+            mode: 'lovable_mcp_static_deploy',
+            projectName,
+            projectSlug: slug,
+            publishedUrl: publicUrl,
+            notes: notes || lead.mockup?.notes || '',
+            updatedAt: new Date().toISOString(),
+          },
+          lane: 'Р’РёРґРµРѕ',
+          owner: 'Filmer',
+          status: 'in_progress',
+        });
+        await store.addEvent(leadId, 'project.deployed', `Static project deployed: ${publicUrl}`);
+        const video = await renderLeadVideo(lead);
+        if (!video.ok) {
+          lead = await store.updateLead(leadId, { video, status: 'needs_review' });
+          await store.addEvent(leadId, 'video.failed', `Filmer could not render deployed project: ${video.reason}`);
+          return mcpText({ ok: false, publicUrl, slug, files: written, lead, video });
+        }
+        lead = await store.updateLead(leadId, { video, lane: 'РџСЂРѕРІРµСЂРєР°', owner: 'Checker', status: 'in_progress' });
+        await store.addEvent(leadId, 'video.created', `Filmer rendered deployed project: ${video.videoUrl}`);
+        await store.addEvent(leadId, 'lead.advanced', 'Lead moved to Checker after static project deploy');
+        return mcpText({ ok: true, publicUrl, slug, files: written, lead });
+      },
+    );
+
+    server.registerTool(
       'attach_lovable_url',
       {
         title: 'Attach Lovable URL',
@@ -170,17 +251,31 @@ export function registerMcpRoutes(app, store) {
         inputSchema: {
           leadId: z.string(),
           url: z.string().url(),
+          projectName: z.string().optional(),
+          publishedUrl: z.string().url().optional(),
+          githubUrl: z.string().url().optional(),
+          sourceUrl: z.string().url().optional(),
           notes: z.string().optional(),
         },
       },
-      async ({ leadId, url, notes }) => {
+      async ({ leadId, url, projectName, publishedUrl, githubUrl, sourceUrl, notes }) => {
         let lead = await store.updateLead(leadId, {
-          mockup: { ok: true, mode: 'lovable_mcp_connector', url, notes: notes || '', updatedAt: new Date().toISOString() },
+          mockup: {
+            ok: true,
+            mode: 'lovable_mcp_connector',
+            url,
+            projectName: projectName || '',
+            publishedUrl: publishedUrl || '',
+            githubUrl: githubUrl || '',
+            sourceUrl: sourceUrl || '',
+            notes: notes || '',
+            updatedAt: new Date().toISOString(),
+          },
           lane: 'Видео',
           owner: 'Filmer',
         });
         if (!lead) return mcpText({ error: 'Lead not found' });
-        await store.addEvent(leadId, 'lovable.url.attached', `Lovable URL attached: ${url}`);
+        await store.addEvent(leadId, 'lovable.url.attached', `Lovable URL attached: ${publishedUrl || url}`);
         const video = await renderLeadVideo(lead);
         if (!video.ok) {
           lead = await store.updateLead(leadId, { video, status: 'needs_review' });
