@@ -4,7 +4,7 @@ Backend runs a local orchestrator for the Russian solo-agency workflow.
 
 ## Flow
 
-1. `Scout` reads Yandex Maps Organization Search API.
+1. `Scout` reads Yandex Maps Organization Search API, with optional Google Places fallback.
 2. `Diagnoser` uses OpenAI Responses API for diagnosis, hero angle, tone and cold message.
 3. `Builder` can call Lovable through an MCP endpoint for top daily leads.
 4. `Filmer`, `Checker`, `Pitcher`, `Mobile` are represented as lead stages and A1 tasks.
@@ -26,6 +26,8 @@ Copy `.env.example` to `.env` and fill keys locally. `.env` is gitignored.
 
 - `OPENAI_API_KEY` for real diagnosis generation.
 - `YANDEX_MAPS_API_KEY` for Organization Search API.
+- `LEAD_SOURCE_PROVIDER=yandex|google|both` to choose the scout source. `yandex` still falls back to Google when Yandex returns no usable data.
+- `GOOGLE_MAPS_API_KEY`, `GOOGLE_MAPS_RESULTS`, `GOOGLE_DAILY_SEARCH_LIMIT` for Google Places Text Search fallback.
 - `A1_API_URL` and optionally `A1_API_KEY` for `POST /v1/agents/tasks`.
 - `A1_MCP_URL` and `A1_MCP_API_KEY` for A1 MCP tool calls.
 - `LOVABLE_MCP_URL` and `LOVABLE_MCP_API_KEY` for Lovable MCP.

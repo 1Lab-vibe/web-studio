@@ -488,7 +488,8 @@ function BackendActions({ backend, onRun }) {
         <p>
           API {backend.status}. OpenAI: {backend.integrations.openai ? 'ключ есть' : 'нет ключа'} · Яндекс:{' '}
           {backend.integrations.yandexMaps ? 'ключ есть' : 'нет ключа'} · Telegram:{' '}
-          {backend.integrations.telegram ? 'подключен' : 'не подключен'}
+          {backend.integrations.telegram ? 'подключен' : 'не подключен'} · Google:{' '}
+          {backend.integrations.googleMaps ? 'fallback есть' : 'fallback нет'}
         </p>
       </div>
       <div className="backend-actions">

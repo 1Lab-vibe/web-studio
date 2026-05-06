@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { scoutYandexMaps } from './services/yandexMaps.js';
+import { plannedGoogleSearches, scoutGooglePlaces } from './services/googlePlaces.js';
 import { diagnoseLead } from './services/openaiAgent.js';
 import { createA1LeadTask } from './services/a1Client.js';
 import { createLovableMockup } from './services/lovableMcp.js';
@@ -20,13 +21,56 @@ export class Orchestrator {
   }
 
   async scout() {
-    const result = await scoutYandexMaps();
+    const result = await this.scoutSources();
     if (!result.ok) return result;
     const saved = [];
-    for (const lead of result.leads) saved.push(await this.store.upsertLead(lead));
+    for (const lead of result.leads ?? []) saved.push(await this.store.upsertLead(lead));
     this.store.state.metrics.scannedToday += saved.length;
     await this.store.save();
-    return { ok: true, saved };
+    return { ok: true, saved, sources: result.sources ?? [] };
+  }
+
+  async scoutSources() {
+    const sources = [];
+    const leads = [];
+    const provider = config.LEAD_SOURCE_PROVIDER;
+
+    if (provider === 'yandex' || provider === 'both') {
+      try {
+        const yandex = await scoutYandexMaps();
+        sources.push({ name: 'yandex_maps', ok: yandex.ok, skipped: yandex.skipped, reason: yandex.reason });
+        if (yandex.ok) leads.push(...yandex.leads);
+        if (provider === 'yandex' && yandex.ok) return { ok: true, leads, sources };
+      } catch (error) {
+        sources.push({ name: 'yandex_maps', ok: false, error: error.message });
+        if (provider === 'both') console.error('Yandex scout failed, continuing with Google fallback', error);
+      }
+    }
+
+    if (provider === 'google' || provider === 'both' || (provider === 'yandex' && leads.length === 0)) {
+      if (!config.GOOGLE_MAPS_API_KEY) {
+        sources.push({ name: 'google_places', ok: false, skipped: true, reason: 'GOOGLE_MAPS_API_KEY is not configured' });
+        const ok = sources.some((source) => source.ok);
+        return { ok, skipped: !ok, leads, sources, reason: ok ? undefined : 'No lead source returned data' };
+      }
+      const requested = plannedGoogleSearches();
+      const usage = await this.store.reserveGoogleSearches(config.GOOGLE_DAILY_SEARCH_LIMIT, requested);
+      const google = await scoutGooglePlaces(usage.reserved);
+      sources.push({
+        name: 'google_places',
+        ok: google.ok,
+        skipped: google.skipped,
+        reason: google.reason,
+        searchesReserved: usage.reserved,
+        searchesUsed: google.searchesUsed,
+        searchesRemaining: usage.remaining,
+        limited: google.limited,
+      });
+      if (google.ok) leads.push(...google.leads);
+    }
+
+    const ok = sources.some((source) => source.ok);
+    return { ok, skipped: !ok, leads, sources, reason: ok ? undefined : 'No lead source returned data' };
   }
 
   async tick() {

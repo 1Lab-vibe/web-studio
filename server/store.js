@@ -15,6 +15,8 @@ const initialState = {
     scannedToday: 0,
     sentToday: 0,
     repliesToday: 0,
+    googleSearchesToday: 0,
+    googleSearchDate: '',
     pausedNiches: [],
   },
   locks: {},
@@ -148,6 +150,34 @@ export class Store {
 
   listEvents(leadId) {
     return leadId ? this.state.events.filter((event) => event.leadId === leadId) : this.state.events;
+  }
+
+  todayKey() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  async resetDailyUsageIfNeeded() {
+    this.state.metrics ??= structuredClone(initialState.metrics);
+    const today = this.todayKey();
+    if (this.state.metrics.googleSearchDate !== today) {
+      this.state.metrics.googleSearchDate = today;
+      this.state.metrics.googleSearchesToday = 0;
+      await this.save();
+    }
+  }
+
+  async reserveGoogleSearches(limit, requested) {
+    await this.resetDailyUsageIfNeeded();
+    const used = Number(this.state.metrics.googleSearchesToday ?? 0);
+    const remaining = Math.max(0, Number(limit) - used);
+    const reserved = Math.min(Math.max(0, Number(requested)), remaining);
+    this.state.metrics.googleSearchesToday = used + reserved;
+    await this.save();
+    return {
+      reserved,
+      used: this.state.metrics.googleSearchesToday,
+      remaining: Math.max(0, Number(limit) - this.state.metrics.googleSearchesToday),
+    };
   }
 
   getAuthClient(key) {

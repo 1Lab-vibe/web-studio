@@ -31,6 +31,7 @@ app.get('/api/health', (req, res) => {
     integrations: {
       openai: Boolean(config.OPENAI_API_KEY),
       yandexMaps: Boolean(config.YANDEX_MAPS_API_KEY),
+      googleMaps: Boolean(config.GOOGLE_MAPS_API_KEY),
       a1Api: Boolean(config.A1_API_URL),
       a1Mcp: Boolean(config.A1_MCP_URL),
       lovableMcp: Boolean(config.LOVABLE_MCP_URL),
