@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { config, hasSecret } from './config.js';
+import { calculateFitScore } from './services/scoring.js';
 
 function mcpText(data) {
   return {
@@ -105,7 +106,8 @@ export function registerMcpRoutes(app, store) {
           .listLeads()
           .filter((lead) => !city || lead.city === city)
           .filter((lead) => !niche || lead.niche === niche)
-          .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+          .filter((lead) => ['Диагноз', 'Lovable'].includes(lead.lane))
+          .sort((a, b) => calculateFitScore(b) - calculateFitScore(a))
           .slice(0, limit)
           .map((lead) => ({
             id: lead.id,
@@ -113,6 +115,7 @@ export function registerMcpRoutes(app, store) {
             city: lead.city,
             niche: lead.niche,
             priority: lead.priority,
+            fitScore: lead.fitScore ?? calculateFitScore(lead),
             lane: lead.lane,
             owner: lead.owner,
             rating: lead.rating,

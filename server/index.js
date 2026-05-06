@@ -71,6 +71,10 @@ app.post('/api/orchestrator/advance-lane', async (req, res) => {
 
 app.get('/api/events', (req, res) => res.json({ ok: true, data: store.listEvents(req.query.leadId) }));
 app.get('/api/approvals', (req, res) => res.json({ ok: true, data: store.listApprovals() }));
+app.get('/api/outreach-queue', (req, res) => res.json({ ok: true, data: store.listOutreachQueue() }));
+app.get('/api/orchestrator/top-actions', (req, res) => {
+  res.json({ ok: true, data: orchestrator.topActions(Number(req.query.limit ?? 12)) });
+});
 
 app.post('/api/approvals/:id/:decision', async (req, res) => {
   const approval = await store.resolveApproval(req.params.id, req.params.decision, req.body?.actor ?? 'api');

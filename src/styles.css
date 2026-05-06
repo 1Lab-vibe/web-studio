@@ -442,6 +442,45 @@ button {
   border-radius: 8px;
 }
 
+.top-next {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.action-list {
+  display: grid;
+  gap: 8px;
+}
+
+.action-list button {
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.action-list strong,
+.action-list small {
+  display: block;
+}
+
+.action-list strong {
+  font-size: 12px;
+}
+
+.action-list small {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
 .source-strip p,
 .backend-strip p {
   color: var(--muted);

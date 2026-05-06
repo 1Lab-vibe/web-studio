@@ -29,6 +29,7 @@ const envSchema = z.object({
   MAX_REVIEWS: z.coerce.number().default(50),
   MIN_RATING: z.coerce.number().default(4.4),
   DAILY_MOCKUP_LIMIT: z.coerce.number().default(5),
+  DAILY_SEND_LIMIT: z.coerce.number().default(25),
   DEAL_APPROVAL_RUB: z.coerce.number().default(300000),
   MIN_REPLY_RATE: z.coerce.number().default(12),
   A1_API_URL: z.string().default('http://localhost:4000'),

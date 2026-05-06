@@ -1,15 +1,16 @@
 import { config } from './config.js';
 import { scoutYandexMaps } from './services/yandexMaps.js';
 import { plannedGoogleSearches, scoutGooglePlaces } from './services/googlePlaces.js';
-import { diagnoseLead } from './services/openaiAgent.js';
+import { diagnoseLead, evaluatePitch } from './services/openaiAgent.js';
 import { createA1LeadTask } from './services/a1Client.js';
-import { createLovableMockup } from './services/lovableMcp.js';
+import { prepareLovableMockup } from './services/lovableMcp.js';
 import { approvalKeyboard, sendTelegram } from './services/telegram.js';
+import { enrichLeadScore, topLovableCandidates } from './services/scoring.js';
 
 const nextLane = {
   Разведка: { agent: 'Diagnoser', lane: 'Диагноз' },
   Диагноз: { agent: 'Builder', lane: 'Lovable' },
-  Lovable: { agent: 'Filmer', lane: 'Видео' },
+  Lovable: { agent: 'Builder', lane: 'Lovable' },
   Видео: { agent: 'Checker', lane: 'Проверка' },
   Проверка: { agent: 'Pitcher', lane: 'Отправка' },
   Отправка: { agent: 'Mobile', lane: 'Ответы' },
@@ -53,8 +54,7 @@ export class Orchestrator {
         const ok = sources.some((source) => source.ok);
         return { ok, skipped: !ok, leads, sources, reason: ok ? undefined : 'No lead source returned data' };
       }
-      const requested = plannedGoogleSearches();
-      const usage = await this.store.reserveGoogleSearches(config.GOOGLE_DAILY_SEARCH_LIMIT, requested);
+      const usage = await this.store.reserveGoogleSearches(config.GOOGLE_DAILY_SEARCH_LIMIT, plannedGoogleSearches());
       const google = await scoutGooglePlaces(usage.reserved);
       sources.push({
         name: 'google_places',
@@ -75,37 +75,54 @@ export class Orchestrator {
 
   async tick() {
     const scout = await this.scout();
-    const active = this.store
-      .listLeads()
-      .filter((lead) => !['done', 'paused', 'waiting_approval'].includes(lead.status))
-      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
-      .slice(0, 12);
-
+    const topActions = this.topActions(12);
     const advanced = [];
-    for (const lead of active) {
-      const result = await this.advanceLead(lead.id);
+    for (const action of topActions.filter((item) => item.autoRunnable)) {
+      const result = await this.advanceLead(action.lead.id);
       if (result?.ok) advanced.push(result.lead);
     }
-    return { ok: true, scout, advanced };
+    return { ok: true, scout, advanced, topActions };
+  }
+
+  topActions(limit = 10) {
+    const leads = this.store.listLeads();
+    const topLovableIds = new Set(this.lovableCandidates().map((lead) => lead.id));
+    return leads
+      .map((lead) => {
+        const scored = enrichLeadScore({ ...lead });
+        const action = actionForLead(scored, topLovableIds);
+        return { lead: scored, ...action };
+      })
+      .filter((item) => item.action !== 'none')
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .slice(0, Math.max(1, Math.min(50, Number(limit) || 10)));
+  }
+
+  lovableCandidates() {
+    const remaining = Math.max(0, config.DAILY_MOCKUP_LIMIT - Number(this.store.state.metrics.mockupsToday ?? 0));
+    return topLovableCandidates(this.store.listLeads(), remaining);
   }
 
   async advanceLane(lane, limit = 50) {
-    const active = this.store
+    const candidates = this.store
       .listLeads()
-      .filter((lead) => lead.lane === lane && !['done', 'paused', 'waiting_approval'].includes(lead.status))
-      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+      .filter((lead) => lead.lane === lane && !['done', 'paused', 'waiting_approval', 'needs_review'].includes(lead.status))
+      .map((lead) => enrichLeadScore({ ...lead }))
+      .sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0))
       .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
 
     const advanced = [];
+    const held = [];
     const waitingApproval = [];
     const failed = [];
-    for (const lead of active) {
+    for (const lead of candidates) {
       const result = await this.advanceLead(lead.id);
       if (result?.ok) advanced.push(result.lead);
+      else if (result?.held) held.push({ leadId: lead.id, reason: result.reason });
       else if (result?.waitingApproval) waitingApproval.push(result.approval);
       else failed.push({ leadId: lead.id, error: result?.error || 'unknown error' });
     }
-    return { ok: true, lane, requested: active.length, advanced, waitingApproval, failed };
+    return { ok: true, lane, requested: candidates.length, advanced, held, waitingApproval, failed };
   }
 
   async advanceLead(leadId) {
@@ -121,16 +138,61 @@ export class Orchestrator {
 
     try {
       if (lead.lane === 'Разведка') {
-        const diagnosis = await diagnoseLead(lead);
-        Object.assign(lead, diagnosis);
-        await this.store.addEvent(lead.id, 'diagnosis.created', 'Diagnoser подготовил диагноз и сообщение');
+        Object.assign(lead, await diagnoseLead(lead));
+        enrichLeadScore(lead);
+        await this.store.addEvent(lead.id, 'diagnosis.created', 'Diagnoser подготовил диагноз, сообщение и fitScore');
       }
 
-      if (lead.lane === 'Диагноз' && this.store.state.metrics.mockupsToday < config.DAILY_MOCKUP_LIMIT) {
-        const mockup = await createLovableMockup(lead);
-        lead.mockup = mockup;
-        if (!mockup.skipped) this.store.state.metrics.mockupsToday += 1;
-        await this.store.addEvent(lead.id, 'mockup.requested', 'Builder отправил задачу в Lovable MCP');
+      if (lead.lane === 'Диагноз') {
+        enrichLeadScore(lead);
+        const allowed = new Set(this.lovableCandidates().map((candidate) => candidate.id));
+        if (!allowed.has(lead.id)) {
+          await this.store.save();
+          return { ok: false, held: true, reason: 'Not in daily top Lovable candidates or daily mockup limit reached', lead };
+        }
+      }
+
+      if (lead.lane === 'Lovable') {
+        lead.mockup = await prepareLovableMockup(lead);
+        await this.store.addEvent(lead.id, 'mockup.waiting_lovable', 'Builder ждет проект из Lovable MCP');
+        await this.store.save();
+        return { ok: true, lead };
+      }
+
+      if (lead.lane === 'Видео') {
+        lead.video = {
+          ok: false,
+          skipped: true,
+          reason: 'Video renderer is not configured yet',
+          updatedAt: new Date().toISOString(),
+        };
+        await this.store.addEvent(lead.id, 'video.skipped', 'Видео пока пропущено: renderer не подключен');
+      }
+
+      if (lead.lane === 'Проверка') {
+        lead.checker = await evaluatePitch(lead);
+        if (!lead.checker.passed) {
+          lead.status = 'needs_review';
+          lead.message = lead.checker.revisedMessage || lead.message;
+          await this.store.addEvent(lead.id, 'checker.failed', `Checker остановил сообщение: ${lead.checker.issues.join('; ')}`);
+          await this.store.save();
+          return { ok: false, held: true, reason: 'Checker failed', lead };
+        }
+        lead.message = lead.checker.revisedMessage || lead.message;
+        await this.store.addEvent(lead.id, 'checker.passed', `Checker passed: ${lead.checker.score}`);
+      }
+
+      if (lead.lane === 'Отправка') {
+        const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
+        if (reserved.reserved < 1) return { ok: false, held: true, reason: 'Daily send limit reached', lead };
+        const item = await this.store.addOutreachQueueItem({
+          leadId: lead.id,
+          channel: lead.channel || 'Email',
+          message: lead.message || '',
+          fitScore: lead.fitScore ?? 0,
+        });
+        lead.pitch = { ok: true, queued: true, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString() };
+        await this.store.addEvent(lead.id, 'pitch.queued', `Pitcher поставил сообщение в очередь: ${item.channel}`);
       }
 
       lead.a1Task = await createA1LeadTask(
@@ -141,7 +203,12 @@ export class Orchestrator {
 
       const next = nextLane[lead.lane];
       if (next) {
-        await this.store.updateLead(lead.id, { lane: next.lane, owner: next.agent, status: 'in_progress' });
+        const patch = { lane: next.lane, owner: next.agent, status: 'in_progress' };
+        if (lead.lane === 'Диагноз') {
+          patch.mockup = await prepareLovableMockup(lead);
+          this.store.state.metrics.mockupsToday = Number(this.store.state.metrics.mockupsToday ?? 0) + 1;
+        }
+        await this.store.updateLead(lead.id, patch);
         await this.store.addEvent(lead.id, 'lead.advanced', `Лид передан агенту ${next.agent}`);
       }
       return { ok: true, lead: this.store.getLead(lead.id) };
@@ -183,6 +250,18 @@ export class Orchestrator {
     );
     return { ok: false, waitingApproval: true, approval };
   }
+}
+
+function actionForLead(lead, topLovableIds) {
+  if (lead.status === 'waiting_approval') return { action: 'approve_or_reject', label: 'Ждет approval', score: 100, autoRunnable: false };
+  if (lead.status === 'needs_review') return { action: 'review_message', label: 'Нужна ручная правка сообщения', score: 90, autoRunnable: false };
+  if (lead.lane === 'Диагноз' && topLovableIds.has(lead.id)) return { action: 'build_lovable', label: 'Сделать сайт в Lovable', score: lead.fitScore ?? 0, autoRunnable: true };
+  if (lead.lane === 'Диагноз') return { action: 'hold_lovable', label: 'Ждет quota Lovable', score: lead.fitScore ?? 0, autoRunnable: false };
+  if (lead.lane === 'Lovable') return { action: 'wait_lovable_url', label: 'Ждет URL из Lovable MCP', score: lead.fitScore ?? 0, autoRunnable: false };
+  if (lead.lane === 'Видео') return { action: 'make_video', label: 'Подготовить видео/пропустить', score: lead.fitScore ?? 0, autoRunnable: true };
+  if (lead.lane === 'Проверка') return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
+  if (lead.lane === 'Отправка') return { action: 'queue_pitch', label: 'Поставить в очередь отправки', score: lead.fitScore ?? 0, autoRunnable: true };
+  return { action: 'none', label: 'Нет действия', score: 0, autoRunnable: false };
 }
 
 function formatRub(value) {

@@ -6,6 +6,7 @@ const initialState = {
   leads: [],
   events: [],
   approvals: [],
+  outreachQueue: [],
   authSecurity: {
     clients: {},
     attempts: [],
@@ -18,6 +19,7 @@ const initialState = {
     googleSearchesToday: 0,
     googleSearchDate: '',
     pausedNiches: [],
+    sendDate: '',
   },
   locks: {},
 };
@@ -55,6 +57,7 @@ export class Store {
     this.state.events ??= [];
     this.state.leads ??= [];
     this.state.approvals ??= [];
+    this.state.outreachQueue ??= [];
     this.state.metrics ??= structuredClone(initialState.metrics);
     this.state.locks ??= {};
     this.state.leads = this.state.leads.map((lead) => ({
@@ -155,6 +158,26 @@ export class Store {
     return this.state.approvals;
   }
 
+  listOutreachQueue() {
+    this.state.outreachQueue ??= [];
+    return this.state.outreachQueue;
+  }
+
+  async addOutreachQueueItem(input) {
+    this.state.outreachQueue ??= [];
+    const existing = this.state.outreachQueue.find((item) => item.leadId === input.leadId && item.status === 'queued');
+    if (existing) return existing;
+    const item = {
+      id: randomUUID(),
+      status: 'queued',
+      createdAt: new Date().toISOString(),
+      ...input,
+    };
+    this.state.outreachQueue.push(item);
+    await this.save();
+    return item;
+  }
+
   async addEvent(leadId, type, message, options = {}) {
     this.state.events.unshift({
       id: randomUUID(),
@@ -183,6 +206,11 @@ export class Store {
       this.state.metrics.googleSearchesToday = 0;
       await this.save();
     }
+    if (this.state.metrics.sendDate !== today) {
+      this.state.metrics.sendDate = today;
+      this.state.metrics.sentToday = 0;
+      await this.save();
+    }
   }
 
   async reserveGoogleSearches(limit, requested) {
@@ -196,6 +224,20 @@ export class Store {
       reserved,
       used: this.state.metrics.googleSearchesToday,
       remaining: Math.max(0, Number(limit) - this.state.metrics.googleSearchesToday),
+    };
+  }
+
+  async reserveSends(limit, requested) {
+    await this.resetDailyUsageIfNeeded();
+    const used = Number(this.state.metrics.sentToday ?? 0);
+    const remaining = Math.max(0, Number(limit) - used);
+    const reserved = Math.min(Math.max(0, Number(requested)), remaining);
+    this.state.metrics.sentToday = used + reserved;
+    await this.save();
+    return {
+      reserved,
+      used: this.state.metrics.sentToday,
+      remaining: Math.max(0, Number(limit) - this.state.metrics.sentToday),
     };
   }
 

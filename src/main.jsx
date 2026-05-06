@@ -50,6 +50,8 @@ function App() {
     metrics: {},
     events: [],
     approvals: [],
+    topActions: [],
+    outreachQueue: [],
   });
   const [city, setCity] = useState('Все города');
   const [activeLeadId, setActiveLeadId] = useState(null);
@@ -73,23 +75,27 @@ function App() {
 
   const loadBackend = async () => {
     try {
-      const [healthResponse, stateResponse, leadsResponse, eventsResponse, approvalsResponse] = await Promise.all([
+      const [healthResponse, stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse] = await Promise.all([
         fetch('/api/health', { credentials: 'include' }),
         fetch('/api/state', { credentials: 'include' }),
         fetch('/api/leads', { credentials: 'include' }),
         fetch('/api/events', { credentials: 'include' }),
         fetch('/api/approvals', { credentials: 'include' }),
+        fetch('/api/orchestrator/top-actions?limit=8', { credentials: 'include' }),
+        fetch('/api/outreach-queue', { credentials: 'include' }),
       ]);
-      if ([stateResponse, leadsResponse, eventsResponse, approvalsResponse].some((response) => response.status === 401)) {
+      if ([stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse].some((response) => response.status === 401)) {
         setAuth((current) => ({ ...current, authenticated: false }));
         return;
       }
-      const [health, state, leadData, eventData, approvalData] = await Promise.all([
+      const [health, state, leadData, eventData, approvalData, actionData, queueData] = await Promise.all([
         healthResponse.json(),
         stateResponse.json(),
         leadsResponse.json(),
         eventsResponse.json(),
         approvalsResponse.json(),
+        actionsResponse.json(),
+        queueResponse.json(),
       ]);
       const leads = Array.isArray(leadData.data) ? leadData.data : [];
       setBackend({
@@ -99,6 +105,8 @@ function App() {
         metrics: state.data?.metrics ?? {},
         events: Array.isArray(eventData.data) ? eventData.data : [],
         approvals: Array.isArray(approvalData.data) ? approvalData.data : [],
+        topActions: Array.isArray(actionData.data) ? actionData.data : [],
+        outreachQueue: Array.isArray(queueData.data) ? queueData.data : [],
       });
       setActiveLeadId((current) => current || leads[0]?.id || null);
     } catch {
@@ -218,8 +226,9 @@ function App() {
         <section className="main-column">
           <SourcePanel leads={backend.leads} metrics={backend.metrics} />
           <BackendActions backend={backend} busy={busy} onRun={runBackendAction} onAdvanceLane={advanceCurrentLane} />
+          <TopNextActions actions={backend.topActions} onSelect={setActiveLeadId} />
           <Funnel leads={visibleLeads} activeLeadId={activeLead?.id} onSelect={setActiveLeadId} />
-          <ControlDeck metrics={backend.metrics} approvals={backend.approvals} />
+          <ControlDeck metrics={backend.metrics} approvals={backend.approvals} outreachQueue={backend.outreachQueue} />
         </section>
 
         <aside className="inspector">
@@ -495,10 +504,37 @@ function Funnel({ leads, activeLeadId, onSelect }) {
   );
 }
 
-function ControlDeck({ metrics, approvals }) {
+function TopNextActions({ actions, onSelect }) {
+  return (
+    <section className="top-next">
+      <div className="panel-title inline">
+        <Sparkles size={18} />
+        <span>Top next actions</span>
+      </div>
+      <div className="action-list">
+        {actions?.length ? (
+          actions.map((item) => (
+            <button type="button" key={`${item.lead.id}:${item.action}`} onClick={() => onSelect(item.lead.id)}>
+              <span>
+                <strong>{item.label}</strong>
+                <small>{item.lead.name} · {item.lead.city} · fit {item.lead.fitScore ?? item.score}</small>
+              </span>
+              <ArrowRight size={16} />
+            </button>
+          ))
+        ) : (
+          <div className="empty-lane">Нет рекомендуемых действий</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ControlDeck({ metrics, approvals, outreachQueue = [] }) {
   const mockupsToday = Number(metrics.mockupsToday ?? 0);
   const usedPct = Math.min(100, (mockupsToday / 5) * 100);
   const pending = approvals.filter((approval) => approval.status === 'pending').length;
+  const queued = outreachQueue.filter((item) => item.status === 'queued').length;
   return (
     <section className="control-deck">
       <div className="quota-card">
@@ -517,6 +553,7 @@ function ControlDeck({ metrics, approvals }) {
         <div className="mini-stats">
           <span>{pending} ждут</span>
           <span>{approvals.length} всего</span>
+          <span>{queued} queued</span>
         </div>
       </div>
       <div className="handoff-card">
