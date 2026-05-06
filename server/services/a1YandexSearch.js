@@ -29,13 +29,23 @@ function collectStrings(value, result = []) {
 }
 
 export async function searchContactsViaA1Yandex(lead) {
-  if (!hasSecret(config.A1_YANDEX_SEARCH_TOOL)) {
-    return { ok: false, skipped: true, reason: 'A1_YANDEX_SEARCH_TOOL is not configured', emails: [], urls: [] };
+  if (!hasSecret(config.A1_YANDEX_SEARCH_WORKFLOW_ID) && !hasSecret(config.A1_YANDEX_SEARCH_TOOL)) {
+    return { ok: false, skipped: true, reason: 'A1_YANDEX_SEARCH_WORKFLOW_ID is not configured', emails: [], urls: [] };
   }
 
   const query = `${searchQuery(lead)} email почта контакты`;
-  const result = await callA1McpTool(config.A1_YANDEX_SEARCH_TOOL, {
-    query,
+  const yandexPayload = {
+    action: {
+      params: {
+        payload: {
+          operation: 'web_search',
+          query,
+          fetchPages: true,
+          maxPageFetch: 3,
+          responseFormat: 'FORMAT_HTML',
+        },
+      },
+    },
     lead: {
       name: lead.name,
       city: lead.city,
@@ -45,7 +55,13 @@ export async function searchContactsViaA1Yandex(lead) {
       phone: lead.phone,
     },
     task: 'Find official contact emails for this Russian local business. Prefer official site/contact pages and return source URLs.',
-  });
+  };
+  const result = hasSecret(config.A1_YANDEX_SEARCH_WORKFLOW_ID)
+    ? await callA1McpTool('run_workflow', {
+        workflowId: config.A1_YANDEX_SEARCH_WORKFLOW_ID,
+        inputData: { data: [{ json: yandexPayload }] },
+      })
+    : await callA1McpTool(config.A1_YANDEX_SEARCH_TOOL, yandexPayload);
 
   if (!result.ok) return { ...result, emails: [], urls: [], query };
   return {
