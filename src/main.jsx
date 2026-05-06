@@ -515,7 +515,14 @@ function TopNextActions({ actions, onSelect }) {
       <div className="action-list">
         {actions?.length ? (
           actions.map((item) => (
-            <button type="button" key={`${item.lead.id}:${item.action}`} onClick={() => onSelect(item.lead.id)}>
+            <button
+              type="button"
+              key={`${item.lead.id}:${item.action}`}
+              onClick={() => {
+                if (item.lead.mockup?.buildUrl) window.open(item.lead.mockup.buildUrl, '_blank', 'noopener,noreferrer');
+                onSelect(item.lead.id);
+              }}
+            >
               <span>
                 <strong>{item.label}</strong>
                 <small>{item.lead.name} · {item.lead.city} · fit {item.lead.fitScore ?? item.score}</small>
@@ -588,6 +595,19 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
         <span className="score">{lead.priority ?? 50}</span>
       </div>
 
+      {lead.mockup?.buildUrl && (
+        <a className="lovable-link primary" href={lead.mockup.buildUrl} target="_blank" rel="noreferrer">
+          <Wand2 size={16} />
+          Открыть Lovable Build URL
+        </a>
+      )}
+      {lead.mockup?.url && (
+        <a className="lovable-link primary" href={lead.mockup.url} target="_blank" rel="noreferrer">
+          <Globe2 size={16} />
+          Открыть Lovable preview
+        </a>
+      )}
+
       <div className="fact-grid">
         <Fact label="Рейтинг" value={`${lead.rating || 0}★`} />
         <Fact label="Отзывы" value={lead.reviews ?? 0} />
@@ -617,19 +637,6 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
       <TextBlock title="Диагноз" text={lead.diagnosis || 'Еще не подготовлен. Передай лида дальше, чтобы Diagnoser сформировал диагноз.'} />
       <TextBlock title="Hero angle" text={lead.angle || 'Еще не подготовлен'} />
       <TextBlock title={`Сообщение · ${lead.channel || 'канал не выбран'}`} text={lead.message || 'Еще не подготовлено'} />
-      {lead.mockup?.buildUrl && (
-        <a className="lovable-link" href={lead.mockup.buildUrl} target="_blank" rel="noreferrer">
-          <Wand2 size={16} />
-          Открыть Lovable Build URL
-        </a>
-      )}
-      {lead.mockup?.url && (
-        <a className="lovable-link" href={lead.mockup.url} target="_blank" rel="noreferrer">
-          <Globe2 size={16} />
-          Открыть Lovable preview
-        </a>
-      )}
-
       <div className="action-grid">
         <button type="button" disabled={Boolean(busy)}>
           <MessageSquareText size={16} /> Checker eval

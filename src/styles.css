@@ -498,6 +498,10 @@ button {
   text-decoration: none;
 }
 
+.lovable-link.primary {
+  margin: -4px 0 12px;
+}
+
 .source-strip p,
 .backend-strip p {
   color: var(--muted);

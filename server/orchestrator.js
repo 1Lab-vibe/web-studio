@@ -91,6 +91,7 @@ export class Orchestrator {
       .map((lead) => {
         const scored = enrichLeadScore({ ...lead });
         const action = actionForLead(scored, topLovableIds);
+        if (lead.mockup?.buildUrl) scored.mockup = { ...(scored.mockup ?? {}), buildUrl: lead.mockup.buildUrl };
         return { lead: scored, ...action };
       })
       .filter((item) => item.action !== 'none')
