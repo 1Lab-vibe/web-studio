@@ -174,11 +174,20 @@ export function registerMcpRoutes(app, store) {
       async ({ leadId, url, notes }) => {
         const lead = await store.updateLead(leadId, {
           mockup: { ok: true, mode: 'lovable_mcp_connector', url, notes: notes || '', updatedAt: new Date().toISOString() },
-          lane: 'Видео',
-          owner: 'Filmer',
+          video: {
+            ok: false,
+            skipped: true,
+            reason: 'Video renderer is not configured yet',
+            sourceUrl: url,
+            updatedAt: new Date().toISOString(),
+          },
+          lane: 'Проверка',
+          owner: 'Checker',
         });
         if (!lead) return mcpText({ error: 'Lead not found' });
         await store.addEvent(leadId, 'lovable.url.attached', `Lovable URL attached: ${url}`);
+        await store.addEvent(leadId, 'video.skipped', 'Filmer пропущен: video renderer еще не подключен');
+        await store.addEvent(leadId, 'lead.advanced', 'Лид передан агенту Checker');
         return mcpText({ ok: true, lead });
       },
     );
