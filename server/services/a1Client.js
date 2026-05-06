@@ -65,6 +65,74 @@ export async function callA1McpTool(toolName, payload) {
   return { ok: true, data: await response.json() };
 }
 
+export async function runA1Workflow(workflowId, inputData) {
+  if (!hasSecret(workflowId)) return { ok: false, skipped: true, reason: 'workflow id is not configured' };
+  return callA1McpTool('run_workflow', { workflowId, inputData });
+}
+
+export async function syncA1CrmLead(lead, reason = 'sync') {
+  if (!hasSecret(config.A1_CRM_LEADS_WORKFLOW_ID)) {
+    return { ok: false, skipped: true, reason: 'A1_CRM_LEADS_WORKFLOW_ID is not configured' };
+  }
+  const email = Array.isArray(lead.contacts?.emails) ? lead.contacts.emails.find(Boolean) : '';
+  const dedupeKey = `webstudio:${lead.id}`;
+  const subject = `[Web Studio] ${lead.name} · ${lead.city} · ${lead.lane}`;
+  const text = [
+    `Лид: ${lead.name}`,
+    `Город: ${lead.city || ''}`,
+    `Ниша: ${lead.niche || ''}`,
+    `Этап Web Studio: ${lead.lane || ''}`,
+    `Владелец: ${lead.owner || ''}`,
+    `FitScore: ${lead.fitScore ?? lead.priority ?? 0}`,
+    `Оценка сайта: ${lead.deal ?? 0} RUB`,
+    `Email: ${email || ''}`,
+    `Телефон: ${lead.phone || ''}`,
+    `Сайт/статус: ${lead.site || ''}`,
+    `Адрес: ${lead.address || ''}`,
+    `Диагноз: ${lead.diagnosis || ''}`,
+    `Сообщение: ${lead.message || ''}`,
+  ].join('\n');
+  const payload = {
+    company_id: config.A1_COMPANY_ID || undefined,
+    crm: {
+      lead: {
+        dedupe_key: dedupeKey,
+        external_id: lead.id,
+        name: lead.name,
+        stage: lead.lane,
+        payload: lead,
+      },
+    },
+    routing: {
+      crm_direction: 'inbound',
+    },
+    event: {
+      event_id: `webstudio:${lead.id}:${reason}:${lead.updatedAt || lead.createdAt || Date.now()}`,
+      message_id: `webstudio:${lead.id}:${reason}`,
+      channel: 'webstudio',
+      source: 'webstudio',
+      direction: 'inbound',
+      from_email: email || `lead-${lead.id}@webstudio.local`,
+      subject,
+      text,
+      meta: {
+        source: 'web-studio-orchestrator',
+        webstudio: {
+          lead_id: lead.id,
+          source_key: lead.sourceKey,
+          lane: lead.lane,
+          owner: lead.owner,
+          status: lead.status,
+          fitScore: lead.fitScore,
+          deal: lead.deal,
+        },
+      },
+    },
+  };
+  const result = await runA1Workflow(config.A1_CRM_LEADS_WORKFLOW_ID, { data: [{ json: payload }] });
+  return { ...result, workflowId: config.A1_CRM_LEADS_WORKFLOW_ID, dedupeKey };
+}
+
 function a1McpHeaders() {
   const headers = {
     'x-role': config.A1_MCP_ROLE,

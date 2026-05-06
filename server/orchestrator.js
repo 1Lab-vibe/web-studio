@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { scoutYandexMaps } from './services/yandexMaps.js';
 import { plannedGoogleSearches, scoutGooglePlaces } from './services/googlePlaces.js';
 import { diagnoseLead, evaluatePitch } from './services/openaiAgent.js';
-import { createA1LeadTask } from './services/a1Client.js';
+import { createA1LeadTask, syncA1CrmLead } from './services/a1Client.js';
 import { prepareLovableMockup } from './services/lovableMcp.js';
 import { renderLeadVideo } from './services/filmer.js';
 import { enrichContacts } from './services/contactEnrichment.js';
@@ -31,8 +31,11 @@ export class Orchestrator {
       let savedLead = await this.store.upsertLead(lead);
       const contacts = await enrichContacts(savedLead);
       savedLead = await this.store.updateLead(savedLead.id, enrichLeadScore({ ...savedLead, contacts }));
+      savedLead.a1Crm = await syncA1CrmLead(savedLead, 'scout');
+      await this.store.updateLead(savedLead.id, { a1Crm: savedLead.a1Crm });
       saved.push(savedLead);
       await this.store.addEvent(savedLead.id, 'contacts.enriched', `Contact enrichment finished: ${contacts.emails?.length || 0} email(s)`);
+      await this.store.addEvent(savedLead.id, 'a1.crm.synced', `A1 CRM sync after Scout: ${savedLead.a1Crm?.ok ? 'ok' : savedLead.a1Crm?.reason || savedLead.a1Crm?.error || 'failed'}`);
     }
     this.store.state.metrics.scannedToday += saved.length;
     await this.store.save();
@@ -246,6 +249,10 @@ export class Orchestrator {
         await this.store.updateLead(lead.id, patch);
         await this.store.addEvent(lead.id, 'lead.advanced', `Лид передан агенту ${next.agent}`);
       }
+      const currentLead = this.store.getLead(lead.id);
+      const a1Crm = await syncA1CrmLead(currentLead, `lane:${currentLead?.lane || lead.lane}`);
+      await this.store.updateLead(lead.id, { a1Crm });
+      await this.store.addEvent(lead.id, 'a1.crm.synced', `A1 CRM sync after advance: ${a1Crm?.ok ? 'ok' : a1Crm?.reason || a1Crm?.error || 'failed'}`);
       return { ok: true, lead: this.store.getLead(lead.id) };
     } finally {
       await this.store.unlockLead(lead.id, currentAgent);

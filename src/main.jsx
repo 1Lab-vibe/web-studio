@@ -55,6 +55,14 @@ function primaryEmail(lead) {
   return emails[0] || emailChannel?.value || '';
 }
 
+function emailCandidates(lead) {
+  const emails = Array.isArray(lead?.contacts?.emails) ? lead.contacts.emails.filter(Boolean) : [];
+  const channelEmails = Array.isArray(lead?.contacts?.channels)
+    ? lead.contacts.channels.filter((channel) => channel?.type === 'email' && channel?.value).map((channel) => channel.value)
+    : [];
+  return Array.from(new Set([...emails, ...channelEmails]));
+}
+
 function scoringSummary(lead) {
   const scoring = lead?.scoring || {};
   const parts = [
@@ -223,7 +231,11 @@ function App() {
     () => backend.leads.filter((lead) => city === 'Все города' || lead.city === city),
     [backend.leads, city],
   );
-  const activeLead = backend.leads.find((lead) => lead.id === activeLeadId) || visibleLeads[0] || backend.leads[0] || null;
+  const scoredVisibleLeads = useMemo(
+    () => [...visibleLeads].sort((a, b) => (b.fitScore ?? b.priority ?? 0) - (a.fitScore ?? a.priority ?? 0)),
+    [visibleLeads],
+  );
+  const activeLead = backend.leads.find((lead) => lead.id === activeLeadId) || scoredVisibleLeads[0] || backend.leads[0] || null;
   const activeEvents = activeLead ? backend.events.filter((event) => event.leadId === activeLead.id) : [];
   const activeApproval = activeLead
     ? backend.approvals.find((approval) => approval.leadId === activeLead.id && approval.status === 'pending')
@@ -254,7 +266,7 @@ function App() {
           <SourcePanel leads={backend.leads} metrics={backend.metrics} />
           <BackendActions backend={backend} busy={busy} onRun={runBackendAction} onAdvanceLane={advanceCurrentLane} />
           <TopNextActions actions={backend.topActions} onSelect={setActiveLeadId} />
-          <Funnel leads={visibleLeads} activeLeadId={activeLead?.id} onSelect={setActiveLeadId} />
+          <FunnelBoard leads={scoredVisibleLeads} activeLeadId={activeLead?.id} onSelect={setActiveLeadId} />
           <ControlDeck metrics={backend.metrics} approvals={backend.approvals} outreachQueue={backend.outreachQueue} />
         </section>
 
@@ -489,6 +501,71 @@ function SourcePanel({ leads, metrics }) {
   );
 }
 
+function FunnelBoard({ leads, activeLeadId, onSelect }) {
+  const [limit, setLimit] = useState(10);
+  const sortedLeads = useMemo(
+    () => [...leads].sort((a, b) => (b.fitScore ?? b.priority ?? 0) - (a.fitScore ?? a.priority ?? 0)),
+    [leads],
+  );
+  const visibleLeads = sortedLeads.slice(0, limit);
+  const hiddenCount = Math.max(0, sortedLeads.length - visibleLeads.length);
+  return (
+    <>
+      <section className="funnel" aria-label="Воронка лидов">
+        {lanes.map((lane) => {
+          const laneLeads = visibleLeads.filter((lead) => lead.lane === lane);
+          const laneTotal = sortedLeads.filter((lead) => lead.lane === lane).length;
+          return (
+            <div className="lane" key={lane}>
+              <div className="lane-header">
+                <span>{lane}</span>
+                <small>{laneLeads.length}/{laneTotal}</small>
+              </div>
+              <div className="lead-stack">
+                {laneLeads.length ? (
+                  laneLeads.map((lead) => {
+                    const emails = emailCandidates(lead);
+                    return (
+                      <button className={`lead-card ${activeLeadId === lead.id ? 'selected' : ''}`} key={lead.id} onClick={() => onSelect(lead.id)} type="button">
+                        <span className="lead-head">
+                          <strong>{lead.name}</strong>
+                          <em>{lead.fitScore ?? lead.priority ?? 0}</em>
+                        </span>
+                        <span className="lead-meta">{lead.city} · {lead.niche}</span>
+                        <span className="lead-facts">
+                          <small>{lead.rating || 0}★</small>
+                          <small>{lead.reviews ?? 0} отзывов</small>
+                          <small>{lead.source === 'google_places' ? 'Google' : 'Яндекс'}</small>
+                          <small>fit {lead.fitScore ?? lead.priority ?? 0}</small>
+                          <small>{emails.length ? `${emails.length} email` : 'no email'}</small>
+                        </span>
+                        <span className="lead-foot">
+                          <span>{lead.site || 'сайт не определен'}</span>
+                          <span className={lead.status === 'waiting_approval' ? 'pause' : 'ok'}>{lead.owner}</span>
+                        </span>
+                        {lead.mockup?.buildUrl && <span className="lead-build">Lovable build ready</span>}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="empty-lane">Нет лидов в top {Math.min(limit, sortedLeads.length)}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </section>
+      {hiddenCount > 0 && (
+        <div className="funnel-controls">
+          <span>Скрыто {hiddenCount} из {sortedLeads.length}, сортировка по FitScore</span>
+          <button type="button" onClick={() => setLimit((current) => Math.min(sortedLeads.length, current + 10))}>Показать еще 10</button>
+          <button type="button" onClick={() => setLimit(sortedLeads.length)}>Показать все</button>
+        </div>
+      )}
+    </>
+  );
+}
+
 function Funnel({ leads, activeLeadId, onSelect }) {
   return (
     <section className="funnel" aria-label="Воронка лидов">
@@ -615,6 +692,7 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
     );
   }
   const email = primaryEmail(lead);
+  const emails = emailCandidates(lead);
   return (
     <section className="panel lead-inspector">
       <div className="inspector-head">
@@ -694,6 +772,7 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
       <TextBlock title="Диагноз" text={lead.diagnosis || 'Еще не подготовлен. Передай лида дальше, чтобы Diagnoser сформировал диагноз.'} />
       <TextBlock title="Hero angle" text={lead.angle || 'Еще не подготовлен'} />
       <TextBlock title={`Сообщение · ${lead.channel || 'канал не выбран'}`} text={lead.message || 'Еще не подготовлено'} />
+      <TextBlock title="Email кандидаты" text={emails.length ? emails.join('\n') : 'не найдены'} />
       <TextBlock title="Скоринг" text={scoringSummary(lead)} />
       <div className="action-grid">
         <button type="button" disabled={Boolean(busy)}>

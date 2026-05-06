@@ -577,6 +577,35 @@ button {
   padding-bottom: 4px;
 }
 
+.funnel-controls {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 8px;
+}
+
+.funnel-controls span {
+  margin-right: auto;
+}
+
+.funnel-controls button {
+  background: var(--ink);
+  border: 0;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
 .lane {
   background: #eef1f5;
   border: 1px solid var(--line);
@@ -862,6 +891,7 @@ button {
   font-size: 12px;
   line-height: 1.45;
   margin: 0;
+  white-space: pre-line;
 }
 
 .action-grid {
