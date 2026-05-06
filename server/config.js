@@ -36,6 +36,12 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional().default(''),
   TELEGRAM_CHAT_ID: z.string().optional().default(''),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional().default(''),
+  PUBLIC_BASE_URL: z.string().default('https://webstudio.1true.ru'),
+  WEB_STUDIO_MCP_TOKEN: z.string().optional().default(''),
+  LOVABLE_EMAIL: z.string().optional().default(''),
+  LOVABLE_PASSWORD: z.string().optional().default(''),
+  LOVABLE_STORAGE_STATE: z.string().default('./data/lovable-storage-state.json'),
+  LOVABLE_HEADLESS: boolFromEnv,
 });
 
 export const config = envSchema.parse(process.env);

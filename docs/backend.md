@@ -30,6 +30,8 @@ Copy `.env.example` to `.env` and fill keys locally. `.env` is gitignored.
 - `A1_MCP_URL` and `A1_MCP_API_KEY` for A1 MCP tool calls.
 - `LOVABLE_MCP_URL` and `LOVABLE_MCP_API_KEY` for Lovable MCP.
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` for human approval notifications.
+- `WEB_STUDIO_MCP_TOKEN` for Lovable MCP connector auth.
+- `PUBLIC_BASE_URL=https://webstudio.1true.ru` for deployed MCP metadata.
 
 ## Main Endpoints
 
@@ -42,5 +44,6 @@ Copy `.env.example` to `.env` and fill keys locally. `.env` is gitignored.
 - `GET /api/approvals`
 - `POST /api/approvals/:id/approved`
 - `POST /api/telegram/webhook`
+- `POST /mcp`, `GET /mcp`, `DELETE /mcp` Streamable HTTP MCP endpoint for Lovable.
 
 Yandex Organization Search license terms can restrict storing or modifying returned organization data. Keep production usage aligned with your Yandex license.

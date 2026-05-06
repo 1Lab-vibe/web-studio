@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { Store } from './store.js';
 import { Orchestrator } from './orchestrator.js';
 import { answerCallback } from './services/telegram.js';
+import { registerMcpRoutes } from './mcp.js';
 
 const app = express();
 const store = new Store(config.DATA_DIR);
@@ -15,6 +16,7 @@ const orchestrator = new Orchestrator(store);
 app.use(helmet());
 app.use(cors({ origin: config.WEB_ORIGIN }));
 app.use(express.json({ limit: '2mb' }));
+registerMcpRoutes(app, store);
 
 app.get('/api/health', (req, res) => {
   res.json({

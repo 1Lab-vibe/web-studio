@@ -4,10 +4,13 @@
     "dev": "vite --host 127.0.0.1",
     "dev:api": "node server/index.js",
     "dev:all": "node server/index.js",
+    "lovable:login": "node scripts/lovable-browser.js login",
+    "lovable:create": "node scripts/lovable-browser.js create",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@vitejs/plugin-react": "latest",
     "cors": "latest",
     "dotenv": "latest",
