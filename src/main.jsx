@@ -13,6 +13,7 @@ import {
   Gauge,
   Globe2,
   LockKeyhole,
+  LogOut,
   Mail,
   MapPinned,
   MessageSquareText,
@@ -226,18 +227,38 @@ const lanes = ['Разведка', 'Диагноз', 'Lovable', 'Видео', '�
 const cities = ['Все города', 'Москва', 'Казань', 'Екатеринбург', 'Краснодар'];
 
 function App() {
+  const [auth, setAuth] = useState({ loading: true, authenticated: false, authEnabled: true, user: null });
   const [city, setCity] = useState('Все города');
   const [activeLeadId, setActiveLeadId] = useState(1);
   const [pausedNiches, setPausedNiches] = useState(['стоматология']);
   const [mockupsToday, setMockupsToday] = useState(3);
   const [backend, setBackend] = useState({ status: 'offline', integrations: {}, leads: [] });
 
+  const loadAuth = async () => {
+    try {
+      const response = await fetch('/api/auth/session', { credentials: 'include' });
+      const session = await response.json();
+      setAuth({
+        loading: false,
+        authenticated: Boolean(session.authenticated),
+        authEnabled: Boolean(session.authEnabled),
+        user: session.user,
+      });
+    } catch {
+      setAuth({ loading: false, authenticated: false, authEnabled: true, user: null });
+    }
+  };
+
   const loadBackend = async () => {
     try {
       const [healthResponse, leadsResponse] = await Promise.all([
-        fetch('/api/health'),
-        fetch('/api/leads'),
+        fetch('/api/health', { credentials: 'include' }),
+        fetch('/api/leads', { credentials: 'include' }),
       ]);
+      if (leadsResponse.status === 401) {
+        setAuth((current) => ({ ...current, authenticated: false }));
+        return;
+      }
       const health = await healthResponse.json();
       const leadData = await leadsResponse.json();
       setBackend({
@@ -251,11 +272,45 @@ function App() {
   };
 
   useEffect(() => {
-    loadBackend();
+    loadAuth();
   }, []);
 
+  useEffect(() => {
+    if (!auth.loading && !auth.authEnabled) {
+      setAuth((current) => ({ ...current, authenticated: true }));
+      loadBackend();
+    }
+    if (!auth.loading && auth.authenticated) {
+      loadBackend();
+    }
+  }, [auth.loading, auth.authEnabled, auth.authenticated]);
+
+  const handleLogin = async (login, password) => {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ login, password }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || 'Не получилось войти');
+    }
+    await loadAuth();
+  };
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    setAuth({ loading: false, authenticated: false, authEnabled: true, user: null });
+    setBackend({ status: 'offline', integrations: {}, leads: [] });
+  };
+
   const runBackendAction = async (action) => {
-    await fetch(`/api/orchestrator/${action}`, { method: 'POST' });
+    const response = await fetch(`/api/orchestrator/${action}`, { method: 'POST', credentials: 'include' });
+    if (response.status === 401) {
+      setAuth((current) => ({ ...current, authenticated: false }));
+      return;
+    }
     await loadBackend();
   };
 
@@ -275,9 +330,24 @@ function App() {
     );
   };
 
+  if (auth.loading) {
+    return <main className="auth-screen" />;
+  }
+
+  if (!auth.authenticated) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
   return (
     <main className="app-shell">
-      <TopBar city={city} setCity={setCity} mockupsToday={mockupsToday} backend={backend} />
+      <TopBar
+        city={city}
+        setCity={setCity}
+        mockupsToday={mockupsToday}
+        backend={backend}
+        user={auth.user}
+        onLogout={handleLogout}
+      />
       <div className="workspace">
         <aside className="sidebar">
           <OrchestratorPanel />
@@ -311,7 +381,59 @@ function App() {
   );
 }
 
-function TopBar({ city, setCity, mockupsToday, backend }) {
+function LoginScreen({ onLogin }) {
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError('');
+    try {
+      await onLogin(login, password);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="auth-screen">
+      <form className="auth-card" onSubmit={submit}>
+        <div className="auth-brand">
+          <span className="brand-mark">AO</span>
+          <div>
+            <strong>Agency Orchestrator RU</strong>
+            <span>Вход в рабочую панель</span>
+          </div>
+        </div>
+        <label>
+          <span>Логин</span>
+          <input autoComplete="username" value={login} onChange={(event) => setLogin(event.target.value)} />
+        </label>
+        <label>
+          <span>Пароль</span>
+          <input
+            autoComplete="current-password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+        {error && <p className="auth-error">{error}</p>}
+        <button type="submit" disabled={submitting}>
+          <LockKeyhole size={16} />
+          {submitting ? 'Проверка' : 'Войти'}
+        </button>
+      </form>
+    </main>
+  );
+}
+
+function TopBar({ city, setCity, mockupsToday, backend, user, onLogout }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -342,6 +464,10 @@ function TopBar({ city, setCity, mockupsToday, backend }) {
           <Activity size={16} />
           API {backend.status}
         </div>
+        <button className="logout-button" type="button" onClick={onLogout} title="Выйти">
+          <LogOut size={16} />
+          {user || 'Выйти'}
+        </button>
       </nav>
     </header>
   );

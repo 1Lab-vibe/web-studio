@@ -73,7 +73,8 @@ button {
 .model-chip,
 .metric-chip,
 .searchbox,
-.api-chip {
+.api-chip,
+.logout-button {
   align-items: center;
   display: flex;
 }
@@ -117,13 +118,115 @@ button {
 .searchbox,
 .model-chip,
 .metric-chip,
-.api-chip {
+.api-chip,
+.logout-button {
   border: 1px solid var(--line);
   border-radius: 7px;
   color: var(--muted);
   gap: 8px;
   height: 36px;
   padding: 0 10px;
+}
+
+.logout-button {
+  background: var(--surface);
+  gap: 8px;
+  max-width: 160px;
+}
+
+.logout-button:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.auth-screen {
+  align-items: center;
+  background: var(--bg);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 14px;
+  width: min(100%, 380px);
+  padding: 22px;
+}
+
+.auth-brand {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.auth-brand strong,
+.auth-brand span,
+.auth-card label span {
+  display: block;
+}
+
+.auth-brand strong {
+  font-size: 16px;
+}
+
+.auth-brand span,
+.auth-card label span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.auth-card label {
+  display: grid;
+  gap: 7px;
+}
+
+.auth-card input {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  height: 40px;
+  outline: 0;
+  padding: 0 11px;
+}
+
+.auth-card input:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red-soft);
+}
+
+.auth-card button {
+  align-items: center;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 7px;
+  color: white;
+  display: inline-flex;
+  font-weight: 800;
+  gap: 8px;
+  height: 40px;
+  justify-content: center;
+}
+
+.auth-card button:disabled {
+  opacity: 0.65;
+}
+
+.auth-error {
+  background: var(--red-soft);
+  border: 1px solid #ffc8c5;
+  border-radius: 7px;
+  color: var(--red);
+  font-size: 12px;
+  margin: 0;
+  padding: 9px;
 }
 
 .searchbox select {

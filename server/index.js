@@ -9,6 +9,7 @@ import { Store } from './store.js';
 import { Orchestrator } from './orchestrator.js';
 import { answerCallback } from './services/telegram.js';
 import { registerMcpRoutes } from './mcp.js';
+import { registerAuth } from './auth.js';
 
 const app = express();
 const store = new Store(config.DATA_DIR);
@@ -16,9 +17,10 @@ await store.load();
 const orchestrator = new Orchestrator(store);
 
 app.use(helmet());
-app.use(cors({ origin: config.WEB_ORIGIN }));
+app.use(cors({ origin: config.WEB_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 registerMcpRoutes(app, store);
+registerAuth(app);
 
 app.get('/api/health', (req, res) => {
   res.json({
@@ -32,6 +34,7 @@ app.get('/api/health', (req, res) => {
       a1Mcp: Boolean(config.A1_MCP_URL),
       lovableMcp: Boolean(config.LOVABLE_MCP_URL),
       telegram: Boolean(config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID),
+      webAuth: Boolean(config.WEB_AUTH_LOGIN && config.WEB_AUTH_PASSWORD),
     },
   });
 });
