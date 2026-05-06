@@ -616,6 +616,18 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
       <TextBlock title="Диагноз" text={lead.diagnosis || 'Еще не подготовлен. Передай лида дальше, чтобы Diagnoser сформировал диагноз.'} />
       <TextBlock title="Hero angle" text={lead.angle || 'Еще не подготовлен'} />
       <TextBlock title={`Сообщение · ${lead.channel || 'канал не выбран'}`} text={lead.message || 'Еще не подготовлено'} />
+      {lead.mockup?.buildUrl && (
+        <a className="lovable-link" href={lead.mockup.buildUrl} target="_blank" rel="noreferrer">
+          <Wand2 size={16} />
+          Открыть автогенерацию в Lovable
+        </a>
+      )}
+      {lead.mockup?.url && (
+        <a className="lovable-link" href={lead.mockup.url} target="_blank" rel="noreferrer">
+          <Globe2 size={16} />
+          Открыть Lovable preview
+        </a>
+      )}
 
       <div className="action-grid">
         <button type="button" disabled={Boolean(busy)}>

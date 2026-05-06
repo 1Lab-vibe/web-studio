@@ -481,6 +481,23 @@ button {
   margin-top: 2px;
 }
 
+.lovable-link {
+  align-items: center;
+  background: var(--blue-soft);
+  border: 1px solid #cfe0ff;
+  border-radius: 7px;
+  color: var(--blue);
+  display: flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 12px;
+  min-height: 36px;
+  padding: 9px 10px;
+  text-decoration: none;
+}
+
 .source-strip p,
 .backend-strip p {
   color: var(--muted);
