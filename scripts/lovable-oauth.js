@@ -14,7 +14,7 @@ const redirectPort = Number(process.env.LOVABLE_OAUTH_PORT || 8789);
 const redirectUri = process.env.LOVABLE_OAUTH_REDIRECT_URI || `http://127.0.0.1:${redirectPort}/oauth/callback`;
 const clientMetadataUrl =
   process.env.LOVABLE_OAUTH_CLIENT_ID ||
-  `https://webstudio.1true.ru/oauth/lovable-client-metadata.json?redirect_uri=${encodeURIComponent(redirectUri)}`;
+  'https://webstudio.1true.ru/oauth/lovable-client-metadata.json';
 const scopes = [
   'offline',
   'projects:create',
