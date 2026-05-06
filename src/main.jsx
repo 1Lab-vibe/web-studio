@@ -629,10 +629,7 @@ function TopNextActions({ actions, onSelect }) {
             <button
               type="button"
               key={`${item.lead.id}:${item.action}`}
-              onClick={() => {
-                if (item.lead.mockup?.buildUrl) window.open(item.lead.mockup.buildUrl, '_blank', 'noopener,noreferrer');
-                onSelect(item.lead.id);
-              }}
+              onClick={() => onSelect(item.lead.id)}
             >
               <span>
                 <strong>{item.label}</strong>
@@ -709,7 +706,7 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
       </div>
 
       {lead.mockup?.buildUrl && (
-        <a className="lovable-link primary" href={lead.mockup.buildUrl} target="_blank" rel="noreferrer">
+        <a className="lovable-link primary" href={`/api/leads/${lead.id}/lovable/open`} target="_blank" rel="noreferrer">
           <Wand2 size={16} />
           Открыть Lovable Build URL
         </a>
@@ -778,6 +775,8 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
       <TextBlock title="Hero angle" text={lead.angle || 'Еще не подготовлен'} />
       <TextBlock title={`Сообщение · ${lead.channel || 'канал не выбран'}`} text={lead.message || 'Еще не подготовлено'} />
       <TextBlock title="Email кандидаты" text={emails.length ? emails.join('\n') : 'не найдены'} />
+      {lead.mockup?.handoffPrompt && <TextBlock title="Lovable handoff prompt" text={lead.mockup.handoffPrompt} />}
+      {lead.mockup?.buildOpenedAt && <TextBlock title="Lovable open log" text={`Last opened: ${lead.mockup.buildOpenedAt}`} />}
       <TextBlock title="Скоринг" text={scoringSummary(lead)} />
       <div className="action-grid">
         <button type="button" disabled={Boolean(busy)}>
