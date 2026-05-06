@@ -715,6 +715,19 @@ button {
   font-weight: 700;
 }
 
+.lead-build {
+  align-items: center;
+  background: var(--blue-soft);
+  border: 1px solid #cfe0ff;
+  border-radius: 6px;
+  color: var(--blue);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 800;
+  justify-content: center;
+  padding: 5px 6px;
+}
+
 .control-deck {
   display: grid;
   gap: 10px;

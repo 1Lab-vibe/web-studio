@@ -491,6 +491,7 @@ function Funnel({ leads, activeLeadId, onSelect }) {
                       <span>{lead.site || 'сайт не определен'}</span>
                       <span className={lead.status === 'waiting_approval' ? 'pause' : 'ok'}>{lead.owner}</span>
                     </span>
+                    {lead.mockup?.buildUrl && <span className="lead-build">Lovable build ready</span>}
                   </button>
                 ))
               ) : (
@@ -619,7 +620,7 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
       {lead.mockup?.buildUrl && (
         <a className="lovable-link" href={lead.mockup.buildUrl} target="_blank" rel="noreferrer">
           <Wand2 size={16} />
-          Открыть автогенерацию в Lovable
+          Открыть Lovable Build URL
         </a>
       )}
       {lead.mockup?.url && (
