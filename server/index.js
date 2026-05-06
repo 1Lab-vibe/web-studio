@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { Store } from './store.js';
 import { Orchestrator } from './orchestrator.js';
-import { answerCallback, isAdminTelegramUser, setTelegramCommands } from './services/telegram.js';
+import { answerCallback, getTelegramUpdates, getTelegramWebhookInfo, isAdminTelegramUser, setTelegramCommands } from './services/telegram.js';
 import { registerMcpRoutes } from './mcp.js';
 import { registerAuth } from './auth.js';
 import { handleA1Webhook } from './services/a1Webhook.js';
@@ -115,21 +115,16 @@ app.post('/api/approvals/:id/:decision', async (req, res) => {
   res.json({ ok: true, data: { approval, lead } });
 });
 
-app.post('/api/telegram/webhook', async (req, res) => {
-  if (config.TELEGRAM_WEBHOOK_SECRET) {
-    const got = req.header('x-telegram-bot-api-secret-token');
-    if (got !== config.TELEGRAM_WEBHOOK_SECRET) return res.status(401).json({ ok: false });
-  }
-
-  const callback = req.body?.callback_query;
-  if (callback || req.body?.message) {
-    const source = callback ? callback.from : req.body.message.from;
-    const chat = callback?.message?.chat || req.body.message.chat;
-    console.log('Telegram webhook received', {
-      updateId: req.body?.update_id,
+async function processTelegramUpdate(update) {
+  const callback = update?.callback_query;
+  if (callback || update?.message) {
+    const source = callback ? callback.from : update.message.from;
+    const chat = callback?.message?.chat || update.message.chat;
+    console.log('Telegram update received', {
+      updateId: update?.update_id,
       userId: source?.id,
       chatId: chat?.id,
-      text: req.body?.message?.text || callback?.data || '',
+      text: update?.message?.text || callback?.data || '',
       isAdmin: isAdminTelegramUser(source?.id, chat?.id),
     });
   }
@@ -138,7 +133,7 @@ app.post('/api/telegram/webhook', async (req, res) => {
   if (match) {
     if (!isAdminTelegramUser(callback.from?.id, callback.message?.chat?.id)) {
       await answerCallback(callback.id, 'Недостаточно прав');
-      return res.json({ ok: true });
+      return { ok: true };
     }
     const [, approvalId, decision] = match;
     const approval = await store.resolveApproval(approvalId, decision, `telegram:${callback.from?.id ?? 'unknown'}`);
@@ -147,14 +142,24 @@ app.post('/api/telegram/webhook', async (req, res) => {
     }
     await answerCallback(callback.id, decision === 'approved' ? 'Одобрено' : 'Поставлено на паузу');
   }
-  if (req.body?.message) {
-    const message = req.body.message;
+  if (update?.message) {
+    const message = update.message;
     if (isAdminTelegramUser(message.from?.id, message.chat?.id)) {
       const handled = await handleAdminTelegramMessage(store, orchestrator, message);
-      if (!handled.skipped) return res.json({ ok: true });
+      if (!handled.skipped) return { ok: true };
     }
     await handleCustomerTelegramMessage(store, message);
   }
+  return { ok: true };
+}
+
+app.post('/api/telegram/webhook', async (req, res) => {
+  if (config.TELEGRAM_WEBHOOK_SECRET) {
+    const got = req.header('x-telegram-bot-api-secret-token');
+    if (got !== config.TELEGRAM_WEBHOOK_SECRET) return res.status(401).json({ ok: false });
+  }
+
+  await processTelegramUpdate(req.body);
   res.json({ ok: true });
 });
 
@@ -186,3 +191,30 @@ setTelegramCommands()
     if (!result.skipped) console.log('Telegram bot commands configured', { ok: result.ok });
   })
   .catch((error) => console.error('Telegram command setup failed', error));
+
+let telegramPollingOffset = 0;
+async function pollTelegramUpdates() {
+  const result = await getTelegramUpdates(telegramPollingOffset);
+  if (!result.ok) {
+    console.error('Telegram polling failed', result.error || result.status);
+    return;
+  }
+  const updates = Array.isArray(result.data?.result) ? result.data.result : [];
+  for (const update of updates) {
+    telegramPollingOffset = Math.max(telegramPollingOffset, Number(update.update_id || 0) + 1);
+    await processTelegramUpdate(update).catch((error) => console.error('Telegram update handling failed', error));
+  }
+}
+
+getTelegramWebhookInfo()
+  .then(async (result) => {
+    const hasWebhook = Boolean(result.data?.result?.url);
+    if (result.ok && !hasWebhook) {
+      console.log('Telegram webhook is not configured; starting getUpdates polling fallback');
+      await pollTelegramUpdates();
+      setInterval(() => {
+        pollTelegramUpdates().catch((error) => console.error('Telegram polling loop failed', error));
+      }, 5000);
+    }
+  })
+  .catch((error) => console.error('Telegram webhook info check failed', error));

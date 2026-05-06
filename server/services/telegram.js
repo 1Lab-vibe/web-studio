@@ -73,3 +73,21 @@ export async function setTelegramCommands() {
   if (!response.ok) return { ok: false, status: response.status, error: await response.text() };
   return { ok: true, data: await response.json() };
 }
+
+export async function getTelegramWebhookInfo() {
+  if (!hasSecret(config.TELEGRAM_BOT_TOKEN)) return { ok: false, skipped: true };
+  const response = await fetch(telegramUrl('getWebhookInfo'));
+  if (!response.ok) return { ok: false, status: response.status, error: await response.text() };
+  return { ok: true, data: await response.json() };
+}
+
+export async function getTelegramUpdates(offset = 0) {
+  if (!hasSecret(config.TELEGRAM_BOT_TOKEN)) return { ok: false, skipped: true, data: { result: [] } };
+  const url = new URL(telegramUrl('getUpdates'));
+  if (offset) url.searchParams.set('offset', String(offset));
+  url.searchParams.set('timeout', '0');
+  url.searchParams.set('allowed_updates', JSON.stringify(['message', 'callback_query']));
+  const response = await fetch(url);
+  if (!response.ok) return { ok: false, status: response.status, error: await response.text(), data: { result: [] } };
+  return { ok: true, data: await response.json() };
+}
