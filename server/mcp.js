@@ -9,6 +9,7 @@ import { config, hasSecret } from './config.js';
 import { calculateFitScore } from './services/scoring.js';
 import { renderLeadVideo } from './services/filmer.js';
 import { sendTelegram } from './services/telegram.js';
+import { crmAddEvent, syncA1CrmLead } from './services/a1Client.js';
 
 function mcpText(data) {
   return {
@@ -230,6 +231,14 @@ export function registerMcpRoutes(app, store) {
           status: 'in_progress',
         });
         await store.addEvent(leadId, 'project.deployed', `Static project deployed: ${publicUrl}`);
+        await crmAddEvent({
+          entityType: lead.a1DealId ? 'deal' : 'lead',
+          entityId: lead.a1DealId || lead.a1LeadId || lead.id,
+          eventType: 'project.deployed',
+          text: `Static project deployed: ${publicUrl}`,
+          payload: { webstudioLeadId: lead.id, publicUrl, slug, files: written },
+          idempotencyKey: `webstudio:${lead.id}:project.deployed:${slug}`,
+        });
         const video = await renderLeadVideo(lead);
         if (!video.ok) {
           lead = await store.updateLead(leadId, { video, status: 'needs_review' });
@@ -239,6 +248,7 @@ export function registerMcpRoutes(app, store) {
         lead = await store.updateLead(leadId, { video, lane: 'РџСЂРѕРІРµСЂРєР°', owner: 'Checker', status: 'in_progress' });
         await store.addEvent(leadId, 'video.created', `Filmer rendered deployed project: ${video.videoUrl}`);
         await store.addEvent(leadId, 'lead.advanced', 'Lead moved to Checker after static project deploy');
+        await syncA1CrmLead(lead, 'project_deployed');
         return mcpText({ ok: true, publicUrl, slug, files: written, lead });
       },
     );
@@ -276,6 +286,14 @@ export function registerMcpRoutes(app, store) {
         });
         if (!lead) return mcpText({ error: 'Lead not found' });
         await store.addEvent(leadId, 'lovable.url.attached', `Lovable URL attached: ${publishedUrl || url}`);
+        await crmAddEvent({
+          entityType: lead.a1DealId ? 'deal' : 'lead',
+          entityId: lead.a1DealId || lead.a1LeadId || lead.id,
+          eventType: 'lovable.url.attached',
+          text: `Lovable URL attached: ${publishedUrl || url}`,
+          payload: { webstudioLeadId: lead.id, url, publishedUrl, githubUrl, sourceUrl, projectName },
+          idempotencyKey: `webstudio:${lead.id}:lovable.url.attached:${publishedUrl || url}`,
+        });
         const video = await renderLeadVideo(lead);
         if (!video.ok) {
           lead = await store.updateLead(leadId, { video, status: 'needs_review' });
@@ -294,6 +312,7 @@ export function registerMcpRoutes(app, store) {
         lead = await store.updateLead(leadId, { video, lane: 'Проверка', owner: 'Checker', status: 'in_progress' });
         await store.addEvent(leadId, 'video.created', `Filmer собрал видео: ${video.videoUrl}`);
         await store.addEvent(leadId, 'lead.advanced', 'Лид передан агенту Checker');
+        await syncA1CrmLead(lead, 'lovable_url_attached');
         return mcpText({ ok: true, lead });
       },
     );

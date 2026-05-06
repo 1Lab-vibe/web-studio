@@ -9,14 +9,31 @@ export async function sendTelegram(text, replyMarkup) {
     return { ok: false, skipped: true, reason: 'TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured' };
   }
 
+  return sendTelegramTo(config.TELEGRAM_CHAT_ID, text, replyMarkup);
+}
+
+export async function sendTelegramTo(chatId, text, replyMarkup) {
+  if (!hasSecret(config.TELEGRAM_BOT_TOKEN) || !chatId) {
+    return { ok: false, skipped: true, reason: 'TELEGRAM_BOT_TOKEN or chatId is not configured' };
+  }
+
   const response = await fetch(telegramUrl('sendMessage'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: config.TELEGRAM_CHAT_ID, text, parse_mode: 'HTML', reply_markup: replyMarkup }),
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup: replyMarkup }),
   });
 
   if (!response.ok) return { ok: false, status: response.status, error: await response.text() };
   return { ok: true, data: await response.json() };
+}
+
+export function isAdminTelegramUser(userId, chatId = '') {
+  const configuredAdmins = String(config.TELEGRAM_ADMIN_USER_IDS || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (configuredAdmins.length) return configuredAdmins.includes(String(userId));
+  return Boolean(config.TELEGRAM_CHAT_ID && String(chatId || userId) === String(config.TELEGRAM_CHAT_ID));
 }
 
 export function approvalKeyboard(approvalId) {

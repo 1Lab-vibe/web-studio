@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { scoutYandexMaps } from './services/yandexMaps.js';
 import { plannedGoogleSearches, scoutGooglePlaces } from './services/googlePlaces.js';
 import { diagnoseLead, evaluatePitch } from './services/openaiAgent.js';
-import { createA1LeadTask, syncA1CrmLead } from './services/a1Client.js';
+import { createA1LeadTask, crmAddEvent, customerBotLink, outboundQueueMessage, parsedToolData, syncA1CrmLead } from './services/a1Client.js';
 import { prepareLovableMockup } from './services/lovableMcp.js';
 import { renderLeadVideo } from './services/filmer.js';
 import { enrichContacts } from './services/contactEnrichment.js';
@@ -31,10 +31,10 @@ export class Orchestrator {
       let savedLead = await this.store.upsertLead(lead);
       const contacts = await enrichContacts(savedLead);
       savedLead = await this.store.updateLead(savedLead.id, enrichLeadScore({ ...savedLead, contacts }));
-      savedLead.a1Crm = await syncA1CrmLead(savedLead, 'scout');
-      await this.store.updateLead(savedLead.id, { a1Crm: savedLead.a1Crm });
+      savedLead = await this.syncLeadWithA1(savedLead, 'scout');
       saved.push(savedLead);
       await this.store.addEvent(savedLead.id, 'contacts.enriched', `Contact enrichment finished: ${contacts.emails?.length || 0} email(s)`);
+      await this.addA1Event(savedLead, 'contacts.enriched', `Contact enrichment finished: ${contacts.emails?.length || 0} email(s)`, { contacts });
       await this.store.addEvent(savedLead.id, 'a1.crm.synced', `A1 CRM sync after Scout: ${savedLead.a1Crm?.ok ? 'ok' : savedLead.a1Crm?.reason || savedLead.a1Crm?.error || 'failed'}`);
     }
     this.store.state.metrics.scannedToday += saved.length;
@@ -153,6 +153,12 @@ export class Orchestrator {
         Object.assign(lead, await diagnoseLead(lead));
         enrichLeadScore(lead);
         await this.store.addEvent(lead.id, 'diagnosis.created', 'Diagnoser подготовил диагноз, сообщение и fitScore');
+        await this.addA1Event(lead, 'diagnosis.created', 'Diagnoser created diagnosis, cold message and fitScore', {
+          diagnosis: lead.diagnosis,
+          angle: lead.angle,
+          message: lead.message,
+          fitScore: lead.fitScore,
+        });
       }
 
       if (lead.lane === 'Диагноз') {
@@ -189,6 +195,7 @@ export class Orchestrator {
           return { ok: false, held: true, reason: 'Video render failed', lead };
         }
         await this.store.addEvent(lead.id, 'video.created', `Filmer собрал видео: ${lead.video.videoUrl}`);
+        await this.addA1Event(lead, 'video.created', `Filmer rendered video: ${lead.video.videoUrl}`, { video: lead.video });
       }
 
       if (lead.lane === 'Проверка') {
@@ -202,6 +209,7 @@ export class Orchestrator {
         }
         lead.message = lead.checker.revisedMessage || lead.message;
         await this.store.addEvent(lead.id, 'checker.passed', `Checker passed: ${lead.checker.score}`);
+        await this.addA1Event(lead, 'checker.passed', `Checker passed: ${lead.checker.score}`, { checker: lead.checker, message: lead.message });
       }
 
       if (lead.lane === 'Отправка') {
@@ -223,14 +231,32 @@ export class Orchestrator {
         }
         const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
         if (reserved.reserved < 1) return { ok: false, held: true, reason: 'Daily send limit reached', lead };
+        const emailChannel = lead.contacts.channels.find((channel) => channel.type === 'email');
+        const botLink = customerBotLink(lead);
+        const message = [lead.message || '', botLink ? `\nСсылка для обсуждения сайта: ${botLink}` : ''].join('').trim();
+        const outbound = await outboundQueueMessage({
+          a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
+          externalId: lead.id,
+          dedupeKey: `webstudio:${lead.id}`,
+          to: emailChannel?.value || lead.contacts.emails?.[0] || '',
+          subject: `Сайт для ${lead.name}`,
+          body: message,
+          attachments: [
+            lead.mockup?.publishedUrl ? { type: 'link', url: lead.mockup.publishedUrl, title: 'Превью сайта' } : null,
+            lead.video?.videoUrl ? { type: 'link', url: lead.video.videoUrl, title: 'Видео-превью' } : null,
+          ].filter(Boolean),
+          idempotencyKey: `webstudio:${lead.id}:outbound:${lead.updatedAt || Date.now()}`,
+        });
         const item = await this.store.addOutreachQueueItem({
           leadId: lead.id,
-          channel: lead.channel || 'Email',
-          message: lead.message || '',
+          channel: 'Email',
+          message,
           fitScore: lead.fitScore ?? 0,
+          a1Outbound: outbound,
         });
-        lead.pitch = { ok: true, queued: true, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString() };
+        lead.pitch = { ok: outbound.ok, queued: true, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound };
         await this.store.addEvent(lead.id, 'pitch.queued', `Pitcher поставил сообщение в очередь: ${item.channel}`);
+        await this.addA1Event(lead, 'outbound.queued', 'Pitcher queued outbound email in A1', { queueItem: item, outbound });
       }
 
       lead.a1Task = await createA1LeadTask(
@@ -248,15 +274,50 @@ export class Orchestrator {
         }
         await this.store.updateLead(lead.id, patch);
         await this.store.addEvent(lead.id, 'lead.advanced', `Лид передан агенту ${next.agent}`);
+        await this.addA1Event(this.store.getLead(lead.id), 'lead.advanced', `Lead advanced to ${next.agent}`, { next });
       }
       const currentLead = this.store.getLead(lead.id);
-      const a1Crm = await syncA1CrmLead(currentLead, `lane:${currentLead?.lane || lead.lane}`);
-      await this.store.updateLead(lead.id, { a1Crm });
+      const syncedLead = await this.syncLeadWithA1(currentLead, `lane:${currentLead?.lane || lead.lane}`);
+      const a1Crm = syncedLead.a1Crm;
       await this.store.addEvent(lead.id, 'a1.crm.synced', `A1 CRM sync after advance: ${a1Crm?.ok ? 'ok' : a1Crm?.reason || a1Crm?.error || 'failed'}`);
       return { ok: true, lead: this.store.getLead(lead.id) };
     } finally {
       await this.store.unlockLead(lead.id, currentAgent);
     }
+  }
+
+  async syncLeadWithA1(lead, reason) {
+    if (!lead) return lead;
+    const a1Crm = await syncA1CrmLead(lead, reason);
+    const data = parsedToolData(a1Crm.upsert) || parsedToolData(a1Crm) || {};
+    const patch = {
+      a1Crm,
+      a1LeadId: a1Crm.a1LeadId || data.a1LeadId || data.leadId || data.id || lead.a1LeadId || '',
+      a1: {
+        ...(lead.a1 ?? {}),
+        leadId: a1Crm.a1LeadId || data.a1LeadId || data.leadId || data.id || lead.a1?.leadId || '',
+        dedupeKey: a1Crm.dedupeKey || lead.a1?.dedupeKey || `webstudio:${lead.id}`,
+        lastSyncAt: new Date().toISOString(),
+      },
+    };
+    return this.store.updateLead(lead.id, patch);
+  }
+
+  async addA1Event(lead, eventType, text, payload = {}) {
+    if (!lead) return { ok: false, skipped: true };
+    return crmAddEvent({
+      entityType: lead.a1DealId ? 'deal' : 'lead',
+      entityId: lead.a1DealId || lead.a1LeadId || lead.id,
+      eventType,
+      text,
+      payload: {
+        webstudioLeadId: lead.id,
+        a1LeadId: lead.a1LeadId,
+        a1DealId: lead.a1DealId,
+        ...payload,
+      },
+      idempotencyKey: `webstudio:${lead.id}:${eventType}:${lead.updatedAt || Date.now()}`,
+    });
   }
 
   async checkGates(lead) {

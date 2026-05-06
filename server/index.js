@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { Store } from './store.js';
 import { Orchestrator } from './orchestrator.js';
-import { answerCallback } from './services/telegram.js';
+import { answerCallback, isAdminTelegramUser } from './services/telegram.js';
 import { registerMcpRoutes } from './mcp.js';
 import { registerAuth } from './auth.js';
+import { handleA1Webhook } from './services/a1Webhook.js';
+import { handleCustomerTelegramMessage } from './services/customerTelegram.js';
 
 const app = express();
 const store = new Store(config.DATA_DIR);
@@ -78,6 +80,15 @@ app.get('/api/orchestrator/top-actions', (req, res) => {
   res.json({ ok: true, data: orchestrator.topActions(Number(req.query.limit ?? 12)) });
 });
 
+app.post('/api/a1/webhook', async (req, res) => {
+  if (config.A1_WEBHOOK_SECRET) {
+    const got = req.header('x-a1-webhook-secret');
+    if (got !== config.A1_WEBHOOK_SECRET) return res.status(401).json({ ok: false, error: 'Unauthorized A1 webhook' });
+  }
+  const result = await handleA1Webhook(store, req.body ?? {}, req.header('x-idempotency-key') || '');
+  res.status(result.status || 200).json(result);
+});
+
 app.post('/api/approvals/:id/:decision', async (req, res) => {
   const approval = await store.resolveApproval(req.params.id, req.params.decision, req.body?.actor ?? 'api');
   if (!approval) return res.status(404).json({ ok: false, error: 'Approval not found' });
@@ -97,6 +108,10 @@ app.post('/api/telegram/webhook', async (req, res) => {
   const data = callback?.data || '';
   const match = data.match(/^approval:([^:]+):(approved|rejected|pause_niche)$/);
   if (match) {
+    if (!isAdminTelegramUser(callback.from?.id, callback.message?.chat?.id)) {
+      await answerCallback(callback.id, 'Недостаточно прав');
+      return res.json({ ok: true });
+    }
     const [, approvalId, decision] = match;
     const approval = await store.resolveApproval(approvalId, decision, `telegram:${callback.from?.id ?? 'unknown'}`);
     if (approval) {
@@ -104,6 +119,7 @@ app.post('/api/telegram/webhook', async (req, res) => {
     }
     await answerCallback(callback.id, decision === 'approved' ? 'Одобрено' : 'Поставлено на паузу');
   }
+  if (req.body?.message) await handleCustomerTelegramMessage(store, req.body.message);
   res.json({ ok: true });
 });
 

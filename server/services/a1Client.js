@@ -75,168 +75,161 @@ export async function runA1Workflow(workflowId, inputData) {
   return callA1McpTool('run_workflow', { workflowId, inputData });
 }
 
-export async function runA1PostgresSafeQuery(sql) {
-  return callA1McpTool('postgres_safe_query', { sql });
-}
-
-export async function queryA1Postgres(sql) {
-  return callA1McpTool('postgres_query', { sql });
-}
-
 export async function syncA1CrmLead(lead, reason = 'sync') {
-  if (!hasSecret(config.A1_CRM_LEADS_WORKFLOW_ID)) {
-    return { ok: false, skipped: true, reason: 'A1_CRM_LEADS_WORKFLOW_ID is not configured' };
-  }
-  const email = Array.isArray(lead.contacts?.emails) ? lead.contacts.emails.find(Boolean) : '';
   const dedupeKey = `webstudio:${lead.id}`;
-  const subject = `[Web Studio] ${lead.name} · ${lead.city} · ${lead.lane}`;
-  const text = [
-    `Лид: ${lead.name}`,
-    `Город: ${lead.city || ''}`,
-    `Ниша: ${lead.niche || ''}`,
-    `Этап Web Studio: ${lead.lane || ''}`,
-    `Владелец: ${lead.owner || ''}`,
-    `FitScore: ${lead.fitScore ?? lead.priority ?? 0}`,
-    `Оценка сайта: ${lead.deal ?? 0} RUB`,
-    `Email: ${email || ''}`,
-    `Телефон: ${lead.phone || ''}`,
-    `Сайт/статус: ${lead.site || ''}`,
-    `Адрес: ${lead.address || ''}`,
-    `Диагноз: ${lead.diagnosis || ''}`,
-    `Сообщение: ${lead.message || ''}`,
-  ].join('\n');
-  const payload = {
-    company_id: config.A1_COMPANY_ID || undefined,
-    crm: {
-      lead: {
-        dedupe_key: dedupeKey,
-        external_id: lead.id,
-        name: lead.name,
-        stage: lead.lane,
-        payload: lead,
-      },
-    },
-    routing: {
-      crm_direction: 'inbound',
-    },
-    event: {
-      event_id: `webstudio:${lead.id}:${reason}:${lead.updatedAt || lead.createdAt || Date.now()}`,
-      message_id: `webstudio:${lead.id}:${reason}`,
-      channel: 'webstudio',
-      source: 'webstudio',
-      direction: 'inbound',
-      from_email: email || `lead-${lead.id}@webstudio.local`,
-      subject,
-      text,
-      meta: {
-        source: 'web-studio-orchestrator',
-        webstudio: {
-          lead_id: lead.id,
-          source_key: lead.sourceKey,
-          lane: lead.lane,
-          owner: lead.owner,
-          status: lead.status,
-          fitScore: lead.fitScore,
-          deal: lead.deal,
-        },
-      },
-    },
-  };
-  const workflowResult = await runA1Workflow(config.A1_CRM_LEADS_WORKFLOW_ID, { data: [{ json: payload }] });
-  if (workflowResult.ok) {
-    const verified = await verifyA1CrmLead(dedupeKey);
-    if (verified.ok) return { ...workflowResult, workflowId: config.A1_CRM_LEADS_WORKFLOW_ID, dedupeKey, verified: true, a1Lead: verified.lead };
-  }
+  const upsert = await crmUpsertLead(lead, reason);
+  const upsertData = parsedToolData(upsert);
+  const a1LeadId = upsertData?.a1LeadId || upsertData?.leadId || upsertData?.id || lead.a1LeadId || lead.a1?.leadId || '';
 
-  const directResult = await upsertA1CrmLeadDirect(lead, dedupeKey, payload.event.event_id);
-  return {
-    ok: directResult.ok,
-    workflowId: config.A1_CRM_LEADS_WORKFLOW_ID,
+  if (!upsert.ok) return { ...upsert, method: 'crm_upsert_lead', dedupeKey };
+
+  const stage = a1StageForLead(lead);
+  const move = await crmMoveLeadStage({
+    a1LeadId,
+    externalId: lead.id,
     dedupeKey,
-    method: directResult.ok ? 'postgres_safe_query' : 'failed',
-    workflowError: workflowResult.ok ? undefined : workflowResult.error,
-    data: directResult.data,
-    error: directResult.error,
-    a1Lead: directResult.lead,
+    stage,
+    reason,
+    actor: 'web-studio-orchestrator',
+    idempotencyKey: `webstudio:${lead.id}:stage:${stage}:${lead.updatedAt || reason}`,
+  });
+
+  return {
+    ok: upsert.ok && (move.ok || move.skipped),
+    method: 'typed_mcp_tools',
+    dedupeKey,
+    a1LeadId,
+    stage,
+    upsert,
+    move,
   };
 }
 
-async function verifyA1CrmLead(dedupeKey) {
-  const sql = `
-SELECT id, dedupe_key, stage, status, company_name, contact_email, updated_at
-FROM a1_leads
-WHERE dedupe_key = ${qText(dedupeKey)}
-LIMIT 1`.trim();
-  const result = await queryA1Postgres(sql);
-  const rows = parseMcpRows(result);
-  return rows[0] ? { ok: true, lead: rows[0] } : { ok: false };
-}
-
-async function upsertA1CrmLeadDirect(lead, dedupeKey, eventId) {
-  const stage = a1StageForLane(lead.lane);
+export async function crmUpsertLead(lead, reason = 'sync') {
   const email = Array.isArray(lead.contacts?.emails) ? lead.contacts.emails.find(Boolean) : '';
-  const tags = ['webstudio', lead.city, lead.niche, lead.source].filter(Boolean);
-  const data = {
-    source: 'web-studio-orchestrator',
-    webstudioLeadId: lead.id,
-    lane: lead.lane,
-    owner: lead.owner,
-    sourceKey: lead.sourceKey,
-    fitScore: lead.fitScore ?? lead.priority ?? 0,
-    dealRub: lead.deal ?? 0,
-    contacts: lead.contacts ?? {},
-    lead,
-  };
-  const sql = `
-INSERT INTO a1_leads (
-  company_id, dedupe_key, source, direction, channel, status, stage,
-  contact_email, contact_phone, company_name, website, title, description,
-  lead_score, priority, tags, data, last_event_id, last_event_at, stage_updated_at, user_id
-) VALUES (
-  ${qUuid(config.A1_COMPANY_ID)}, ${qText(dedupeKey)}, 'webstudio', 'inbound', 'webstudio', 'open', ${qText(stage)},
-  ${qText(email)}, ${qText(lead.phone || '')}, ${qText(lead.name || '')}, ${qText(lead.site || '')}, ${qText(lead.name || '')}, ${qText(lead.diagnosis || lead.message || '')},
-  ${qNumber(lead.fitScore ?? lead.priority ?? 0)}, ${qInt(lead.fitScore ?? lead.priority ?? 0)}, ${qJson(tags)}::jsonb, ${qJson(data)}::jsonb, ${qText(eventId)}, NOW(), NOW(), 'web-studio-orchestrator'
-)
-ON CONFLICT (company_id, dedupe_key) DO UPDATE SET
-  stage = EXCLUDED.stage,
-  contact_email = COALESCE(NULLIF(EXCLUDED.contact_email, ''), a1_leads.contact_email),
-  contact_phone = COALESCE(NULLIF(EXCLUDED.contact_phone, ''), a1_leads.contact_phone),
-  company_name = COALESCE(NULLIF(EXCLUDED.company_name, ''), a1_leads.company_name),
-  website = COALESCE(NULLIF(EXCLUDED.website, ''), a1_leads.website),
-  title = EXCLUDED.title,
-  description = EXCLUDED.description,
-  lead_score = EXCLUDED.lead_score,
-  priority = EXCLUDED.priority,
-  tags = EXCLUDED.tags,
-  data = EXCLUDED.data,
-  last_event_id = EXCLUDED.last_event_id,
-  last_event_at = NOW(),
-  stage_updated_at = CASE WHEN a1_leads.stage IS DISTINCT FROM EXCLUDED.stage THEN NOW() ELSE a1_leads.stage_updated_at END,
-  updated_at = NOW()
-RETURNING id, dedupe_key, stage, status, company_name, contact_email, updated_at;`.trim();
-  const result = await runA1PostgresSafeQuery(sql);
-  const rows = parseMcpRows(result);
-  return { ...result, lead: rows[0] };
+  return callA1McpTool('crm_upsert_lead', {
+    externalId: lead.id,
+    dedupeKey: `webstudio:${lead.id}`,
+    companyName: lead.name || '',
+    city: lead.city || '',
+    niche: lead.niche || '',
+    contacts: {
+      emails: lead.contacts?.emails || (email ? [email] : []),
+      phone: lead.contacts?.phone || lead.phone || '',
+      channels: lead.contacts?.channels || [],
+    },
+    score: lead.fitScore ?? lead.priority ?? 0,
+    source: 'webstudio',
+    stage: a1StageForLead(lead),
+    reason,
+    webstudioLead: publicLeadPayload(lead),
+    idempotencyKey: `webstudio:${lead.id}:upsert:${lead.updatedAt || reason}`,
+  });
 }
 
-function a1StageForLane(lane) {
+export async function crmMoveLeadStage(input) {
+  if (!input?.a1LeadId && !input?.externalId && !input?.dedupeKey) {
+    return { ok: false, skipped: true, reason: 'Missing A1 lead reference' };
+  }
+  return callA1McpTool('crm_move_lead_stage', input);
+}
+
+export async function crmAddEvent(input) {
+  return callA1McpTool('crm_add_event', {
+    source: 'webstudio',
+    ...input,
+    idempotencyKey: input.idempotencyKey || `webstudio:event:${input.entityType}:${input.entityId}:${input.eventType}:${Date.now()}`,
+  });
+}
+
+export async function crmConvertLeadToDeal(input) {
+  return callA1McpTool('crm_convert_lead_to_deal', input);
+}
+
+export async function dealAttachProduct(input) {
+  return callA1McpTool('deal_attach_product', {
+    productCode: 'landing_site_setup',
+    billingMode: 'one_time',
+    ...input,
+  });
+}
+
+export async function invoiceCreateYookassaLink(input) {
+  return callA1McpTool('invoice_create_yookassa_link', input);
+}
+
+export async function outboundQueueMessage(input) {
+  if (input.channel && String(input.channel).toLowerCase() !== 'email') {
+    return { ok: false, skipped: true, reason: 'Only email outbound is enabled in Web Studio v1' };
+  }
+  return callA1McpTool('outbound_queue_message', { channel: 'email', requiresApproval: false, ...input });
+}
+
+export async function voiceCallQueue() {
+  return { ok: false, skipped: true, reason: 'voice_call_queue is disabled until cold-call prompt and policy are configured' };
+}
+
+export async function crmGetUpdatesSince(since) {
+  return callA1McpTool('crm_get_updates_since', { since, source: 'webstudio' });
+}
+
+export function a1StageForLead(lead) {
+  return a1StageForLane(lead?.lane || lead?.stage || 'scout');
+}
+
+export function a1StageForLane(lane) {
   const value = String(lane || '').toLowerCase();
-  if (value.includes('диаг') || value.includes('diagn')) return 'qualification';
-  if (value.includes('lovable') || value.includes('film') || value.includes('видео')) return 'in_work';
-  if (value.includes('пров') || value.includes('check')) return 'offer';
-  if (value.includes('отправ') || value.includes('pitch') || value.includes('ответ')) return 'follow_up';
+  if (value.includes('diagnosis') || value.includes('\u0434\u0438\u0430\u0433') || value.includes('РґРёР°Рі')) return 'qualification';
+  if (value.includes('mockup') || value.includes('lovable') || value.includes('video') || value.includes('\u0432\u0438\u0434') || value.includes('РІРёРґ')) return 'in_work';
+  if (value.includes('checked') || value.includes('offer') || value.includes('check') || value.includes('\u043f\u0440\u043e\u0432') || value.includes('РїСЂРѕРІ')) return 'offer';
+  if (value.includes('outreach') || value.includes('sent') || value.includes('replied') || value.includes('reply') || value.includes('\u043e\u0442\u043f\u0440\u0430\u0432') || value.includes('\u043e\u0442\u0432\u0435\u0442') || value.includes('РѕС‚РїСЂР°РІ') || value.includes('РѕС‚РІРµС‚')) return 'follow_up';
+  if (value.includes('deal') || value.includes('converted')) return 'converted';
   return 'new';
 }
 
-function parseMcpRows(result) {
-  const text = result?.data?.content?.find((item) => item.type === 'text')?.text;
-  if (!text) return [];
+export function customerBotLink(lead) {
+  if (!config.TELEGRAM_BOT_USERNAME || !lead?.publicLeadToken) return '';
+  return `https://t.me/${config.TELEGRAM_BOT_USERNAME.replace(/^@/, '')}?start=lead_${lead.publicLeadToken}`;
+}
+
+export function parsedToolData(result) {
+  const text = result?.data?.content?.find?.((item) => item.type === 'text')?.text;
+  if (!text) return result?.data || null;
   try {
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed.rows) ? parsed.rows : [];
+    return JSON.parse(text);
   } catch {
-    return [];
+    return null;
   }
+}
+
+function publicLeadPayload(lead) {
+  return {
+    id: lead.id,
+    name: lead.name,
+    city: lead.city,
+    niche: lead.niche,
+    lane: lead.lane,
+    owner: lead.owner,
+    status: lead.status,
+    sourceKey: lead.sourceKey,
+    publicLeadToken: lead.publicLeadToken,
+    rating: lead.rating,
+    reviews: lead.reviews,
+    years: lead.years,
+    site: lead.site,
+    address: lead.address,
+    phone: lead.phone,
+    contacts: lead.contacts,
+    diagnosis: lead.diagnosis,
+    angle: lead.angle,
+    tone: lead.tone,
+    message: lead.message,
+    fitScore: lead.fitScore,
+    deal: lead.deal,
+    mockup: lead.mockup,
+    video: lead.video,
+    customerBotLink: customerBotLink(lead),
+  };
 }
 
 function mcpErrorText(data) {
@@ -252,34 +245,6 @@ function mcpEmbeddedError(data) {
   } catch {
     return '';
   }
-}
-
-function qText(value) {
-  return `'${String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
-}
-
-function qUuid(value) {
-  return `${qText(value)}::uuid`;
-}
-
-function qJson(value) {
-  let json = 'null';
-  try {
-    json = JSON.stringify(value ?? null);
-  } catch {
-    json = 'null';
-  }
-  const tag = `$A1_${randomUUID().replace(/-/g, '')}$`;
-  return `${tag}${json}${tag}`;
-}
-
-function qNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? String(number) : '0';
-}
-
-function qInt(value) {
-  return String(Math.max(0, Math.round(Number(value) || 0)));
 }
 
 function a1McpHeaders() {

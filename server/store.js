@@ -1,12 +1,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 const initialState = {
   leads: [],
   events: [],
   approvals: [],
   outreachQueue: [],
+  integrationInbox: [],
+  processedA1Events: {},
   authSecurity: {
     clients: {},
     attempts: [],
@@ -58,6 +60,8 @@ export class Store {
     this.state.leads ??= [];
     this.state.approvals ??= [];
     this.state.outreachQueue ??= [];
+    this.state.integrationInbox ??= [];
+    this.state.processedA1Events ??= {};
     this.state.metrics ??= structuredClone(initialState.metrics);
     this.state.locks ??= {};
     this.state.leads = this.state.leads.map((lead) => ({
@@ -65,6 +69,7 @@ export class Store {
       lane: normalizeLane(lead.lane),
       owner: lead.owner || 'Scout',
       priority: Number.isFinite(Number(lead.priority)) ? Number(lead.priority) : 50,
+      publicLeadToken: lead.publicLeadToken || randomToken(),
     }));
     return this.state;
   }
@@ -80,6 +85,22 @@ export class Store {
 
   getLead(id) {
     return this.state.leads.find((lead) => lead.id === id);
+  }
+
+  findLeadByPublicToken(token) {
+    return this.state.leads.find((lead) => lead.publicLeadToken === token);
+  }
+
+  findLeadByA1Ref({ externalId, dedupeKey, a1LeadId, a1DealId } = {}) {
+    return this.state.leads.find((lead) => {
+      const leadDedupeKey = lead.a1?.dedupeKey || lead.a1Crm?.dedupeKey || `webstudio:${lead.id}`;
+      return (
+        (externalId && lead.id === externalId) ||
+        (dedupeKey && leadDedupeKey === dedupeKey) ||
+        (a1LeadId && (lead.a1LeadId === a1LeadId || lead.a1?.leadId === a1LeadId || lead.a1Crm?.a1Lead?.id === a1LeadId)) ||
+        (a1DealId && lead.a1DealId === a1DealId)
+      );
+    });
   }
 
   async upsertLead(input) {
@@ -100,6 +121,7 @@ export class Store {
       owner: 'Scout',
       priority: 50,
       status: 'new',
+      publicLeadToken: randomToken(),
       ...input,
     };
     this.state.leads.push(lead);
@@ -174,6 +196,38 @@ export class Store {
       ...input,
     };
     this.state.outreachQueue.push(item);
+    await this.save();
+    return item;
+  }
+
+  isA1EventProcessed(eventId) {
+    this.state.processedA1Events ??= {};
+    return Boolean(eventId && this.state.processedA1Events[eventId]);
+  }
+
+  async markA1EventProcessed(eventId, value = {}) {
+    if (!eventId) return null;
+    this.state.processedA1Events ??= {};
+    this.state.processedA1Events[eventId] = {
+      processedAt: new Date().toISOString(),
+      ...value,
+    };
+    const entries = Object.entries(this.state.processedA1Events).slice(-1000);
+    this.state.processedA1Events = Object.fromEntries(entries);
+    await this.save();
+    return this.state.processedA1Events[eventId];
+  }
+
+  async addIntegrationInboxItem(input) {
+    this.state.integrationInbox ??= [];
+    const item = {
+      id: randomUUID(),
+      status: 'unmatched',
+      createdAt: new Date().toISOString(),
+      ...input,
+    };
+    this.state.integrationInbox.unshift(item);
+    this.state.integrationInbox = this.state.integrationInbox.slice(0, 500);
     await this.save();
     return item;
   }
@@ -265,4 +319,8 @@ export class Store {
     await this.save();
     return attempt;
   }
+}
+
+function randomToken() {
+  return randomBytes(16).toString('hex');
 }
