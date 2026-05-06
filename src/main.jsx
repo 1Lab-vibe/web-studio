@@ -4,9 +4,8 @@ import {
   Activity,
   ArrowRight,
   Bot,
-  CalendarCheck,
+  Check,
   CheckCircle2,
-  ChevronRight,
   ClipboardCheck,
   Clock3,
   Film,
@@ -20,219 +19,42 @@ import {
   PauseCircle,
   PhoneCall,
   Radar,
+  RefreshCcw,
   Search,
   Send,
   ShieldCheck,
   Smartphone,
   Sparkles,
   Wand2,
+  X,
 } from 'lucide-react';
 import './styles.css';
 
-const agents = [
-  {
-    name: 'Orchestrator',
-    role: 'владеет записью и всеми write-операциями',
-    status: 'Контролирует',
-    icon: Bot,
-    tone: 'black',
-  },
-  {
-    name: 'Scout',
-    role: 'читает Яндекс Карты и ищет узкие ниши',
-    status: '18 лидов',
-    icon: Radar,
-    tone: 'red',
-  },
-  {
-    name: 'Diagnoser',
-    role: 'диагноз, hero angle, тон и короткий pitch',
-    status: '9 готово',
-    icon: ClipboardCheck,
-    tone: 'blue',
-  },
-  {
-    name: 'Builder',
-    role: 'создает top-5 мокапов в Lovable через MCP',
-    status: '3 мокапа',
-    icon: Wand2,
-    tone: 'teal',
-  },
-  {
-    name: 'Filmer',
-    role: '5 скриншотов и видео 10 сек 1080x1920',
-    status: '2 видео',
-    icon: Film,
-    tone: 'amber',
-  },
-  {
-    name: 'Checker',
-    role: 'evals: персонализация, AI-маркеры, buzzwords',
-    status: '11 проверок',
-    icon: ShieldCheck,
-    tone: 'teal',
-  },
-  {
-    name: 'Pitcher',
-    role: 'email, SMS, IG DM или LinkedIn по нише',
-    status: '7 отправок',
-    icon: Send,
-    tone: 'blue',
-  },
-  {
-    name: 'Mobile',
-    role: 'iPhone, ответы в реальном времени и Calendly MCP',
-    status: '2 созвона',
-    icon: Smartphone,
-    tone: 'black',
-  },
-];
-
-const leads = [
-  {
-    id: 1,
-    name: 'Кровля Север',
-    city: 'Москва',
-    niche: 'кровельщики',
-    rating: 4.8,
-    reviews: 23,
-    years: 8,
-    site: 'нет сайта',
-    owner: 'Diagnoser',
-    priority: 94,
-    lane: 'Диагноз',
-    channel: 'Email',
-    deal: 2800,
-    replyRate: 16,
-    diagnosis:
-      'Компания выглядит надежной по отзывам, но теряет заявки без сайта: клиент не видит гарантий, фото объектов и быстрый расчет. Нужна посадочная под срочный ремонт кровли с доказательствами и формой заявки.',
-    angle: 'Срочный ремонт кровли за 24 часа с фото работ и понятной гарантией.',
-    tone: 'спокойный, инженерный, без рекламного шума',
-    message:
-      'Здравствуйте. У вас сильные отзывы в Яндекс Картах, но нет страницы, где видно объекты, гарантии и быстрый расчет. Я подготовил короткий вариант посадочной под заявки на ремонт кровли. Могу прислать превью?',
-  },
-  {
-    id: 2,
-    name: 'Студия Laki Nail',
-    city: 'Казань',
-    niche: 'салон красоты',
-    rating: 4.7,
-    reviews: 41,
-    years: 6,
-    site: 'Taplink 2018',
-    owner: 'Builder',
-    priority: 88,
-    lane: 'Lovable',
-    channel: 'IG DM',
-    deal: 1900,
-    replyRate: 21,
-    diagnosis:
-      'У салона есть доверие и живые отзывы, но старый Taplink не продает атмосферу, мастеров и свободные окна. Посадочная должна показать стиль, цены, портфолио и запись в один клик.',
-    angle: 'Запись на маникюр через визуальную страницу с портфолио мастеров.',
-    tone: 'легкий, визуальный, уверенный',
-    message:
-      'Добрый день. У вас хорошие отзывы, но текущая ссылка не показывает стиль салона и свободные окна. Я сделал идею страницы, где портфолио и запись видны сразу. Прислать короткое превью?',
-  },
-  {
-    id: 3,
-    name: 'Юг Климат Сервис',
-    city: 'Краснодар',
-    niche: 'кондиционеры',
-    rating: 4.9,
-    reviews: 17,
-    years: 7,
-    site: 'сайт 2015',
-    owner: 'Filmer',
-    priority: 91,
-    lane: 'Видео',
-    channel: 'SMS',
-    deal: 3400,
-    replyRate: 15,
-    diagnosis:
-      'Сильный рейтинг не поддержан современным сайтом: старая страница не объясняет скорость выезда, цены и сервисные гарантии. Новый лендинг должен быстро конвертировать сезонный спрос.',
-    angle: 'Монтаж и обслуживание кондиционеров без ожидания в сезон.',
-    tone: 'деловой, быстрый, практичный',
-    message:
-      'Здравствуйте. Видно, что у вас сильный рейтинг, но сайт выглядит старым и теряет сезонные заявки. Я собрал короткий макет страницы под монтаж кондиционеров. Могу отправить видео-превью?',
-  },
-  {
-    id: 4,
-    name: 'ДомПраво',
-    city: 'Екатеринбург',
-    niche: 'риелторы',
-    rating: 4.6,
-    reviews: 29,
-    years: 9,
-    site: 'нет сайта',
-    owner: 'Pitcher',
-    priority: 83,
-    lane: 'Отправка',
-    channel: 'LinkedIn',
-    deal: 2600,
-    replyRate: 13,
-    diagnosis:
-      'Экспертность видна только в карточке, а не в отдельной упаковке услуг. Для дорогих сделок нужен сайт с кейсами, географией объектов и понятным первым шагом.',
-    angle: 'Личная страница риелтора, которая переводит доверие из карт в заявку.',
-    tone: 'профессиональный, спокойный',
-    message:
-      'Здравствуйте. Ваша карточка в Яндекс Картах выглядит убедительно, но без сайта сложно показать кейсы и процесс сделки. Я подготовил вариант страницы для заявок на консультацию. Прислать?',
-  },
-  {
-    id: 5,
-    name: 'Стоматология Форма',
-    city: 'Москва',
-    niche: 'стоматология',
-    rating: 4.5,
-    reviews: 36,
-    years: 11,
-    site: 'сайт 2014',
-    owner: 'Checker',
-    priority: 79,
-    lane: 'Проверка',
-    channel: 'Email',
-    deal: 4200,
-    replyRate: 10,
-    diagnosis:
-      'Сайт выглядит старше доверия клиники и не раскрывает врачей, цены и первичный прием. Для медицинской ниши нужно убрать шум и дать пациенту ясный путь к записи.',
-    angle: 'Чистая страница клиники с врачами, ценами и записью без звонка.',
-    tone: 'бережный, точный, без давления',
-    message:
-      'Здравствуйте. У клиники хорошие отзывы, но сайт визуально устарел и может снижать доверие перед записью. Я подготовил аккуратный вариант страницы для первичного приема. Могу показать?',
-  },
-  {
-    id: 6,
-    name: 'Мастер Пол',
-    city: 'Казань',
-    niche: 'ремонт полов',
-    rating: 4.8,
-    reviews: 14,
-    years: 5,
-    site: 'нет сайта',
-    owner: 'Scout',
-    priority: 76,
-    lane: 'Разведка',
-    channel: 'SMS',
-    deal: 1700,
-    replyRate: 18,
-    diagnosis:
-      'Карточка выглядит живой, но без сайта сложно показать материалы, этапы и расчет стоимости. Для мастера нужен простой лендинг с фото до/после и быстрым запросом замера.',
-    angle: 'Ремонт полов с расчетом замера и понятными этапами работ.',
-    tone: 'прямой, мастеровой, конкретный',
-    message:
-      'Здравствуйте. Нашел вас в Яндекс Картах: отзывы хорошие, но нет страницы с работами и расчетом. Я сделал идею короткой страницы под заявки на замер. Прислать ссылку?',
-  },
-];
-
-const lanes = ['Разведка', 'Диагноз', 'Lovable', 'Видео', 'Проверка', 'Отправка'];
-const cities = ['Все города', 'Москва', 'Казань', 'Екатеринбург', 'Краснодар'];
+const lanes = ['Разведка', 'Диагноз', 'Lovable', 'Видео', 'Проверка', 'Отправка', 'Ответы'];
+const agentMeta = {
+  Scout: { role: 'ищет лиды в Яндекс/Google Maps', icon: Radar, tone: 'red' },
+  Diagnoser: { role: 'готовит диагноз, hero angle и pitch', icon: ClipboardCheck, tone: 'blue' },
+  Builder: { role: 'создает top-5 мокапов через Lovable', icon: Wand2, tone: 'teal' },
+  Filmer: { role: 'готовит скриншоты и вертикальное видео', icon: Film, tone: 'amber' },
+  Checker: { role: 'проверяет персонализацию и AI-маркеры', icon: ShieldCheck, tone: 'teal' },
+  Pitcher: { role: 'отправляет сообщение в правильный канал', icon: Send, tone: 'blue' },
+  Mobile: { role: 'ведет положительные ответы и созвоны', icon: Smartphone, tone: 'black' },
+};
 
 function App() {
   const [auth, setAuth] = useState({ loading: true, authenticated: false, authEnabled: true, user: null });
+  const [backend, setBackend] = useState({
+    status: 'offline',
+    integrations: {},
+    leads: [],
+    metrics: {},
+    events: [],
+    approvals: [],
+  });
   const [city, setCity] = useState('Все города');
-  const [activeLeadId, setActiveLeadId] = useState(1);
-  const [pausedNiches, setPausedNiches] = useState(['стоматология']);
-  const [mockupsToday, setMockupsToday] = useState(3);
-  const [backend, setBackend] = useState({ status: 'offline', integrations: {}, leads: [] });
+  const [activeLeadId, setActiveLeadId] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [notice, setNotice] = useState('');
 
   const loadAuth = async () => {
     try {
@@ -251,21 +73,34 @@ function App() {
 
   const loadBackend = async () => {
     try {
-      const [healthResponse, leadsResponse] = await Promise.all([
+      const [healthResponse, stateResponse, leadsResponse, eventsResponse, approvalsResponse] = await Promise.all([
         fetch('/api/health', { credentials: 'include' }),
+        fetch('/api/state', { credentials: 'include' }),
         fetch('/api/leads', { credentials: 'include' }),
+        fetch('/api/events', { credentials: 'include' }),
+        fetch('/api/approvals', { credentials: 'include' }),
       ]);
-      if (leadsResponse.status === 401) {
+      if ([stateResponse, leadsResponse, eventsResponse, approvalsResponse].some((response) => response.status === 401)) {
         setAuth((current) => ({ ...current, authenticated: false }));
         return;
       }
-      const health = await healthResponse.json();
-      const leadData = await leadsResponse.json();
+      const [health, state, leadData, eventData, approvalData] = await Promise.all([
+        healthResponse.json(),
+        stateResponse.json(),
+        leadsResponse.json(),
+        eventsResponse.json(),
+        approvalsResponse.json(),
+      ]);
+      const leads = Array.isArray(leadData.data) ? leadData.data : [];
       setBackend({
         status: health.ok ? 'online' : 'degraded',
         integrations: health.integrations ?? {},
-        leads: Array.isArray(leadData.data) ? leadData.data : [],
+        leads,
+        metrics: state.data?.metrics ?? {},
+        events: Array.isArray(eventData.data) ? eventData.data : [],
+        approvals: Array.isArray(approvalData.data) ? approvalData.data : [],
       });
+      setActiveLeadId((current) => current || leads[0]?.id || null);
     } catch {
       setBackend((current) => ({ ...current, status: 'offline' }));
     }
@@ -276,14 +111,9 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!auth.loading && !auth.authEnabled) {
-      setAuth((current) => ({ ...current, authenticated: true }));
-      loadBackend();
-    }
-    if (!auth.loading && auth.authenticated) {
-      loadBackend();
-    }
-  }, [auth.loading, auth.authEnabled, auth.authenticated]);
+    if (!auth.loading && !auth.authEnabled) setAuth((current) => ({ ...current, authenticated: true }));
+    if (!auth.loading && (auth.authenticated || !auth.authEnabled)) loadBackend();
+  }, [auth.loading, auth.authenticated, auth.authEnabled]);
 
   const handleLogin = async (login, password) => {
     const response = await fetch('/api/auth/login', {
@@ -295,8 +125,7 @@ function App() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) {
       if (response.status === 429 && result.blockedUntil) {
-        const until = new Date(result.blockedUntil).toLocaleString('ru-RU');
-        throw new Error(`Слишком много попыток. Вход заблокирован до ${until}`);
+        throw new Error(`Слишком много попыток. Вход заблокирован до ${new Date(result.blockedUntil).toLocaleString('ru-RU')}`);
       }
       throw new Error(result.error || 'Не получилось войти');
     }
@@ -306,79 +135,89 @@ function App() {
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setAuth({ loading: false, authenticated: false, authEnabled: true, user: null });
-    setBackend({ status: 'offline', integrations: {}, leads: [] });
   };
 
-  const runBackendAction = async (action) => {
-    const response = await fetch(`/api/orchestrator/${action}`, { method: 'POST', credentials: 'include' });
-    if (response.status === 401) {
-      setAuth((current) => ({ ...current, authenticated: false }));
-      return;
+  const runAction = async (label, request, successText) => {
+    setBusy(label);
+    setNotice('');
+    try {
+      const response = await request();
+      const result = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        setAuth((current) => ({ ...current, authenticated: false }));
+        return;
+      }
+      if (!response.ok || result.ok === false) throw new Error(result.error || result.reason || 'Действие не выполнено');
+      setNotice(successText || 'Готово');
+      await loadBackend();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy('');
     }
-    await loadBackend();
   };
 
-  const visibleLeads = backend.leads.length ? backend.leads : leads;
-  const filteredLeads = useMemo(
-    () => visibleLeads.filter((lead) => city === 'Все города' || lead.city === city),
-    [city, visibleLeads],
-  );
-  const activeLead = visibleLeads.find((lead) => lead.id === activeLeadId) || visibleLeads[0] || leads[0];
-  const activeAgent = agents.find((agent) => agent.name === activeLead.owner);
-  const needsApproval = (activeLead.deal ?? 0) > 300000;
-  const nichePaused = pausedNiches.includes(activeLead.niche) || activeLead.replyRate < 12;
+  const runBackendAction = (action) =>
+    runAction(action, () => fetch(`/api/orchestrator/${action}`, { method: 'POST', credentials: 'include' }), `${action} выполнен`);
 
-  const togglePause = (niche) => {
-    setPausedNiches((current) =>
-      current.includes(niche) ? current.filter((item) => item !== niche) : [...current, niche],
+  const advanceLead = (leadId) =>
+    runAction('advance', () => fetch(`/api/leads/${leadId}/advance`, { method: 'POST', credentials: 'include' }), 'Лид передан дальше');
+
+  const decideApproval = (approvalId, decision) =>
+    runAction(
+      decision,
+      () => fetch(`/api/approvals/${approvalId}/${decision}`, { method: 'POST', credentials: 'include' }),
+      decision === 'approved' ? 'Approval одобрен' : 'Approval отклонен',
     );
-  };
 
-  if (auth.loading) {
-    return <main className="auth-screen" />;
-  }
+  const cities = useMemo(() => ['Все города', ...Array.from(new Set(backend.leads.map((lead) => lead.city).filter(Boolean))).sort()], [backend.leads]);
+  const visibleLeads = useMemo(
+    () => backend.leads.filter((lead) => city === 'Все города' || lead.city === city),
+    [backend.leads, city],
+  );
+  const activeLead = backend.leads.find((lead) => lead.id === activeLeadId) || visibleLeads[0] || backend.leads[0] || null;
+  const activeEvents = activeLead ? backend.events.filter((event) => event.leadId === activeLead.id) : [];
+  const activeApproval = activeLead
+    ? backend.approvals.find((approval) => approval.leadId === activeLead.id && approval.status === 'pending')
+    : null;
 
-  if (!auth.authenticated) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
+  if (auth.loading) return <main className="auth-screen" />;
+  if (!auth.authenticated) return <LoginScreen onLogin={handleLogin} />;
 
   return (
     <main className="app-shell">
       <TopBar
         city={city}
+        cities={cities}
         setCity={setCity}
-        mockupsToday={mockupsToday}
         backend={backend}
         user={auth.user}
         onLogout={handleLogout}
       />
+      {notice && <div className="notice-line">{notice}</div>}
       <div className="workspace">
         <aside className="sidebar">
-          <OrchestratorPanel />
-          <AgentList activeAgent={activeAgent?.name} />
-          <RuleStack />
+          <OrchestratorPanel metrics={backend.metrics} leads={backend.leads} />
+          <AgentList activeAgent={activeLead?.owner} leads={backend.leads} />
+          <RuleStack metrics={backend.metrics} />
         </aside>
 
         <section className="main-column">
-          <SourcePanel />
-          <BackendActions backend={backend} onRun={runBackendAction} />
-          <Funnel
-            leads={filteredLeads}
-            activeLeadId={activeLeadId}
-            onSelect={setActiveLeadId}
-            pausedNiches={pausedNiches}
-          />
-          <ControlDeck
-            mockupsToday={mockupsToday}
-            setMockupsToday={setMockupsToday}
-            pausedNiches={pausedNiches}
-            onTogglePause={togglePause}
-          />
+          <SourcePanel leads={backend.leads} metrics={backend.metrics} />
+          <BackendActions backend={backend} busy={busy} onRun={runBackendAction} />
+          <Funnel leads={visibleLeads} activeLeadId={activeLead?.id} onSelect={setActiveLeadId} />
+          <ControlDeck metrics={backend.metrics} approvals={backend.approvals} />
         </section>
 
         <aside className="inspector">
-          <LeadInspector lead={activeLead} needsApproval={needsApproval} nichePaused={nichePaused} />
-          <Timeline lead={activeLead} />
+          <LeadInspector
+            lead={activeLead}
+            approval={activeApproval}
+            busy={busy}
+            onAdvance={advanceLead}
+            onDecision={decideApproval}
+          />
+          <Timeline lead={activeLead} events={activeEvents} />
         </aside>
       </div>
     </main>
@@ -420,12 +259,7 @@ function LoginScreen({ onLogin }) {
         </label>
         <label>
           <span>Пароль</span>
-          <input
-            autoComplete="current-password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+          <input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
         </label>
         {error && <p className="auth-error">{error}</p>}
         <button type="submit" disabled={submitting}>
@@ -437,7 +271,8 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function TopBar({ city, setCity, mockupsToday, backend, user, onLogout }) {
+function TopBar({ city, cities, setCity, backend, user, onLogout }) {
+  const mockupsToday = Number(backend.metrics.mockupsToday ?? 0);
   return (
     <header className="topbar">
       <div className="brand">
@@ -458,11 +293,11 @@ function TopBar({ city, setCity, mockupsToday, backend, user, onLogout }) {
         </label>
         <div className="model-chip">
           <Sparkles size={16} />
-          OpenAI GPT-5.4
+          OpenAI
         </div>
         <div className="metric-chip">
           <Gauge size={16} />
-          top-5 Lovable: {mockupsToday}/5
+          Lovable {mockupsToday}/5
         </div>
         <div className={`api-chip ${backend.status}`}>
           <Activity size={16} />
@@ -477,7 +312,8 @@ function TopBar({ city, setCity, mockupsToday, backend, user, onLogout }) {
   );
 }
 
-function BackendActions({ backend, onRun }) {
+function BackendActions({ backend, busy, onRun }) {
+  const integrations = backend.integrations;
   return (
     <section className="backend-strip">
       <div>
@@ -486,19 +322,17 @@ function BackendActions({ backend, onRun }) {
           <span>Backend orchestration</span>
         </div>
         <p>
-          API {backend.status}. OpenAI: {backend.integrations.openai ? 'ключ есть' : 'нет ключа'} · Яндекс:{' '}
-          {backend.integrations.yandexMaps ? 'ключ есть' : 'нет ключа'} · Telegram:{' '}
-          {backend.integrations.telegram ? 'подключен' : 'не подключен'} · Google:{' '}
-          {backend.integrations.googleMaps ? 'fallback есть' : 'fallback нет'}
+          OpenAI: {integrations.openai ? 'есть' : 'нет'} · Яндекс: {integrations.yandexMaps ? 'есть' : 'нет'} · Google:{' '}
+          {integrations.googleMaps ? 'fallback есть' : 'fallback нет'} · Telegram: {integrations.telegram ? 'подключен' : 'нет'}
         </p>
       </div>
       <div className="backend-actions">
-        <button type="button" onClick={() => onRun('scout')}>
+        <button type="button" disabled={Boolean(busy)} onClick={() => onRun('scout')}>
           <Search size={16} />
           Scout
         </button>
-        <button type="button" onClick={() => onRun('tick')}>
-          <Activity size={16} />
+        <button type="button" disabled={Boolean(busy)} onClick={() => onRun('tick')}>
+          <RefreshCcw size={16} />
           Tick
         </button>
       </div>
@@ -506,26 +340,28 @@ function BackendActions({ backend, onRun }) {
   );
 }
 
-function OrchestratorPanel() {
+function OrchestratorPanel({ metrics, leads }) {
+  const active = leads.filter((lead) => !['done', 'paused'].includes(lead.status)).length;
   return (
     <section className="panel orchestrator-card">
       <div className="panel-title">
         <Bot size={18} />
         <span>Оркестратор</span>
       </div>
-      <p>
-        Владеет всеми write-действиями, выдает эксклюзивный lock на лида и передает агентам только
-        read-only задачи.
-      </p>
+      <p>Владеет write-действиями, держит lock на лида и передает агентам только ограниченные задачи.</p>
+      <div className="mini-stats">
+        <span>{leads.length} лидов</span>
+        <span>{active} активных</span>
+        <span>{metrics.scannedToday ?? 0} найдено сегодня</span>
+      </div>
       <div className="lockline">
-        <LockKeyhole size={16} />
-        1 лид = 1 активный агент
+        <LockKeyhole size={16} />1 лид = 1 активный агент
       </div>
     </section>
   );
 }
 
-function AgentList({ activeAgent }) {
+function AgentList({ activeAgent, leads }) {
   return (
     <section className="panel">
       <div className="panel-title">
@@ -533,18 +369,19 @@ function AgentList({ activeAgent }) {
         <span>Агенты</span>
       </div>
       <div className="agent-list">
-        {agents.slice(1).map((agent) => {
-          const Icon = agent.icon;
+        {Object.entries(agentMeta).map(([name, meta]) => {
+          const Icon = meta.icon;
+          const count = leads.filter((lead) => lead.owner === name).length;
           return (
-            <div className={`agent-row ${activeAgent === agent.name ? 'active' : ''}`} key={agent.name}>
-              <span className={`agent-icon ${agent.tone}`}>
+            <div className={`agent-row ${activeAgent === name ? 'active' : ''}`} key={name}>
+              <span className={`agent-icon ${meta.tone}`}>
                 <Icon size={16} />
               </span>
               <div>
-                <strong>{agent.name}</strong>
-                <small>{agent.role}</small>
+                <strong>{name}</strong>
+                <small>{meta.role}</small>
               </div>
-              <em>{agent.status}</em>
+              <em>{count}</em>
             </div>
           );
         })}
@@ -553,7 +390,7 @@ function AgentList({ activeAgent }) {
   );
 }
 
-function RuleStack() {
+function RuleStack({ metrics }) {
   return (
     <section className="panel rules">
       <div className="panel-title">
@@ -562,7 +399,7 @@ function RuleStack() {
       </div>
       <div className="rule">
         <CheckCircle2 size={16} />
-        Человек нужен только при сделке выше 300 000 ₽
+        Человек нужен при сделке выше 300 000 ₽
       </div>
       <div className="rule warning">
         <PauseCircle size={16} />
@@ -570,80 +407,81 @@ function RuleStack() {
       </div>
       <div className="rule">
         <Globe2 size={16} />
-        Источник лидов: Яндекс Карты
+        Google search сегодня: {metrics.googleSearchesToday ?? 0}
       </div>
     </section>
   );
 }
 
-function SourcePanel() {
+function SourcePanel({ leads, metrics }) {
+  const byCity = useMemo(() => {
+    const counts = new Map();
+    for (const lead of leads) counts.set(lead.city || 'Без города', (counts.get(lead.city || 'Без города') ?? 0) + 1);
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  }, [leads]);
   return (
     <section className="source-strip">
       <div>
         <div className="panel-title inline">
           <MapPinned size={18} />
-          <span>Разведка по Яндекс Картам</span>
+          <span>Разведка по картам</span>
         </div>
-        <p>5+ лет на карте, меньше 50 отзывов, рейтинг 4.4+, нет сайта или сайт старше 2018.</p>
+        <p>Фильтр: 5+ лет, до 50 отзывов, рейтинг от 4.4, нет сайта или слабый сайт. Яндекс основной, Google fallback.</p>
       </div>
       <div className="source-grid">
-        <span>Москва · 42</span>
-        <span>Казань · 18</span>
-        <span>Екатеринбург · 15</span>
-        <span>Краснодар · 21</span>
+        {byCity.length ? byCity.map(([name, count]) => <span key={name}>{name} · {count}</span>) : <span>Лидов пока нет</span>}
+        <span>Google · {metrics.googleSearchesToday ?? 0}</span>
       </div>
     </section>
   );
 }
 
-function Funnel({ leads, activeLeadId, onSelect, pausedNiches }) {
+function Funnel({ leads, activeLeadId, onSelect }) {
   return (
     <section className="funnel" aria-label="Воронка лидов">
-      {lanes.map((lane) => (
-        <div className="lane" key={lane}>
-          <div className="lane-header">
-            <span>{lane}</span>
-            <small>{leads.filter((lead) => lead.lane === lane).length}</small>
-          </div>
-          <div className="lead-stack">
-            {leads
-              .filter((lead) => lead.lane === lane)
-              .map((lead) => (
-                <button
-                  className={`lead-card ${activeLeadId === lead.id ? 'selected' : ''}`}
-                  key={lead.id}
-                  onClick={() => onSelect(lead.id)}
-                  type="button"
-                >
-                  <span className="lead-head">
-                    <strong>{lead.name}</strong>
-                    <em>{lead.priority}</em>
-                  </span>
-                  <span className="lead-meta">
-                    {lead.city} · {lead.niche}
-                  </span>
-                  <span className="lead-facts">
-                    <small>{lead.rating}★</small>
-                    <small>{lead.reviews} отзывов</small>
-                    <small>{lead.years} лет</small>
-                  </span>
-                  <span className="lead-foot">
-                    <span>{lead.site}</span>
-                    <span className={pausedNiches.includes(lead.niche) || lead.replyRate < 12 ? 'pause' : 'ok'}>
-                      {lead.owner}
+      {lanes.map((lane) => {
+        const laneLeads = leads.filter((lead) => lead.lane === lane);
+        return (
+          <div className="lane" key={lane}>
+            <div className="lane-header">
+              <span>{lane}</span>
+              <small>{laneLeads.length}</small>
+            </div>
+            <div className="lead-stack">
+              {laneLeads.length ? (
+                laneLeads.map((lead) => (
+                  <button className={`lead-card ${activeLeadId === lead.id ? 'selected' : ''}`} key={lead.id} onClick={() => onSelect(lead.id)} type="button">
+                    <span className="lead-head">
+                      <strong>{lead.name}</strong>
+                      <em>{lead.priority ?? 50}</em>
                     </span>
-                  </span>
-                </button>
-              ))}
+                    <span className="lead-meta">{lead.city} · {lead.niche}</span>
+                    <span className="lead-facts">
+                      <small>{lead.rating || 0}★</small>
+                      <small>{lead.reviews ?? 0} отзывов</small>
+                      <small>{lead.source === 'google_places' ? 'Google' : 'Яндекс'}</small>
+                    </span>
+                    <span className="lead-foot">
+                      <span>{lead.site || 'сайт не определен'}</span>
+                      <span className={lead.status === 'waiting_approval' ? 'pause' : 'ok'}>{lead.owner}</span>
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div className="empty-lane">Нет лидов</div>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
 
-function ControlDeck({ mockupsToday, setMockupsToday, pausedNiches, onTogglePause }) {
+function ControlDeck({ metrics, approvals }) {
+  const mockupsToday = Number(metrics.mockupsToday ?? 0);
   const usedPct = Math.min(100, (mockupsToday / 5) * 100);
+  const pending = approvals.filter((approval) => approval.status === 'pending').length;
   return (
     <section className="control-deck">
       <div className="quota-card">
@@ -651,94 +489,86 @@ function ControlDeck({ mockupsToday, setMockupsToday, pausedNiches, onTogglePaus
           <Wand2 size={18} />
           <span>Lovable MCP quota</span>
         </div>
-        <div className="progress">
-          <span style={{ width: `${usedPct}%` }} />
-        </div>
-        <div className="stepper">
-          <button type="button" onClick={() => setMockupsToday(Math.max(0, mockupsToday - 1))}>
-            -
-          </button>
-          <strong>{mockupsToday}/5 мокапов сегодня</strong>
-          <button type="button" onClick={() => setMockupsToday(Math.min(5, mockupsToday + 1))}>
-            +
-          </button>
-        </div>
+        <div className="progress"><span style={{ width: `${usedPct}%` }} /></div>
+        <strong>{mockupsToday}/5 мокапов сегодня</strong>
       </div>
       <div className="pause-card">
         <div className="panel-title inline">
           <PauseCircle size={18} />
-          <span>Пауза ниш</span>
+          <span>Approval queue</span>
         </div>
-        <div className="toggle-list">
-          {['стоматология', 'кровельщики', 'салон красоты'].map((niche) => (
-            <label key={niche}>
-              <input
-                type="checkbox"
-                checked={pausedNiches.includes(niche)}
-                onChange={() => onTogglePause(niche)}
-              />
-              <span>{niche}</span>
-            </label>
-          ))}
+        <div className="mini-stats">
+          <span>{pending} ждут</span>
+          <span>{approvals.length} всего</span>
         </div>
       </div>
       <div className="handoff-card">
         <div className="panel-title inline">
-          <CalendarCheck size={18} />
+          <PhoneCall size={18} />
           <span>Mobile handoff</span>
         </div>
-        <p>Положительные ответы уходят на iPhone-агента, который бронирует Zoom в Calendly через MCP.</p>
+        <p>Положительные ответы и созвоны уходят Mobile-агенту, approvals доступны здесь и в Telegram.</p>
       </div>
     </section>
   );
 }
 
-function LeadInspector({ lead, needsApproval, nichePaused }) {
-  const deal = lead.deal ?? 0;
-  const replyRate = lead.replyRate ?? 0;
+function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
+  if (!lead) {
+    return (
+      <section className="panel lead-inspector empty-state">
+        <MapPinned size={22} />
+        <strong>Лидов пока нет</strong>
+        <p>Запусти Scout, чтобы заполнить воронку реальными организациями.</p>
+      </section>
+    );
+  }
   return (
     <section className="panel lead-inspector">
       <div className="inspector-head">
         <div>
           <strong>{lead.name}</strong>
-          <span>
-            {lead.city} · {lead.niche}
-          </span>
+          <span>{lead.city} · {lead.niche}</span>
         </div>
-        <span className="score">{lead.priority}</span>
+        <span className="score">{lead.priority ?? 50}</span>
       </div>
 
       <div className="fact-grid">
-        <Fact label="Рейтинг" value={`${lead.rating}★`} />
-        <Fact label="Отзывы" value={lead.reviews} />
-        <Fact label="На карте" value={`${lead.years} лет`} />
-        <Fact label="Сайт" value={lead.site} />
+        <Fact label="Рейтинг" value={`${lead.rating || 0}★`} />
+        <Fact label="Отзывы" value={lead.reviews ?? 0} />
+        <Fact label="Источник" value={lead.source === 'google_places' ? 'Google' : 'Яндекс'} />
+        <Fact label="Сайт" value={lead.site || 'не определен'} />
       </div>
 
-      <div className="approval-stack">
-        <div className={needsApproval ? 'gate alert' : 'gate'}>
-          <LockKeyhole size={16} />
-          Сделка {deal.toLocaleString('ru-RU')} ₽ {needsApproval ? 'требует approval' : 'в лимите'}
+      {approval && (
+        <div className="approval-stack">
+          <div className="gate alert">
+            <LockKeyhole size={16} />
+            {approval.message}
+          </div>
+          <div className="action-grid">
+            <button type="button" disabled={Boolean(busy)} onClick={() => onDecision(approval.id, 'rejected')}>
+              <X size={16} /> Отклонить
+            </button>
+            <button type="button" disabled={Boolean(busy)} onClick={() => onDecision(approval.id, 'approved')}>
+              <Check size={16} /> Одобрить
+            </button>
+          </div>
         </div>
-        <div className={nichePaused ? 'gate alert' : 'gate'}>
-          <Gauge size={16} />
-          Reply rate {replyRate}% {nichePaused ? 'пауза' : 'норма'}
-        </div>
-      </div>
+      )}
 
-      <TextBlock title="Диагноз 50 слов" text={lead.diagnosis} />
-      <TextBlock title="Hero angle" text={lead.angle} />
-      <TextBlock title="Тон" text={lead.tone} />
-      <TextBlock title={`Сообщение · ${lead.channel}`} text={lead.message} />
+      <TextBlock title="Адрес" text={lead.address || 'Нет адреса'} />
+      <TextBlock title="Телефон" text={lead.phone || 'Нет телефона'} />
+      <TextBlock title="Диагноз" text={lead.diagnosis || 'Еще не подготовлен. Передай лида дальше, чтобы Diagnoser сформировал диагноз.'} />
+      <TextBlock title="Hero angle" text={lead.angle || 'Еще не подготовлен'} />
+      <TextBlock title={`Сообщение · ${lead.channel || 'канал не выбран'}`} text={lead.message || 'Еще не подготовлено'} />
 
       <div className="action-grid">
-        <button type="button">
-          <MessageSquareText size={16} />
-          Checker eval
+        <button type="button" disabled={Boolean(busy)}>
+          <MessageSquareText size={16} /> Checker eval
         </button>
-        <button type="button">
-          <ArrowRight size={16} />
-          Передать дальше
+        <button type="button" disabled={Boolean(busy) || lead.status === 'waiting_approval'} onClick={() => onAdvance(lead.id)}>
+          <ArrowRight size={16} /> Передать дальше
         </button>
       </div>
     </section>
@@ -763,32 +593,28 @@ function TextBlock({ title, text }) {
   );
 }
 
-function Timeline({ lead }) {
-  const steps = [
-    ['Scout', 'Яндекс Карты: карточка подходит под фильтр', MapPinned],
-    ['Diagnoser', 'Сформирован диагноз и угол первого экрана', ClipboardCheck],
-    ['Builder', 'Lovable MCP мокап готовится только для top-5', Wand2],
-    ['Filmer', '5 скриншотов и вертикальное видео 10 секунд', Film],
-    ['Pitcher', `Канал выбран: ${lead.channel}`, Mail],
-    ['Mobile', 'Положительный ответ передается на iPhone', PhoneCall],
-  ];
+function Timeline({ lead, events }) {
   return (
     <section className="panel timeline">
       <div className="panel-title">
         <Clock3 size={18} />
         <span>Журнал лида</span>
       </div>
-      {steps.map(([agent, text, Icon], index) => (
-        <div className="timeline-row" key={agent}>
-          <span className={lead.owner === agent ? 'dot current' : 'dot'} />
-          <Icon size={15} />
-          <div>
-            <strong>{agent}</strong>
-            <small>{text}</small>
+      {lead && events.length ? (
+        events.map((event) => (
+          <div className="timeline-row" key={event.id}>
+            <span className="dot current" />
+            <Mail size={15} />
+            <div>
+              <strong>{event.type}</strong>
+              <small>{event.message}</small>
+              <small>{new Date(event.createdAt).toLocaleString('ru-RU')}</small>
+            </div>
           </div>
-          {index < steps.length - 1 && <ChevronRight size={14} />}
-        </div>
-      ))}
+        ))
+      ) : (
+        <div className="empty-lane">Событий пока нет</div>
+      )}
     </section>
   );
 }

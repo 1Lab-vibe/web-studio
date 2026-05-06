@@ -22,6 +22,19 @@ const initialState = {
   locks: {},
 };
 
+const laneMap = new Map([
+  ['Р Р°Р·РІРµРґРєР°', 'Разведка'],
+  ['Р”РёР°РіРЅРѕР·', 'Диагноз'],
+  ['Р’РёРґРµРѕ', 'Видео'],
+  ['РџСЂРѕРІРµСЂРєР°', 'Проверка'],
+  ['РћС‚РїСЂР°РІРєР°', 'Отправка'],
+  ['РћС‚РІРµС‚С‹', 'Ответы'],
+]);
+
+function normalizeLane(value) {
+  return laneMap.get(value) || value || 'Разведка';
+}
+
 export class Store {
   constructor(dataDir) {
     this.dataDir = path.resolve(dataDir);
@@ -44,6 +57,12 @@ export class Store {
     this.state.approvals ??= [];
     this.state.metrics ??= structuredClone(initialState.metrics);
     this.state.locks ??= {};
+    this.state.leads = this.state.leads.map((lead) => ({
+      ...lead,
+      lane: normalizeLane(lead.lane),
+      owner: lead.owner || 'Scout',
+      priority: Number.isFinite(Number(lead.priority)) ? Number(lead.priority) : 50,
+    }));
     return this.state;
   }
 

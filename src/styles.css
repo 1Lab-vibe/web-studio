@@ -74,7 +74,8 @@ button {
 .metric-chip,
 .searchbox,
 .api-chip,
-.logout-button {
+.logout-button,
+.notice-line {
   align-items: center;
   display: flex;
 }
@@ -137,6 +138,16 @@ button {
 .logout-button:hover {
   border-color: var(--line-strong);
   color: var(--ink);
+}
+
+.notice-line {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  margin: -4px 0 12px;
+  padding: 10px 12px;
 }
 
 .auth-screen {
@@ -464,6 +475,13 @@ button {
   padding: 0 12px;
 }
 
+.backend-actions button:disabled,
+.action-grid button:disabled,
+.auth-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .source-grid span {
   background: var(--surface-2);
   border: 1px solid var(--line);
@@ -471,6 +489,23 @@ button {
   color: var(--muted);
   font-size: 12px;
   padding: 8px;
+}
+
+.mini-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.mini-stats span {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 7px;
 }
 
 .funnel {
@@ -529,6 +564,31 @@ button {
     transform 160ms ease,
     box-shadow 160ms ease;
   width: 100%;
+}
+
+.empty-lane,
+.empty-state {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.empty-lane {
+  border: 1px dashed var(--line-strong);
+  border-radius: 7px;
+  padding: 10px;
+}
+
+.empty-state {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+  min-height: 220px;
+  text-align: center;
+}
+
+.empty-state p {
+  margin: 0;
 }
 
 .lead-card:hover,
