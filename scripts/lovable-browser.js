@@ -75,15 +75,16 @@ function chromePath() {
 function chromeUserDataDir() {
   return (
     config.LOVABLE_CHROME_USER_DATA_DIR ||
-    path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data')
+    path.join(process.cwd(), 'data', 'lovable-chrome-profile')
   );
 }
 
 async function openChromeForCdp() {
   const args = [
     `--remote-debugging-port=${new URL(config.LOVABLE_CDP_URL).port || '9222'}`,
+    '--remote-debugging-address=127.0.0.1',
     `--profile-directory=${config.LOVABLE_CHROME_PROFILE}`,
-    `--user-data-dir=${chromeUserDataDir()}`,
+    `--user-data-dir=${path.resolve(chromeUserDataDir())}`,
     'https://lovable.dev',
   ];
   const child = spawn(chromePath(), args, {
@@ -92,7 +93,7 @@ async function openChromeForCdp() {
   });
   child.unref();
   console.log('Opened real Chrome with remote debugging.');
-  console.log('If Chrome was already running, close all Chrome windows and run this again.');
+  console.log(`Chrome user data dir: ${path.resolve(chromeUserDataDir())}`);
   console.log(`CDP URL: ${config.LOVABLE_CDP_URL}`);
 }
 

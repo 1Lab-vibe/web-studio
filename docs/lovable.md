@@ -41,7 +41,7 @@ Use this while the account is not paid or does not expose API/MCP automation.
 
 Preferred flow for Google OAuth is real Chrome over CDP. This avoids Google rejecting Playwright's bundled browser.
 
-Close all Chrome windows first, then open real Chrome with remote debugging:
+Open real Chrome with a dedicated Lovable automation profile and remote debugging:
 
 ```bash
 npm run lovable:chrome
@@ -78,7 +78,7 @@ LOVABLE_USE_CHROME_PROFILE=true
 LOVABLE_CHROME_PROFILE=Default
 ```
 
-Close all regular Chrome windows before running this mode, because Chrome locks the profile while it is open.
+The dedicated profile lives in `./data/lovable-chrome-profile`. It is separate from your normal Chrome profile and is gitignored.
 
 The fallback opens Lovable, inserts the generated prompt, and tries `Ctrl+Enter`. If Lovable changes its UI or blocks automation, submit with the visible button manually. This is intentionally a fallback, not the production path.
 

@@ -1,0 +1,7 @@
+node_modules
+dist
+data
+output
+.git
+.env
+*.log

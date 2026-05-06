@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cron from 'node-cron';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { Store } from './store.js';
 import { Orchestrator } from './orchestrator.js';
@@ -88,6 +90,15 @@ app.post('/api/telegram/webhook', async (req, res) => {
   }
   res.json({ ok: true });
 });
+
+if (config.NODE_ENV === 'production') {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const distDir = path.join(root, 'dist');
+  app.use(express.static(distDir));
+  app.get(/^(?!\/api|\/mcp).*/, (req, res) => {
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
 
 if (config.AUTONOMY_ENABLED) {
   cron.schedule(config.AUTONOMY_CRON, async () => {

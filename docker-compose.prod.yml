@@ -1,0 +1,38 @@
+services:
+  web-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${WEB_STUDIO_IMAGE:-web-studio:latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 8787
+      PUBLIC_BASE_URL: https://webstudio.1true.ru
+      WEB_ORIGIN: https://webstudio.1true.ru
+      A1_API_URL: ${A1_API_URL:-https://api.1lab.one}
+      A1_MCP_URL: ${A1_MCP_URL:-https://mcp.1lab.one/mcp}
+      LOVABLE_STORAGE_STATE: /app/data/lovable-storage-state.json
+      LOVABLE_CHROME_USER_DATA_DIR: /app/data/lovable-chrome-profile
+      LOVABLE_HEADLESS: "false"
+    volumes:
+      - web_studio_data:/app/data
+    networks:
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.web-studio.rule=Host(`webstudio.1true.ru`)"
+      - "traefik.http.routers.web-studio.entrypoints=websecure"
+      - "traefik.http.routers.web-studio.tls=true"
+      - "traefik.http.routers.web-studio.tls.certresolver=letsencrypt"
+      - "traefik.http.services.web-studio.loadbalancer.server.port=8787"
+
+volumes:
+  web_studio_data:
+
+networks:
+  traefik-public:
+    external: true
