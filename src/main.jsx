@@ -507,8 +507,13 @@ function FunnelBoard({ leads, activeLeadId, onSelect }) {
     () => [...leads].sort((a, b) => (b.fitScore ?? b.priority ?? 0) - (a.fitScore ?? a.priority ?? 0)),
     [leads],
   );
-  const visibleLeads = sortedLeads.slice(0, limit);
-  const hiddenCount = Math.max(0, sortedLeads.length - visibleLeads.length);
+  const visibleLeads = useMemo(() => {
+    const top = sortedLeads.slice(0, limit);
+    const active = sortedLeads.find((lead) => lead.id === activeLeadId);
+    if (active && !top.some((lead) => lead.id === active.id)) return [...top, active];
+    return top;
+  }, [activeLeadId, limit, sortedLeads]);
+  const hiddenCount = Math.max(0, sortedLeads.length - new Set(visibleLeads.map((lead) => lead.id)).size);
   return (
     <>
       <section className="funnel" aria-label="Воронка лидов">
@@ -557,7 +562,7 @@ function FunnelBoard({ leads, activeLeadId, onSelect }) {
       </section>
       {hiddenCount > 0 && (
         <div className="funnel-controls">
-          <span>Скрыто {hiddenCount} из {sortedLeads.length}, сортировка по FitScore</span>
+          <span>Скрыто {hiddenCount} из {sortedLeads.length}, сортировка по FitScore. Активный лид показывается всегда.</span>
           <button type="button" onClick={() => setLimit((current) => Math.min(sortedLeads.length, current + 10))}>Показать еще 10</button>
           <button type="button" onClick={() => setLimit(sortedLeads.length)}>Показать все</button>
         </div>

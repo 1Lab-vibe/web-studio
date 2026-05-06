@@ -9,6 +9,8 @@ import { enrichContacts } from './services/contactEnrichment.js';
 import { approvalKeyboard, sendTelegram } from './services/telegram.js';
 import { enrichLeadScore, topLovableCandidates } from './services/scoring.js';
 
+const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
+
 const nextLane = {
   Разведка: { agent: 'Diagnoser', lane: 'Диагноз' },
   Диагноз: { agent: 'Builder', lane: 'Lovable' },
@@ -86,13 +88,14 @@ export class Orchestrator {
 
   async tick() {
     const scout = await this.scout();
+    const stalledLovable = await this.inspectStalledLovableHandoffs();
     const topActions = this.topActions(12);
     const advanced = [];
     for (const action of topActions.filter((item) => item.autoRunnable)) {
       const result = await this.advanceLead(action.lead.id);
       if (result?.ok) advanced.push(result.lead);
     }
-    return { ok: true, scout, advanced, topActions };
+    return { ok: true, scout, stalledLovable, advanced, topActions };
   }
 
   topActions(limit = 10) {
@@ -113,6 +116,40 @@ export class Orchestrator {
   lovableCandidates() {
     const remaining = Math.max(0, config.DAILY_MOCKUP_LIMIT - Number(this.store.state.metrics.mockupsToday ?? 0));
     return topLovableCandidates(this.store.listLeads(), remaining);
+  }
+
+  async inspectStalledLovableHandoffs() {
+    const stalled = this.store
+      .listLeads()
+      .filter((lead) => lead.lane === 'Lovable' && lead.mockup?.status === 'waiting_lovable_project')
+      .filter((lead) => lovableHandoffAgeMs(lead) >= LOVABLE_HANDOFF_STALE_MS);
+
+    const alerted = [];
+    for (const lead of stalled) {
+      if (lead.mockup?.handoffAlertedAt) continue;
+      const handoff = lovableHandoffRequest(lead);
+      await this.store.updateLead(lead.id, {
+        status: 'handoff_required',
+        mockup: {
+          ...(lead.mockup ?? {}),
+          handoffStatus: 'stalled',
+          handoffPrompt: handoff.prompt,
+          handoffAlertedAt: new Date().toISOString(),
+        },
+      });
+      await this.store.addEvent(lead.id, 'lovable.handoff_stalled', 'Lovable project is waiting for attach_lovable_url or deploy_static_project');
+      await sendTelegram(
+        [
+          '<b>Lovable handoff застрял</b>',
+          `${lead.name} · ${lead.city} · ${lead.niche}`,
+          `Lead ID: <code>${lead.id}</code>`,
+          'Сайт, вероятно, создан в Lovable, но Web Studio не получила URL или файлы.',
+          'В Lovable нужно вызвать MCP tool attach_lovable_url или deploy_static_project.',
+        ].join('\n'),
+      );
+      alerted.push({ leadId: lead.id, name: lead.name });
+    }
+    return { ok: true, stalled: stalled.length, alerted };
   }
 
   async advanceLane(lane, limit = 50) {
@@ -357,6 +394,9 @@ export class Orchestrator {
 
 function actionForLead(lead, topLovableIds) {
   if (lead.status === 'waiting_approval') return { action: 'approve_or_reject', label: 'Ждет approval', score: 100, autoRunnable: false };
+  if (lead.lane === 'Lovable' && (lead.mockup?.handoffStatus === 'stalled' || lovableHandoffAgeMs(lead) >= LOVABLE_HANDOFF_STALE_MS)) {
+    return { action: 'lovable_handoff_stalled', label: 'Lovable: нужен URL/код', score: 100, autoRunnable: false };
+  }
   if (lead.status === 'needs_review') return { action: 'review_message', label: 'Нужна ручная правка сообщения', score: 90, autoRunnable: false };
   if (lead.lane === 'Диагноз' && topLovableIds.has(lead.id)) return { action: 'build_lovable', label: 'Сделать сайт в Lovable', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Диагноз') return { action: 'hold_lovable', label: 'Ждет quota Lovable', score: lead.fitScore ?? 0, autoRunnable: false };
@@ -369,4 +409,25 @@ function actionForLead(lead, topLovableIds) {
 
 function formatRub(value) {
   return `${Number(value ?? 0).toLocaleString('ru-RU')} ₽`;
+}
+
+function lovableHandoffAgeMs(lead) {
+  const updatedAt = Date.parse(lead.mockup?.updatedAt || lead.updatedAt || lead.createdAt || '');
+  return Number.isFinite(updatedAt) ? Date.now() - updatedAt : 0;
+}
+
+function lovableHandoffRequest(lead) {
+  return {
+    prompt: [
+      `The landing page for Web Studio lead "${lead.name}" has already been created in this Lovable project.`,
+      'Do not rebuild from scratch and do not resend the original generation prompt.',
+      'Please hand the result back to Web Studio now.',
+      '',
+      'Preferred: publish the project and call Web Studio Orchestrator MCP tool attach_lovable_url.',
+      `Call attach_lovable_url with leadId "${lead.id}", url, publishedUrl if available, projectName, and short notes.`,
+      '',
+      'If this project can export files, call deploy_static_project instead with leadId, projectName, and all static files.',
+      'Web Studio will deploy it under /projects/<slug>, then make screenshots/video and continue the pipeline.',
+    ].join('\n'),
+  };
 }

@@ -184,6 +184,34 @@ export function registerMcpRoutes(app, store) {
     );
 
     server.registerTool(
+      'get_lovable_handoff_request',
+      {
+        title: 'Get Lovable handoff request',
+        description: 'Return a handoff-only prompt for an existing Lovable project that must send URL or files back to Web Studio.',
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: { leadId: z.string() },
+      },
+      async ({ leadId }) => {
+        const lead = store.getLead(leadId);
+        if (!lead) return mcpText({ error: 'Lead not found' });
+        return mcpText({
+          leadId,
+          prompt: [
+            `The landing page for Web Studio lead "${lead.name}" has already been created in this Lovable project.`,
+            'Do not rebuild from scratch and do not resend the original generation prompt.',
+            'Please hand the result back to Web Studio now.',
+            '',
+            'Preferred: publish the project and call Web Studio Orchestrator MCP tool attach_lovable_url.',
+            `Call attach_lovable_url with leadId "${lead.id}", url, publishedUrl if available, projectName, and short notes.`,
+            '',
+            'If this project can export files, call deploy_static_project instead with leadId, projectName, and all static files.',
+            'Web Studio will deploy it under /projects/<slug>, then make screenshots/video and continue the pipeline.',
+          ].join('\n'),
+        });
+      },
+    );
+
+    server.registerTool(
       'deploy_static_project',
       {
         title: 'Deploy static project',
@@ -226,7 +254,7 @@ export function registerMcpRoutes(app, store) {
             notes: notes || lead.mockup?.notes || '',
             updatedAt: new Date().toISOString(),
           },
-          lane: 'Р’РёРґРµРѕ',
+          lane: 'Видео',
           owner: 'Filmer',
           status: 'in_progress',
         });
@@ -245,7 +273,7 @@ export function registerMcpRoutes(app, store) {
           await store.addEvent(leadId, 'video.failed', `Filmer could not render deployed project: ${video.reason}`);
           return mcpText({ ok: false, publicUrl, slug, files: written, lead, video });
         }
-        lead = await store.updateLead(leadId, { video, lane: 'РџСЂРѕРІРµСЂРєР°', owner: 'Checker', status: 'in_progress' });
+        lead = await store.updateLead(leadId, { video, lane: 'Проверка', owner: 'Checker', status: 'in_progress' });
         await store.addEvent(leadId, 'video.created', `Filmer rendered deployed project: ${video.videoUrl}`);
         await store.addEvent(leadId, 'lead.advanced', 'Lead moved to Checker after static project deploy');
         await syncA1CrmLead(lead, 'project_deployed');
