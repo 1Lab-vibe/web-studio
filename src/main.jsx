@@ -294,6 +294,10 @@ function App() {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) {
+      if (response.status === 429 && result.blockedUntil) {
+        const until = new Date(result.blockedUntil).toLocaleString('ru-RU');
+        throw new Error(`Слишком много попыток. Вход заблокирован до ${until}`);
+      }
       throw new Error(result.error || 'Не получилось войти');
     }
     await loadAuth();

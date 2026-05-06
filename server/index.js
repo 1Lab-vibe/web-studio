@@ -16,11 +16,12 @@ const store = new Store(config.DATA_DIR);
 await store.load();
 const orchestrator = new Orchestrator(store);
 
+app.set('trust proxy', true);
 app.use(helmet());
 app.use(cors({ origin: config.WEB_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 registerMcpRoutes(app, store);
-registerAuth(app);
+registerAuth(app, store);
 
 app.get('/api/health', (req, res) => {
   res.json({

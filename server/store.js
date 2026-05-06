@@ -6,6 +6,10 @@ const initialState = {
   leads: [],
   events: [],
   approvals: [],
+  authSecurity: {
+    clients: {},
+    attempts: [],
+  },
   metrics: {
     mockupsToday: 0,
     scannedToday: 0,
@@ -30,6 +34,14 @@ export class Store {
     } catch {
       await this.save();
     }
+    this.state.authSecurity ??= structuredClone(initialState.authSecurity);
+    this.state.authSecurity.clients ??= {};
+    this.state.authSecurity.attempts ??= [];
+    this.state.events ??= [];
+    this.state.leads ??= [];
+    this.state.approvals ??= [];
+    this.state.metrics ??= structuredClone(initialState.metrics);
+    this.state.locks ??= {};
     return this.state;
   }
 
@@ -136,5 +148,30 @@ export class Store {
 
   listEvents(leadId) {
     return leadId ? this.state.events.filter((event) => event.leadId === leadId) : this.state.events;
+  }
+
+  getAuthClient(key) {
+    this.state.authSecurity ??= structuredClone(initialState.authSecurity);
+    return this.state.authSecurity.clients[key] ?? null;
+  }
+
+  async setAuthClient(key, value) {
+    this.state.authSecurity ??= structuredClone(initialState.authSecurity);
+    this.state.authSecurity.clients[key] = value;
+    await this.save();
+    return value;
+  }
+
+  async addAuthAttempt(input) {
+    this.state.authSecurity ??= structuredClone(initialState.authSecurity);
+    const attempt = {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      ...input,
+    };
+    this.state.authSecurity.attempts.unshift(attempt);
+    this.state.authSecurity.attempts = this.state.authSecurity.attempts.slice(0, 1000);
+    await this.save();
+    return attempt;
   }
 }
