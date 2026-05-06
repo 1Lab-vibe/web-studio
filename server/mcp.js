@@ -76,6 +76,10 @@ function landingPrompt(lead) {
     ...brief.pageRequirements.map((item) => `- ${item}`),
     '',
     'Use real Russian UI copy. Keep the design practical for this exact industry.',
+    '',
+    'After the landing page is created, use the connected Web Studio Orchestrator MCP tool attach_lovable_url.',
+    `Call attach_lovable_url with leadId "${lead.id}", the current Lovable project or preview URL, and short notes.`,
+    'This write-back is required so the orchestrator can move the lead from Lovable to Video.',
   ].join('\n');
 }
 
