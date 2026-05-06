@@ -14,6 +14,7 @@ import { handleA1Webhook } from './services/a1Webhook.js';
 import { handleCustomerTelegramMessage } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
 import { deployLeadPublicUrlProject } from './services/projectPublisher.js';
+import { listLovableTools, lovableOfficialConfigured } from './services/lovableOfficialMcp.js';
 
 const app = express();
 const store = new Store(config.DATA_DIR);
@@ -56,6 +57,7 @@ app.get('/api/health', (req, res) => {
       a1Api: Boolean(config.A1_API_URL),
       a1Mcp: Boolean(config.A1_MCP_URL),
       lovableMcp: Boolean(config.LOVABLE_MCP_URL),
+      lovableOfficialMcp: lovableOfficialConfigured(),
       telegram: Boolean(config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID),
       webAuth: Boolean(config.WEB_AUTH_LOGIN && config.WEB_AUTH_PASSWORD),
     },
@@ -119,6 +121,11 @@ app.get('/api/approvals', (req, res) => res.json({ ok: true, data: store.listApp
 app.get('/api/outreach-queue', (req, res) => res.json({ ok: true, data: store.listOutreachQueue() }));
 app.get('/api/orchestrator/top-actions', (req, res) => {
   res.json({ ok: true, data: orchestrator.topActions(Number(req.query.limit ?? 12)) });
+});
+
+app.get('/api/lovable/tools', async (req, res) => {
+  const result = await listLovableTools();
+  res.status(result.ok || result.skipped ? 200 : 502).json(result);
 });
 
 app.post('/api/a1/webhook', async (req, res) => {

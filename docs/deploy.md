@@ -76,4 +76,7 @@ TELEGRAM_BOT_TOKEN=<token>
 TELEGRAM_CHAT_ID=<chat id>
 A1_API_URL=<A1 API URL>
 A1_MCP_URL=<A1 MCP URL>
+LOVABLE_API_KEY=<lov_ workspace api key, optional for official Lovable MCP>
+LOVABLE_WORKSPACE_ID=<workspace id, optional>
+LOVABLE_AUTO_DEPLOY=true
 ```

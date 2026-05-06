@@ -2,7 +2,44 @@
 
 This project supports two Lovable paths.
 
-## 1. Proper MCP connector
+## 1. Official Lovable MCP server
+
+Use this for autonomous create/publish without clicking the Lovable UI.
+
+Lovable endpoint:
+
+```text
+https://mcp.lovable.dev
+```
+
+Required:
+
+- Lovable Pro or Business plan.
+- Workspace API key from Lovable workspace settings. It starts with `lov_`.
+- Workspace ID from `list_workspaces`.
+
+Web Studio env:
+
+```text
+LOVABLE_API_KEY=lov_...
+LOVABLE_WORKSPACE_ID=...
+LOVABLE_OFFICIAL_MCP_URL=https://mcp.lovable.dev
+LOVABLE_AUTO_DEPLOY=true
+```
+
+When configured, Web Studio calls:
+
+1. `create_project` with the lead landing prompt.
+2. `deploy_project` when `LOVABLE_AUTO_DEPLOY=true`.
+3. Coder deploys the returned public URL under `/projects/<slug>`.
+
+Smoke endpoint:
+
+```text
+GET /api/lovable/tools
+```
+
+## 2. Web Studio MCP connector inside Lovable
 
 Use this when the Lovable account supports custom MCP servers.
 
@@ -42,7 +79,7 @@ Lovable can read lead context and then write the result back in three ways:
 - `deploy_static_project` when Lovable can export static files directly.
 - `attach_lovable_repo` only when there is a real public GitHub repository URL. Do not pass `lovable.code.storage` internal remotes; Web Studio cannot read them.
 
-## 2. Browser automation fallback
+## 3. Browser automation fallback
 
 Use this while the account is not paid or does not expose API/MCP automation.
 

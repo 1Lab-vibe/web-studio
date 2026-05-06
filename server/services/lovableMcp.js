@@ -1,4 +1,5 @@
 import { landingPrompt } from '../mcp.js';
+import { createAndMaybeDeployLovableProject, lovableOfficialConfigured } from './lovableOfficialMcp.js';
 
 export function lovableBuildUrl(prompt) {
   return `https://lovable.dev/?autosubmit=true#prompt=${encodeURIComponent(prompt)}`;
@@ -6,6 +7,39 @@ export function lovableBuildUrl(prompt) {
 
 export async function prepareLovableMockup(lead) {
   const prompt = landingPrompt(lead);
+  if (lovableOfficialConfigured()) {
+    const result = await createAndMaybeDeployLovableProject({ lead, prompt });
+    if (result.ok) {
+      return {
+        ok: Boolean(result.publishedUrl || result.previewUrl),
+        skipped: false,
+        mode: 'lovable_official_mcp',
+        status: result.publishedUrl ? 'public_url_attached' : 'waiting_lovable_project',
+        projectId: result.projectId,
+        editorUrl: result.editorUrl || '',
+        previewUrl: result.previewUrl || '',
+        url: result.publishedUrl || result.previewUrl || '',
+        publishedUrl: result.publishedUrl || '',
+        handoffStatus: result.publishedUrl ? 'url_received' : 'preview_received',
+        reason: result.publishedUrl
+          ? 'Lovable official MCP created and deployed the project.'
+          : 'Lovable official MCP created the project. Deployment is disabled or did not return a public URL.',
+        prompt,
+        raw: result,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    return {
+      ok: false,
+      skipped: false,
+      mode: 'lovable_official_mcp',
+      status: 'failed',
+      reason: result.reason || result.error || 'Lovable official MCP failed',
+      prompt,
+      raw: result,
+      updatedAt: new Date().toISOString(),
+    };
+  }
   return {
     ok: false,
     skipped: true,

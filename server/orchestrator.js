@@ -312,6 +312,13 @@ export class Orchestrator {
         const patch = { lane: next.lane, owner: next.agent, status: 'in_progress' };
         if (lead.lane === 'Диагноз') {
           patch.mockup = await prepareLovableMockup(lead);
+          if (patch.mockup?.status === 'public_url_attached') {
+            patch.owner = 'Coder';
+            patch.status = 'public_url_attached';
+          }
+          if (patch.mockup?.status === 'failed') {
+            patch.status = 'needs_review';
+          }
           this.store.state.metrics.mockupsToday = Number(this.store.state.metrics.mockupsToday ?? 0) + 1;
         }
         await this.store.updateLead(lead.id, patch);
