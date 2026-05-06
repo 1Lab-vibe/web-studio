@@ -266,7 +266,7 @@ function App() {
   );
   const activeLead = visibleLeads.find((lead) => lead.id === activeLeadId) || visibleLeads[0] || leads[0];
   const activeAgent = agents.find((agent) => agent.name === activeLead.owner);
-  const needsApproval = activeLead.deal > 3000;
+  const needsApproval = (activeLead.deal ?? 0) > 300000;
   const nichePaused = pausedNiches.includes(activeLead.niche) || activeLead.replyRate < 12;
 
   const togglePause = (niche) => {
@@ -431,7 +431,7 @@ function RuleStack() {
       </div>
       <div className="rule">
         <CheckCircle2 size={16} />
-        Человек нужен только при сделке выше $3,000
+        Человек нужен только при сделке выше 300 000 ₽
       </div>
       <div className="rule warning">
         <PauseCircle size={16} />
@@ -587,7 +587,7 @@ function LeadInspector({ lead, needsApproval, nichePaused }) {
       <div className="approval-stack">
         <div className={needsApproval ? 'gate alert' : 'gate'}>
           <LockKeyhole size={16} />
-          Сделка ${deal.toLocaleString('en-US')} {needsApproval ? 'требует approval' : 'в лимите'}
+          Сделка {deal.toLocaleString('ru-RU')} ₽ {needsApproval ? 'требует approval' : 'в лимите'}
         </div>
         <div className={nichePaused ? 'gate alert' : 'gate'}>
           <Gauge size={16} />

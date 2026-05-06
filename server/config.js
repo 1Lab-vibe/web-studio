@@ -24,7 +24,7 @@ const envSchema = z.object({
   MAX_REVIEWS: z.coerce.number().default(50),
   MIN_RATING: z.coerce.number().default(4.4),
   DAILY_MOCKUP_LIMIT: z.coerce.number().default(5),
-  DEAL_APPROVAL_USD: z.coerce.number().default(3000),
+  DEAL_APPROVAL_RUB: z.coerce.number().default(300000),
   MIN_REPLY_RATE: z.coerce.number().default(12),
   A1_API_URL: z.string().default('http://localhost:4000'),
   A1_API_KEY: z.string().optional().default(''),
@@ -42,6 +42,10 @@ const envSchema = z.object({
   LOVABLE_PASSWORD: z.string().optional().default(''),
   LOVABLE_STORAGE_STATE: z.string().default('./data/lovable-storage-state.json'),
   LOVABLE_HEADLESS: boolFromEnv,
+  LOVABLE_BROWSER_CHANNEL: z.string().optional().default(''),
+  LOVABLE_USE_CHROME_PROFILE: boolFromEnv,
+  LOVABLE_CHROME_USER_DATA_DIR: z.string().optional().default(''),
+  LOVABLE_CHROME_PROFILE: z.string().default('Default'),
 });
 
 export const config = envSchema.parse(process.env);

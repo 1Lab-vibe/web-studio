@@ -49,13 +49,14 @@ export async function scoutYandexMaps() {
   for (const city of csv(config.SCOUT_CITIES)) {
     for (const niche of csv(config.SCOUT_NICHES)) {
       const url = new URL('https://search-maps.yandex.ru/v1/');
-      url.searchParams.set('apikey', config.YANDEX_MAPS_API_KEY);
+      const authHeaders = yandexAuthHeaders();
+      url.searchParams.set('apikey', yandexApiKeyValue());
       url.searchParams.set('text', `${niche} ${city}`);
       url.searchParams.set('lang', config.YANDEX_MAPS_LANG);
       url.searchParams.set('type', 'biz');
       url.searchParams.set('results', String(config.YANDEX_MAPS_RESULTS));
 
-      const response = await fetch(url);
+      const response = await fetch(url, { headers: authHeaders });
       if (!response.ok) {
         throw new Error(`Yandex Maps API failed: ${response.status} ${await response.text()}`);
       }
@@ -83,6 +84,17 @@ export async function scoutYandexMaps() {
   }
 
   return { ok: true, leads };
+}
+
+function yandexAuthHeaders() {
+  const value = config.YANDEX_MAPS_API_KEY.trim();
+  if (/^(Api-Key|Bearer)\s+/i.test(value)) return { Authorization: value };
+  if (/^Api-Key:/i.test(value)) return { Authorization: value.replace(/^Api-Key:/i, 'Api-Key').trim() };
+  return {};
+}
+
+function yandexApiKeyValue() {
+  return config.YANDEX_MAPS_API_KEY.trim().replace(/^(Api-Key|Bearer)[:\s]+/i, '').trim();
 }
 
 export function scoreLead(lead) {

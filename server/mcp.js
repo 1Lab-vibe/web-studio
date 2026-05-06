@@ -56,7 +56,7 @@ function landingBrief(lead) {
       source: 'Yandex Maps',
       owner: lead.owner,
       noDuplicateAgentTouch: true,
-      humanApprovalAboveUsd: config.DEAL_APPROVAL_USD,
+      humanApprovalAboveRub: config.DEAL_APPROVAL_RUB,
       pauseNicheBelowReplyRate: config.MIN_REPLY_RATE,
     },
   };

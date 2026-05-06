@@ -45,6 +45,21 @@ First save a browser session:
 npm run lovable:login
 ```
 
+By default the fallback uses system Chrome:
+
+```text
+LOVABLE_BROWSER_CHANNEL=chrome
+```
+
+To reuse your already authorized local Chrome profile:
+
+```text
+LOVABLE_USE_CHROME_PROFILE=true
+LOVABLE_CHROME_PROFILE=Default
+```
+
+Close all regular Chrome windows before running this mode, because Chrome locks the profile while it is open.
+
 Then create from a lead:
 
 ```bash

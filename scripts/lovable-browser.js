@@ -14,9 +14,25 @@ function bool(value) {
 async function browserContext() {
   const storageStatePath = path.resolve(config.LOVABLE_STORAGE_STATE);
   await mkdir(path.dirname(storageStatePath), { recursive: true });
-  const browser = await chromium.launch({
+  const launchOptions = {
     headless: bool(process.env.LOVABLE_HEADLESS || config.LOVABLE_HEADLESS),
-  });
+  };
+  if (config.LOVABLE_BROWSER_CHANNEL) {
+    launchOptions.channel = config.LOVABLE_BROWSER_CHANNEL;
+  }
+
+  if (config.LOVABLE_USE_CHROME_PROFILE) {
+    const userDataDir =
+      config.LOVABLE_CHROME_USER_DATA_DIR ||
+      path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data');
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      ...launchOptions,
+      args: [`--profile-directory=${config.LOVABLE_CHROME_PROFILE}`],
+    });
+    return { browser: context.browser(), context, storageStatePath };
+  }
+
+  const browser = await chromium.launch(launchOptions);
   const contextOptions = {};
   try {
     await access(storageStatePath);
@@ -33,11 +49,19 @@ async function login() {
   const page = await context.newPage();
   await page.goto('https://lovable.dev', { waitUntil: 'domcontentloaded' });
   console.log('Lovable opened. Log in manually if needed, then return here.');
-  console.log('Waiting 120 seconds before saving browser session...');
-  await page.waitForTimeout(120_000);
-  await context.storageState({ path: storageStatePath });
+  console.log('Saving browser session every 5 seconds for 120 seconds...');
+  for (let i = 0; i < 24; i += 1) {
+    try {
+      await page.waitForTimeout(5_000);
+      await context.storageState({ path: storageStatePath });
+      console.log(`Saved Lovable session checkpoint ${i + 1}/24`);
+    } catch (error) {
+      console.log(`Browser closed before final checkpoint: ${error.message}`);
+      break;
+    }
+  }
   console.log(`Saved Lovable session to ${storageStatePath}`);
-  await browser.close();
+  await browser?.close().catch(() => null);
 }
 
 async function fetchPrompt() {

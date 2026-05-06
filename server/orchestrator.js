@@ -88,8 +88,12 @@ export class Orchestrator {
   }
 
   async checkGates(lead) {
-    if ((lead.deal ?? 0) > config.DEAL_APPROVAL_USD) {
-      return this.requestApproval(lead, 'deal_limit', `Сделка $${lead.deal} выше лимита $${config.DEAL_APPROVAL_USD}`);
+    if ((lead.deal ?? 0) > config.DEAL_APPROVAL_RUB) {
+      return this.requestApproval(
+        lead,
+        'deal_limit',
+        `Сделка ${formatRub(lead.deal)} выше лимита ${formatRub(config.DEAL_APPROVAL_RUB)}`,
+      );
     }
     if ((lead.replyRate ?? config.MIN_REPLY_RATE) < config.MIN_REPLY_RATE) {
       return this.requestApproval(lead, 'reply_rate', `Reply rate ${lead.replyRate}% ниже ${config.MIN_REPLY_RATE}%`);
@@ -116,4 +120,8 @@ export class Orchestrator {
     );
     return { ok: false, waitingApproval: true, approval };
   }
+}
+
+function formatRub(value) {
+  return `${Number(value ?? 0).toLocaleString('ru-RU')} ₽`;
 }
