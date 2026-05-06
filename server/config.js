@@ -46,6 +46,7 @@ const envSchema = z.object({
   LOVABLE_USE_CHROME_PROFILE: boolFromEnv,
   LOVABLE_CHROME_USER_DATA_DIR: z.string().optional().default(''),
   LOVABLE_CHROME_PROFILE: z.string().default('Default'),
+  LOVABLE_CDP_URL: z.string().default('http://127.0.0.1:9222'),
 });
 
 export const config = envSchema.parse(process.env);

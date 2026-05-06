@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { chromium } from 'playwright';
 import { access, mkdir } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { config } from '../server/config.js';
 
@@ -64,6 +65,55 @@ async function login() {
   await browser?.close().catch(() => null);
 }
 
+function chromePath() {
+  return (
+    process.env.CHROME_PATH ||
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  );
+}
+
+function chromeUserDataDir() {
+  return (
+    config.LOVABLE_CHROME_USER_DATA_DIR ||
+    path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data')
+  );
+}
+
+async function openChromeForCdp() {
+  const args = [
+    `--remote-debugging-port=${new URL(config.LOVABLE_CDP_URL).port || '9222'}`,
+    `--profile-directory=${config.LOVABLE_CHROME_PROFILE}`,
+    `--user-data-dir=${chromeUserDataDir()}`,
+    'https://lovable.dev',
+  ];
+  const child = spawn(chromePath(), args, {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+  console.log('Opened real Chrome with remote debugging.');
+  console.log('If Chrome was already running, close all Chrome windows and run this again.');
+  console.log(`CDP URL: ${config.LOVABLE_CDP_URL}`);
+}
+
+async function connectCdp() {
+  const storageStatePath = path.resolve(config.LOVABLE_STORAGE_STATE);
+  await mkdir(path.dirname(storageStatePath), { recursive: true });
+  const browser = await chromium.connectOverCDP(config.LOVABLE_CDP_URL);
+  const context = browser.contexts()[0] || (await browser.newContext());
+  return { browser, context, storageStatePath };
+}
+
+async function captureCdpSession() {
+  const { browser, context, storageStatePath } = await connectCdp();
+  const page = context.pages()[0] || (await context.newPage());
+  await page.goto('https://lovable.dev', { waitUntil: 'domcontentloaded' }).catch(() => null);
+  await page.waitForTimeout(2_000);
+  await context.storageState({ path: storageStatePath });
+  console.log(`Captured Lovable/Chrome session to ${storageStatePath}`);
+  await browser.close();
+}
+
 async function fetchPrompt() {
   if (!leadId) throw new Error('Pass lead id: npm run lovable:create -- <leadId>');
   const response = await fetch(`http://127.0.0.1:${config.PORT}/api/leads`);
@@ -89,7 +139,8 @@ async function fetchPrompt() {
 
 async function createProject() {
   const prompt = await fetchPrompt();
-  const { browser, context } = await browserContext();
+  const useCdp = process.env.LOVABLE_USE_CDP === 'true';
+  const { browser, context } = useCdp ? await connectCdp() : await browserContext();
   const page = await context.newPage();
   await page.goto('https://lovable.dev', { waitUntil: 'domcontentloaded' });
 
@@ -101,15 +152,21 @@ async function createProject() {
   console.log('Prompt:');
   console.log(prompt);
   await page.waitForTimeout(60_000);
-  await browser.close();
+  await browser.close().catch(() => null);
 }
 
-if (mode === 'login') {
+if (mode === 'chrome') {
+  await openChromeForCdp();
+} else if (mode === 'capture') {
+  await captureCdpSession();
+} else if (mode === 'login') {
   await login();
 } else if (mode === 'create') {
   await createProject();
 } else {
   console.log('Usage:');
+  console.log('  npm run lovable:chrome');
+  console.log('  npm run lovable:capture');
   console.log('  npm run lovable:login');
   console.log('  npm run lovable:create -- <leadId>');
 }

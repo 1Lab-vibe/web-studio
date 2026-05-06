@@ -4,6 +4,8 @@
     "dev": "vite --host 127.0.0.1",
     "dev:api": "node server/index.js",
     "dev:all": "node server/index.js",
+    "lovable:chrome": "node scripts/lovable-browser.js chrome",
+    "lovable:capture": "node scripts/lovable-browser.js capture",
     "lovable:login": "node scripts/lovable-browser.js login",
     "lovable:create": "node scripts/lovable-browser.js create",
     "build": "vite build",

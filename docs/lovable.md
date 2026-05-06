@@ -39,7 +39,27 @@ Lovable can read lead context and then write the created Lovable URL back throug
 
 Use this while the account is not paid or does not expose API/MCP automation.
 
-First save a browser session:
+Preferred flow for Google OAuth is real Chrome over CDP. This avoids Google rejecting Playwright's bundled browser.
+
+Close all Chrome windows first, then open real Chrome with remote debugging:
+
+```bash
+npm run lovable:chrome
+```
+
+Log in to Lovable through Google in that Chrome window. Then capture the session:
+
+```bash
+npm run lovable:capture
+```
+
+Then create from a lead:
+
+```bash
+LOVABLE_USE_CDP=true npm run lovable:create -- <leadId>
+```
+
+The older Playwright-launched login mode still exists, but Google OAuth can reject it:
 
 ```bash
 npm run lovable:login
@@ -59,12 +79,6 @@ LOVABLE_CHROME_PROFILE=Default
 ```
 
 Close all regular Chrome windows before running this mode, because Chrome locks the profile while it is open.
-
-Then create from a lead:
-
-```bash
-npm run lovable:create -- <leadId>
-```
 
 The fallback opens Lovable, inserts the generated prompt, and tries `Ctrl+Enter`. If Lovable changes its UI or blocks automation, submit with the visible button manually. This is intentionally a fallback, not the production path.
 
