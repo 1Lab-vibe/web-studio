@@ -5,6 +5,7 @@ import { diagnoseLead, evaluatePitch } from './services/openaiAgent.js';
 import { createA1LeadTask } from './services/a1Client.js';
 import { prepareLovableMockup } from './services/lovableMcp.js';
 import { renderLeadVideo } from './services/filmer.js';
+import { enrichContacts } from './services/contactEnrichment.js';
 import { approvalKeyboard, sendTelegram } from './services/telegram.js';
 import { enrichLeadScore, topLovableCandidates } from './services/scoring.js';
 
@@ -195,6 +196,22 @@ export class Orchestrator {
       }
 
       if (lead.lane === 'Отправка') {
+        lead.contacts = await enrichContacts(lead);
+        if (!lead.contacts.channels.some((channel) => channel.type === 'email')) {
+          lead.status = 'needs_review';
+          await this.store.addEvent(lead.id, 'contacts.needs_review', 'Email не найден. Нужен ручной выбор: звонок для уточнения контакта или поиск контактов.');
+          await sendTelegram(
+            [
+              '<b>Нужен выбор канала отправки</b>',
+              `${lead.name} · ${lead.city} · ${lead.niche}`,
+              `Телефон: ${lead.phone || 'нет'}`,
+              'Email не найден. Автоматическая рекламная отправка на телефон без предварительного согласия рискованна.',
+              'Рекомендация: ручной звонок для уточнения ЛПР/email или дополнительный поиск контактов.',
+            ].join('\n'),
+          );
+          await this.store.save();
+          return { ok: false, held: true, reason: 'No compliant outbound channel found', lead };
+        }
         const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
         if (reserved.reserved < 1) return { ok: false, held: true, reason: 'Daily send limit reached', lead };
         const item = await this.store.addOutreachQueueItem({

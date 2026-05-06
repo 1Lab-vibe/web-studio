@@ -21,6 +21,7 @@ const envSchema = z.object({
   YANDEX_MAPS_RESULTS: z.coerce.number().default(25),
   LEAD_SOURCE_PROVIDER: z.enum(['yandex', 'google', 'both']).default('yandex'),
   GOOGLE_MAPS_API_KEY: z.string().optional().default(''),
+  GOOGLE_CSE_ID: z.string().optional().default(''),
   GOOGLE_MAPS_RESULTS: z.coerce.number().default(20),
   GOOGLE_DAILY_SEARCH_LIMIT: z.coerce.number().default(100),
   SCOUT_CITIES: z.string().default('Москва,Казань,Екатеринбург,Краснодар'),

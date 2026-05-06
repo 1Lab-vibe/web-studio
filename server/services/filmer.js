@@ -33,7 +33,15 @@ async function captureScreenshots(lead, url, dir) {
   const shots = [];
   try {
     const page = await browser.newPage({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 });
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 90000 });
+    const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 90000 });
+    const status = response?.status() ?? 0;
+    const currentUrl = page.url();
+    const title = await page.title().catch(() => '');
+    const bodyText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+    const forbidden = status >= 400 || /403|forbidden|auth-bridge|sign in|login/i.test(`${status} ${currentUrl} ${title} ${bodyText.slice(0, 300)}`);
+    if (forbidden) {
+      throw new Error(`Preview is not publicly renderable from server: status=${status}, url=${currentUrl}, title=${title || 'empty'}`);
+    }
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const scrollHeight = await page.evaluate(() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));
     const maxScroll = Math.max(0, scrollHeight - 1920);
