@@ -22,6 +22,7 @@ app.use(cors({ origin: config.WEB_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 registerMcpRoutes(app, store);
 registerAuth(app, store);
+app.use('/renders', express.static(path.resolve(config.DATA_DIR, 'renders')));
 
 app.get('/api/health', (req, res) => {
   res.json({

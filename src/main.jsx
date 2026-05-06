@@ -607,6 +607,12 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDecision }) {
           Открыть Lovable preview
         </a>
       )}
+      {lead.video?.videoUrl && (
+        <a className="lovable-link primary" href={lead.video.videoUrl} target="_blank" rel="noreferrer">
+          <Film size={16} />
+          Открыть видео Filmer
+        </a>
+      )}
 
       <div className="fact-grid">
         <Fact label="Рейтинг" value={`${lead.rating || 0}★`} />

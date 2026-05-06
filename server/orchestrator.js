@@ -4,6 +4,7 @@ import { plannedGoogleSearches, scoutGooglePlaces } from './services/googlePlace
 import { diagnoseLead, evaluatePitch } from './services/openaiAgent.js';
 import { createA1LeadTask } from './services/a1Client.js';
 import { prepareLovableMockup } from './services/lovableMcp.js';
+import { renderLeadVideo } from './services/filmer.js';
 import { approvalKeyboard, sendTelegram } from './services/telegram.js';
 import { enrichLeadScore, topLovableCandidates } from './services/scoring.js';
 
@@ -161,13 +162,23 @@ export class Orchestrator {
       }
 
       if (lead.lane === 'Видео') {
-        lead.video = {
-          ok: false,
-          skipped: true,
-          reason: 'Video renderer is not configured yet',
-          updatedAt: new Date().toISOString(),
-        };
-        await this.store.addEvent(lead.id, 'video.skipped', 'Видео пока пропущено: renderer не подключен');
+        lead.video = await renderLeadVideo(lead);
+        if (!lead.video.ok) {
+          lead.status = 'needs_review';
+          await this.store.addEvent(lead.id, 'video.failed', `Filmer не смог собрать видео: ${lead.video.reason}`);
+          await sendTelegram(
+            [
+              '<b>Filmer требует решения</b>',
+              `${lead.name} · ${lead.city} · ${lead.niche}`,
+              `Ошибка: ${lead.video.reason}`,
+              `Lovable URL: ${lead.mockup?.url || 'нет'}`,
+              'Лид оставлен в Видео со статусом needs_review.',
+            ].join('\n'),
+          );
+          await this.store.save();
+          return { ok: false, held: true, reason: 'Video render failed', lead };
+        }
+        await this.store.addEvent(lead.id, 'video.created', `Filmer собрал видео: ${lead.video.videoUrl}`);
       }
 
       if (lead.lane === 'Проверка') {

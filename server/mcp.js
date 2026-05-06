@@ -5,6 +5,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { config, hasSecret } from './config.js';
 import { calculateFitScore } from './services/scoring.js';
+import { renderLeadVideo } from './services/filmer.js';
+import { sendTelegram } from './services/telegram.js';
 
 function mcpText(data) {
   return {
@@ -172,21 +174,30 @@ export function registerMcpRoutes(app, store) {
         },
       },
       async ({ leadId, url, notes }) => {
-        const lead = await store.updateLead(leadId, {
+        let lead = await store.updateLead(leadId, {
           mockup: { ok: true, mode: 'lovable_mcp_connector', url, notes: notes || '', updatedAt: new Date().toISOString() },
-          video: {
-            ok: false,
-            skipped: true,
-            reason: 'Video renderer is not configured yet',
-            sourceUrl: url,
-            updatedAt: new Date().toISOString(),
-          },
-          lane: 'Проверка',
-          owner: 'Checker',
+          lane: 'Видео',
+          owner: 'Filmer',
         });
         if (!lead) return mcpText({ error: 'Lead not found' });
         await store.addEvent(leadId, 'lovable.url.attached', `Lovable URL attached: ${url}`);
-        await store.addEvent(leadId, 'video.skipped', 'Filmer пропущен: video renderer еще не подключен');
+        const video = await renderLeadVideo(lead);
+        if (!video.ok) {
+          lead = await store.updateLead(leadId, { video, status: 'needs_review' });
+          await store.addEvent(leadId, 'video.failed', `Filmer не смог собрать видео: ${video.reason}`);
+          await sendTelegram(
+            [
+              '<b>Filmer требует решения</b>',
+              `${lead.name} · ${lead.city} · ${lead.niche}`,
+              `Ошибка: ${video.reason}`,
+              `Lovable URL: ${url}`,
+              'Лид оставлен в Видео со статусом needs_review.',
+            ].join('\n'),
+          );
+          return mcpText({ ok: false, lead, video });
+        }
+        lead = await store.updateLead(leadId, { video, lane: 'Проверка', owner: 'Checker', status: 'in_progress' });
+        await store.addEvent(leadId, 'video.created', `Filmer собрал видео: ${video.videoUrl}`);
         await store.addEvent(leadId, 'lead.advanced', 'Лид передан агенту Checker');
         return mcpText({ ok: true, lead });
       },
