@@ -89,6 +89,25 @@ export class Orchestrator {
     return { ok: true, scout, advanced };
   }
 
+  async advanceLane(lane, limit = 50) {
+    const active = this.store
+      .listLeads()
+      .filter((lead) => lead.lane === lane && !['done', 'paused', 'waiting_approval'].includes(lead.status))
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+      .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
+
+    const advanced = [];
+    const waitingApproval = [];
+    const failed = [];
+    for (const lead of active) {
+      const result = await this.advanceLead(lead.id);
+      if (result?.ok) advanced.push(result.lead);
+      else if (result?.waitingApproval) waitingApproval.push(result.approval);
+      else failed.push({ leadId: lead.id, error: result?.error || 'unknown error' });
+    }
+    return { ok: true, lane, requested: active.length, advanced, waitingApproval, failed };
+  }
+
   async advanceLead(leadId) {
     const lead = this.store.getLead(leadId);
     if (!lead) return { ok: false, error: 'Lead not found' };

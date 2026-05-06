@@ -64,6 +64,11 @@ app.post('/api/orchestrator/tick', async (req, res) => {
   res.json(result);
 });
 
+app.post('/api/orchestrator/advance-lane', async (req, res) => {
+  const result = await orchestrator.advanceLane(req.body?.lane ?? 'Разведка', req.body?.limit ?? 50);
+  res.status(result.ok ? 200 : 500).json(result);
+});
+
 app.get('/api/events', (req, res) => res.json({ ok: true, data: store.listEvents(req.query.leadId) }));
 app.get('/api/approvals', (req, res) => res.json({ ok: true, data: store.listApprovals() }));
 

@@ -160,6 +160,19 @@ function App() {
   const runBackendAction = (action) =>
     runAction(action, () => fetch(`/api/orchestrator/${action}`, { method: 'POST', credentials: 'include' }), `${action} выполнен`);
 
+  const advanceCurrentLane = (lane) =>
+    runAction(
+      'advance-lane',
+      () =>
+        fetch('/api/orchestrator/advance-lane', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ lane, limit: 50 }),
+        }),
+      `Стадия ${lane} передана дальше`,
+    );
+
   const advanceLead = (leadId) =>
     runAction('advance', () => fetch(`/api/leads/${leadId}/advance`, { method: 'POST', credentials: 'include' }), 'Лид передан дальше');
 
@@ -204,7 +217,7 @@ function App() {
 
         <section className="main-column">
           <SourcePanel leads={backend.leads} metrics={backend.metrics} />
-          <BackendActions backend={backend} busy={busy} onRun={runBackendAction} />
+          <BackendActions backend={backend} busy={busy} onRun={runBackendAction} onAdvanceLane={advanceCurrentLane} />
           <Funnel leads={visibleLeads} activeLeadId={activeLead?.id} onSelect={setActiveLeadId} />
           <ControlDeck metrics={backend.metrics} approvals={backend.approvals} />
         </section>
@@ -312,7 +325,7 @@ function TopBar({ city, cities, setCity, backend, user, onLogout }) {
   );
 }
 
-function BackendActions({ backend, busy, onRun }) {
+function BackendActions({ backend, busy, onRun, onAdvanceLane }) {
   const integrations = backend.integrations;
   return (
     <section className="backend-strip">
@@ -334,6 +347,10 @@ function BackendActions({ backend, busy, onRun }) {
         <button type="button" disabled={Boolean(busy)} onClick={() => onRun('tick')}>
           <RefreshCcw size={16} />
           Tick
+        </button>
+        <button type="button" disabled={Boolean(busy)} onClick={() => onAdvanceLane('Диагноз')}>
+          <ArrowRight size={16} />
+          Диагноз дальше
         </button>
       </div>
     </section>
