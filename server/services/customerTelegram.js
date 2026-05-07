@@ -1,8 +1,12 @@
-import { crmConvertLeadToDeal, customerBotLink, dealAttachProduct, invoiceCreateYookassaLink } from './a1Client.js';
+import { randomInt } from 'node:crypto';
+import OpenAI from 'openai';
+import { config, hasSecret } from '../config.js';
+import { crmConvertLeadToDeal, customerBotLink, dealAttachProduct, invoiceCreateYookassaLink, outboundQueueMessage, syncA1CrmLead } from './a1Client.js';
 import { emitCustomerA1Event } from './a1Webhook.js';
-import { sendTelegram, sendTelegramTo } from './telegram.js';
+import { downloadTelegramFile, getTelegramFile, sendTelegram, sendTelegramTo } from './telegram.js';
 
 const QUESTIONS = [
+  { key: 'previewDirection', text: 'Первый вопрос: оставить направление из превью сайта или сделать другой вариант? Если другой — опишите, каким он должен быть.' },
   { key: 'goal', text: 'Какая главная задача сайта: заявки, запись, доверие, каталог услуг или другое?' },
   { key: 'services', text: 'Какие услуги или товары обязательно показать на первом экране и в разделах?' },
   { key: 'style', text: 'Есть пожелания по стилю или примеры сайтов, которые нравятся?' },
@@ -11,22 +15,32 @@ const QUESTIONS = [
   { key: 'deadline', text: 'К какому сроку хотите получить первый рабочий вариант?' },
 ];
 
+const openai = hasSecret(config.OPENAI_API_KEY) ? new OpenAI({ apiKey: config.OPENAI_API_KEY }) : null;
+
 function privacyUrl() {
   return `${process.env.PUBLIC_BASE_URL || 'https://webstudio.1true.ru'}/privacy`;
 }
 
 export async function handleCustomerTelegramMessage(store, message) {
   const chatId = message?.chat?.id;
-  const text = String(message?.text || '').trim();
-  if (!chatId || !text) return { ok: true, skipped: true };
+  let text = String(message?.text || '').trim();
+  if (!chatId) return { ok: true, skipped: true };
+  if (!text && message?.voice?.file_id) {
+    const voice = await transcribeTelegramVoice(message.voice.file_id);
+    if (!voice.ok) {
+      await sendTelegramTo(chatId, 'Не смог распознать голосовое сообщение. Пришлите текстом или попробуйте еще раз.');
+      return { ok: false, voice };
+    }
+    text = voice.text;
+  }
+  if (!text) return { ok: true, skipped: true };
 
   const startMatch = text.match(/^\/start\s+lead_([a-f0-9]{16,64})/i);
   if (startMatch) return startCustomerLead(store, chatId, message.from, startMatch[1]);
 
   const lead = store.listLeads().find((item) => String(item.customerTelegram?.chatId || '') === String(chatId));
   if (!lead) {
-    await sendTelegramTo(chatId, 'Здравствуйте. Я не нашел активную заявку. Откройте ссылку из письма еще раз.');
-    return { ok: true, unmatched: true };
+    return startInboundCustomer(store, chatId, message.from, text);
   }
 
   const command = text.split(/\s+/)[0].split('@')[0];
@@ -57,6 +71,18 @@ export async function handleCustomerTelegramMessage(store, message) {
   }
 
   const pendingEmail = extractEmail(text);
+  if (lead.customerTelegram?.mode === 'registration_email') {
+    if (!pendingEmail) {
+      await sendTelegramTo(chatId, 'Пришлите, пожалуйста, рабочий email. На него я отправлю короткий код подтверждения.');
+      return { ok: true, lead };
+    }
+    return requestEmailVerification(store, lead, chatId, pendingEmail);
+  }
+
+  if (lead.customerTelegram?.mode === 'email_code') {
+    return confirmEmailCode(store, lead, chatId, text);
+  }
+
   if (lead.payment?.status === 'needs_customer_email' && pendingEmail) {
     const updated = await store.updateLead(lead.id, {
       customerTelegram: { ...(lead.customerTelegram ?? {}), email: pendingEmail },
@@ -74,7 +100,7 @@ export function isCustomerTelegramCommand(store, message) {
   const chatId = message?.chat?.id;
   const text = String(message?.text || '').trim();
   if (!chatId || !text.startsWith('/')) return false;
-  if (/^\/start\s+lead_[a-f0-9]{16,64}/i.test(text)) return true;
+  if (/^\/start(\s+lead_[a-f0-9]{16,64})?/i.test(text)) return true;
   if (!store.listLeads().some((item) => String(item.customerTelegram?.chatId || '') === String(chatId))) return false;
   const command = text.split(/\s+/)[0].split('@')[0];
   return ['/help', '/brief', '/approve', '/revision'].includes(command);
@@ -93,9 +119,11 @@ async function startCustomerLead(store, chatId, from, token) {
     username: from?.username || '',
     firstName: from?.first_name || '',
     lastName: from?.last_name || '',
-    mode: 'brief',
+    mode: lead.customerTelegram?.emailVerified ? 'brief' : 'registration_email',
     step: 0,
     startedAt: new Date().toISOString(),
+    email: lead.customerTelegram?.email || lead.contacts?.emails?.[0] || '',
+    emailVerified: Boolean(lead.customerTelegram?.emailVerified),
   };
   lead = await store.updateLead(lead.id, { customerTelegram, status: 'customer_chat' });
   await store.addEvent(lead.id, 'customer.telegram_started', `Customer opened bot: ${from?.username || chatId}`);
@@ -126,22 +154,45 @@ async function startCustomerLead(store, chatId, from, token) {
 
   await sendTelegramTo(
     chatId,
-    [
-      `👋 Здравствуйте! Я ассистент студии <b>1Lab</b>.`,
-      '',
-      `Мы можем разработать для <b>${escapeHtml(lead.name)}</b> индивидуальный сайт за несколько коротких шагов: уточним задачу, соберем ТЗ, подготовим первое рабочее превью и доведем его правками.`,
-      '',
-      '💼 Стоимость разработки начинается от <b>30 000 ₽</b> за простой сайт-визитку. Оплата — после первого готового превью, когда понятно, что именно получается.',
-      '',
-      '🛠 После запуска вы сможете пользоваться мной как помощником по сайту: писать обычным сообщением, какие тексты, контакты, фото или блоки нужно изменить.',
-      '',
-      `🔐 Продолжая диалог, вы соглашаетесь на обработку персональных данных. Политика конфиденциальности: ${privacyUrl()}`,
-      '',
-      'Отвечайте коротко, как удобно. В конце я покажу готовое ТЗ на утверждение.',
-      '',
-      QUESTIONS[0].text,
-    ].join('\n'),
+    onboardingText(lead, true),
   );
+  if (customerTelegram.emailVerified) await sendTelegramTo(chatId, QUESTIONS[0].text);
+  else if (customerTelegram.email) await requestEmailVerification(store, lead, chatId, customerTelegram.email);
+  else await sendTelegramTo(chatId, 'Для начала регистрации пришлите, пожалуйста, рабочий email. Я отправлю на него код подтверждения.');
+  return { ok: true, lead };
+}
+
+async function startInboundCustomer(store, chatId, from, text) {
+  const customerTelegram = {
+    chatId,
+    userId: from?.id || '',
+    username: from?.username || '',
+    firstName: from?.first_name || '',
+    lastName: from?.last_name || '',
+    mode: 'registration_email',
+    step: 0,
+    startedAt: new Date().toISOString(),
+    emailVerified: false,
+  };
+  const displayName = [from?.first_name, from?.last_name].filter(Boolean).join(' ').trim() || from?.username || `Telegram ${chatId}`;
+  const lead = await store.upsertLead({
+    name: `Новая заявка Telegram · ${displayName}`,
+    city: '',
+    niche: 'индивидуальный сайт',
+    source: 'telegram_inbound',
+    sourceKey: `telegram:${chatId}`,
+    lane: 'Ответы',
+    owner: 'Mobile',
+    status: 'registration_email',
+    customerTelegram,
+    customerBrief: text && !text.startsWith('/start') ? { initialMessage: text, updatedAt: new Date().toISOString() } : {},
+    contacts: { emails: [], phone: '', channels: [] },
+  });
+  await syncA1CrmLead(lead, 'telegram_inbound_started').catch(() => null);
+  await store.addEvent(lead.id, 'customer.telegram_started', `Inbound customer opened bot: ${from?.username || chatId}`);
+  await notifyAdminCustomerStarted(lead, customerTelegram);
+  await sendTelegramTo(chatId, onboardingText(lead, false));
+  await sendTelegramTo(chatId, 'Для регистрации пришлите, пожалуйста, рабочий email. Я отправлю на него код подтверждения, и после этого мы соберем ТЗ.');
   return { ok: true, lead };
 }
 
@@ -161,6 +212,96 @@ function customerHelpText(lead) {
     'Стоимость простого сайта-визитки начинается от 30 000 ₽. Итоговая цена зависит от объема страниц, контента и интеграций.',
     `Политика конфиденциальности: ${privacyUrl()}`,
   ].join('\n');
+}
+
+function onboardingText(lead, hasPreview) {
+  return [
+    `👋 Здравствуйте! Я ассистент студии <b>1Lab</b>.`,
+    '',
+    hasPreview
+      ? `Мы уже подготовили для <b>${escapeHtml(lead.name)}</b> первый вариант превью сайта. Теперь я помогу уточнить, оставить это направление или собрать другой вариант под ваши пожелания.`
+      : `Мы можем разработать для вас индивидуальный сайт за несколько коротких шагов: зарегистрируем заявку, соберем ТЗ, подготовим первое рабочее превью и доведем его правками.`,
+    '',
+    '💼 Стоимость разработки начинается от <b>30 000 ₽</b> за простой сайт-визитку. Оплата — после первого готового превью, когда понятно, что именно получается.',
+    '',
+    '🛠 После запуска вы сможете пользоваться мной как помощником по сайту: писать обычным сообщением или голосом, какие тексты, контакты, фото или блоки нужно изменить.',
+    '',
+    `🔐 Продолжая диалог, вы соглашаетесь на обработку персональных данных. Политика конфиденциальности: ${privacyUrl()}`,
+  ].join('\n');
+}
+
+async function requestEmailVerification(store, lead, chatId, email) {
+  const code = String(randomInt(100000, 999999));
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const updated = await store.updateLead(lead.id, {
+    customerTelegram: {
+      ...(lead.customerTelegram ?? {}),
+      mode: 'email_code',
+      email,
+      emailVerified: false,
+      emailCode: code,
+      emailCodeExpiresAt: expiresAt,
+    },
+    contacts: {
+      ...(lead.contacts ?? {}),
+      emails: Array.from(new Set([...(lead.contacts?.emails || []), email])),
+      channels: [
+        ...(lead.contacts?.channels || []).filter((channel) => !(channel.type === 'email' && channel.value === email)),
+        { type: 'email', value: email, confidence: 1, verified: false },
+      ],
+    },
+    status: 'email_verification_sent',
+  });
+  await syncA1CrmLead(updated, 'customer_email_verification').catch(() => null);
+  const sent = await outboundQueueMessage({
+    a1LeadId: updated.a1LeadId || updated.a1?.leadId || '',
+    externalId: updated.id,
+    dedupeKey: `webstudio:${updated.id}:email-verification:${email}`,
+    to: email,
+    subject: 'Код подтверждения 1Lab',
+    body: `Ваш код подтверждения для 1Lab Web Studio: ${code}\n\nКод действует 15 минут.`,
+    idempotencyKey: `webstudio:${updated.id}:email-code:${Date.now()}`,
+  });
+  await store.addEvent(updated.id, 'customer.email_code_sent', `Verification code sent to ${email}`);
+  if (!sent.ok) {
+    await sendTelegramTo(chatId, 'Не смог отправить код на почту через A1. Я сообщил администратору, попробуем вручную.');
+    await sendTelegram(`<b>Не удалось отправить email-код</b>\nЛид: ${escapeHtml(updated.name)}\nEmail: <code>${escapeHtml(email)}</code>\nОшибка: <code>${escapeHtml(sent.error || sent.reason || 'unknown')}</code>`);
+    return { ok: false, lead: updated, emailSent: sent };
+  }
+  await sendTelegramTo(chatId, `Отправил код подтверждения на ${escapeHtml(email)}. Введите сюда 6 цифр из письма.`);
+  return { ok: true, lead: updated, emailSent: sent };
+}
+
+async function confirmEmailCode(store, lead, chatId, text) {
+  const code = String(text || '').replace(/\D/g, '').slice(0, 6);
+  const expected = String(lead.customerTelegram?.emailCode || '');
+  const expires = Date.parse(lead.customerTelegram?.emailCodeExpiresAt || '');
+  if (!expected || !Number.isFinite(expires) || Date.now() > expires) {
+    await store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'registration_email' } });
+    await sendTelegramTo(chatId, 'Код истек. Пришлите email еще раз, я отправлю новый код.');
+    return { ok: false, expired: true };
+  }
+  if (code !== expected) {
+    await sendTelegramTo(chatId, 'Код не совпал. Проверьте письмо и отправьте 6 цифр еще раз.');
+    return { ok: false, invalid: true };
+  }
+  const email = lead.customerTelegram?.email || '';
+  const updated = await store.updateLead(lead.id, {
+    customerTelegram: {
+      ...(lead.customerTelegram ?? {}),
+      mode: 'brief',
+      emailVerified: true,
+      emailCode: '',
+      emailCodeExpiresAt: '',
+      step: Number(lead.customerTelegram?.step ?? 0),
+    },
+    payment: { ...(lead.payment ?? {}), customerEmail: email },
+    status: 'email_verified',
+  });
+  await emitCustomerA1Event(updated, 'customer.email_verified', 'Customer verified email', { customerEmail: email });
+  await syncA1CrmLead(updated, 'customer_email_verified').catch(() => null);
+  await sendTelegramTo(chatId, `Email подтвержден. Теперь соберем короткое ТЗ.\n\n${QUESTIONS[Number(updated.customerTelegram?.step ?? 0)]?.text || QUESTIONS[0].text}`);
+  return { ok: true, lead: updated };
 }
 
 async function notifyAdminCustomerStarted(lead, customerTelegram) {
@@ -201,6 +342,22 @@ async function collectBriefAnswer(store, lead, chatId, text) {
   }
 
   return sendBriefSummary(store, updated, chatId);
+}
+
+async function transcribeTelegramVoice(fileId) {
+  if (!openai) return { ok: false, skipped: true, reason: 'OPENAI_API_KEY is not configured' };
+  const file = await getTelegramFile(fileId);
+  const filePath = file.data?.result?.file_path;
+  if (!file.ok || !filePath) return { ok: false, error: file.error || 'Telegram getFile failed', file };
+  const download = await downloadTelegramFile(filePath);
+  if (!download.ok) return { ok: false, error: download.error || 'Telegram file download failed', download };
+  const audioFile = new File([download.data], 'telegram-voice.ogg', { type: 'audio/ogg' });
+  const result = await openai.audio.transcriptions.create({
+    file: audioFile,
+    model: 'whisper-1',
+    language: 'ru',
+  });
+  return { ok: true, text: String(result.text || '').trim() };
 }
 
 async function sendBriefSummary(store, lead, chatId) {
@@ -262,6 +419,12 @@ async function approveBrief(store, lead, chatId) {
     return { ok: true, lead: updated, needsEmail: true };
   }
 
+  if (!a1LeadId) {
+    await sendTelegramTo(chatId, 'ТЗ утверждено. Но лид еще не синхронизирован с A1, поэтому ссылку на оплату пока не сформировал. Администратор уже получит задачу проверить синхронизацию.');
+    await sendTelegram(`<b>Нет A1 leadId для оплаты</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>`);
+    return { ok: true, lead: updated, needsA1Lead: true };
+  }
+
   if (a1LeadId) {
     await dealAttachProduct({
       leadId: a1LeadId,
@@ -300,7 +463,16 @@ async function approveBrief(store, lead, chatId) {
     }
   }
 
-  await sendTelegramTo(chatId, 'ТЗ утверждено. Передаю его в работу, затем пришлю ссылку на обновленный сайт.');
+  if (updated.payment?.paymentUrl) {
+    await sendTelegramTo(chatId, `ТЗ утверждено. Ссылка на оплату:\n${updated.payment.paymentUrl}\n\nПосле оплаты передам ТЗ в работу и пришлю обновленное превью сайта.`);
+  } else if (updated.payment?.status === 'requested') {
+    await sendTelegramTo(chatId, 'ТЗ утверждено. Запрос на ссылку оплаты отправлен в A1. Как только ссылка будет создана, пришлю ее сюда.');
+  } else if (updated.payment?.status === 'failed') {
+    await sendTelegramTo(chatId, 'ТЗ утверждено, но ссылку на оплату сейчас сформировать не удалось. Я сообщил администратору, проверим настройки продукта/ЮKassa.');
+    await sendTelegram(`<b>Ошибка создания оплаты</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>\nEmail: <code>${escapeHtml(billingEmail)}</code>\nОшибка: <code>${escapeHtml(updated.payment?.error || 'unknown')}</code>`);
+  } else {
+    await sendTelegramTo(chatId, 'ТЗ утверждено. Передаю его в работу, затем пришлю ссылку на обновленный сайт.');
+  }
   return { ok: true, lead: updated };
 }
 

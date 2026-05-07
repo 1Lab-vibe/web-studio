@@ -240,16 +240,33 @@ async function processTelegramUpdate(update) {
   if (update?.message) {
     const message = update.message;
     if (isCustomerTelegramCommand(store, message)) {
-      await handleCustomerTelegramMessage(store, message);
+      await handleCustomerTelegramMessage(store, message).catch((error) => handleTelegramCustomerError(message, error));
       return { ok: true };
     }
     if (isAdminTelegramUser(message.from?.id, message.chat?.id)) {
       const handled = await handleAdminTelegramMessage(store, orchestrator, message);
       if (!handled.skipped) return { ok: true };
     }
-    await handleCustomerTelegramMessage(store, message);
+    await handleCustomerTelegramMessage(store, message).catch((error) => handleTelegramCustomerError(message, error));
   }
   return { ok: true };
+}
+
+async function handleTelegramCustomerError(message, error) {
+  console.error('Customer Telegram handling failed', error);
+  const chatId = message?.chat?.id;
+  if (chatId) {
+    const { sendTelegramTo, sendTelegram } = await import('./services/telegram.js');
+    await sendTelegramTo(chatId, 'Произошла техническая ошибка. Я уже передал ее администратору, вернемся с ответом.');
+    await sendTelegram(
+      [
+        '<b>Ошибка customer Telegram</b>',
+        `Chat: <code>${String(chatId)}</code>`,
+        `Text: <code>${String(message?.text || message?.voice?.file_id || '').slice(0, 200)}</code>`,
+        `Error: <code>${String(error?.message || error).slice(0, 300)}</code>`,
+      ].join('\n'),
+    );
+  }
 }
 
 app.post('/api/telegram/webhook', async (req, res) => {

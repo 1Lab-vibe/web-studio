@@ -27,6 +27,24 @@ export async function sendTelegramTo(chatId, text, replyMarkup) {
   return { ok: true, data: await response.json() };
 }
 
+export async function getTelegramFile(fileId) {
+  if (!hasSecret(config.TELEGRAM_BOT_TOKEN) || !fileId) {
+    return { ok: false, skipped: true, reason: 'TELEGRAM_BOT_TOKEN or fileId is not configured' };
+  }
+  const response = await fetch(telegramUrl(`getFile?file_id=${encodeURIComponent(fileId)}`));
+  if (!response.ok) return { ok: false, status: response.status, error: await response.text() };
+  return { ok: true, data: await response.json() };
+}
+
+export async function downloadTelegramFile(filePath) {
+  if (!hasSecret(config.TELEGRAM_BOT_TOKEN) || !filePath) {
+    return { ok: false, skipped: true, reason: 'TELEGRAM_BOT_TOKEN or filePath is not configured' };
+  }
+  const response = await fetch(`https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${filePath}`);
+  if (!response.ok) return { ok: false, status: response.status, error: await response.text() };
+  return { ok: true, data: Buffer.from(await response.arrayBuffer()) };
+}
+
 export function isAdminTelegramUser(userId, chatId = '') {
   const configuredAdmins = String(config.TELEGRAM_ADMIN_USER_IDS || '')
     .split(',')
