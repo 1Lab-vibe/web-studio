@@ -85,6 +85,9 @@ export async function setTelegramCommands() {
   ];
   const adminCommands = [
     { command: 'help', description: 'Команды Web Studio' },
+    { command: 'brief', description: 'Клиент: показать черновик ТЗ' },
+    { command: 'approve', description: 'Клиент: утвердить ТЗ' },
+    { command: 'revision', description: 'Клиент: отправить правку по сайту' },
     { command: 'actions', description: 'Топ действий оркестратора' },
     { command: 'lead', description: 'Карточка лида: /lead <id>' },
     { command: 'handoff', description: 'Lovable handoff prompt: /handoff <id>' },
