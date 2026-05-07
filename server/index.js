@@ -13,7 +13,7 @@ import { registerAuth } from './auth.js';
 import { handleA1Webhook } from './services/a1Webhook.js';
 import { handleCustomerTelegramMessage } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
-import { deployLeadPublicUrlProject } from './services/projectPublisher.js';
+import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
 import { listLovableTools, lovableOfficialConfigured } from './services/lovableOfficialMcp.js';
 
 const app = express();
@@ -94,10 +94,24 @@ app.get('/api/leads/:id/lovable/open', async (req, res) => {
 });
 
 app.post('/api/leads/:id/coder/deploy', async (req, res) => {
-  const result = await deployLeadPublicUrlProject(store, req.params.id, {
-    url: req.body?.url,
-    projectName: req.body?.projectName,
-  });
+  const lead = store.getLead(req.params.id);
+  const result =
+    lead?.mockup?.status === 'export_ready' || req.body?.mode === 'export'
+      ? await deployLeadExportedProject(store, req.params.id, {
+          files: req.body?.files || lead?.mockup?.files || [],
+          lovable: req.body?.lovable || {
+            projectId: lead?.mockup?.projectId || '',
+            editorUrl: lead?.mockup?.editorUrl || '',
+            previewUrl: lead?.mockup?.previewUrl || '',
+            publishedUrl: lead?.mockup?.publishedUrl || lead?.mockup?.url || '',
+            latestRef: lead?.mockup?.latestRef || '',
+          },
+          projectName: req.body?.projectName || lead?.mockup?.projectName || lead?.name,
+        })
+      : await deployLeadPublicUrlProject(store, req.params.id, {
+          url: req.body?.url,
+          projectName: req.body?.projectName,
+        });
   res.status(result.ok ? 200 : 409).json(result);
 });
 

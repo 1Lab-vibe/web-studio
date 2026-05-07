@@ -8,7 +8,7 @@ import { renderLeadVideo } from './services/filmer.js';
 import { enrichContacts } from './services/contactEnrichment.js';
 import { approvalKeyboard, sendTelegram } from './services/telegram.js';
 import { enrichLeadScore, topLovableCandidates } from './services/scoring.js';
-import { deployLeadPublicUrlProject } from './services/projectPublisher.js';
+import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
 
 const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
 
@@ -191,6 +191,14 @@ export class Orchestrator {
         return await deployLeadPublicUrlProject(this.store, lead.id);
       }
 
+      if (lead.owner === 'Coder' && (lead.status === 'export_ready' || lead.mockup?.status === 'export_ready')) {
+        return await deployLeadExportedProject(this.store, lead.id, {
+          files: lead.mockup?.files ?? [],
+          lovable: lovableExportMeta(lead.mockup),
+          projectName: lead.mockup?.projectName || lead.name,
+        });
+      }
+
       if (lead.lane === 'Разведка') {
         Object.assign(lead, await diagnoseLead(lead));
         enrichLeadScore(lead);
@@ -312,6 +320,16 @@ export class Orchestrator {
         const patch = { lane: next.lane, owner: next.agent, status: 'in_progress' };
         if (lead.lane === 'Диагноз') {
           patch.mockup = await prepareLovableMockup(lead);
+          if (patch.mockup?.status === 'export_ready') {
+            await this.store.updateLead(lead.id, { ...patch, owner: 'Coder', status: 'export_ready' });
+            await this.store.addEvent(lead.id, 'mockup.export_ready', `Lovable returned ${patch.mockup.files?.length || 0} source file(s); Coder deploy started`);
+            this.store.state.metrics.mockupsToday = Number(this.store.state.metrics.mockupsToday ?? 0) + 1;
+            return await deployLeadExportedProject(this.store, lead.id, {
+              files: patch.mockup.files ?? [],
+              lovable: lovableExportMeta(patch.mockup),
+              projectName: patch.mockup.projectName || lead.name,
+            });
+          }
           if (patch.mockup?.status === 'public_url_attached') {
             patch.owner = 'Coder';
             patch.status = 'public_url_attached';
@@ -406,6 +424,9 @@ export class Orchestrator {
 
 function actionForLead(lead, topLovableIds) {
   if (lead.status === 'waiting_approval') return { action: 'approve_or_reject', label: 'Ждет approval', score: 100, autoRunnable: false };
+  if (lead.mockup?.status === 'export_ready' || lead.status === 'export_ready') {
+    return { action: 'deploy_lovable_export', label: 'Деплой Lovable export', score: lead.fitScore ?? 0, autoRunnable: true };
+  }
   if (lead.mockup?.status === 'public_url_attached' || lead.status === 'public_url_attached') {
     return { action: 'deploy_public_url', label: 'Деплой публичного URL', score: lead.fitScore ?? 0, autoRunnable: true };
   }
@@ -450,5 +471,16 @@ function lovableHandoffRequest(lead) {
       'If this project can export files, call deploy_static_project instead with leadId, projectName, and all static files.',
       'Web Studio will deploy it under /projects/<slug>, then make screenshots/video and continue the pipeline.',
     ].join('\n'),
+  };
+}
+
+function lovableExportMeta(mockup = {}) {
+  return {
+    projectId: mockup.projectId || '',
+    editorUrl: mockup.editorUrl || '',
+    previewUrl: mockup.previewUrl || '',
+    publishedUrl: mockup.publishedUrl || mockup.url || '',
+    latestRef: mockup.latestRef || '',
+    createMessageId: mockup.raw?.createMessageId || '',
   };
 }

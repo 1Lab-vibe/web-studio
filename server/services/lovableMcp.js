@@ -10,18 +10,24 @@ export async function prepareLovableMockup(lead) {
   if (lovableOfficialConfigured()) {
     const result = await createAndMaybeDeployLovableProject({ lead, prompt });
     if (result.ok) {
+      const files = Array.isArray(result.files) ? result.files : [];
+      const hasExport = files.length > 0;
       return {
-        ok: Boolean(result.publishedUrl || result.previewUrl),
+        ok: Boolean(hasExport || result.publishedUrl || result.previewUrl),
         skipped: false,
         mode: 'lovable_official_mcp',
-        status: result.publishedUrl ? 'public_url_attached' : 'waiting_lovable_project',
+        status: hasExport ? 'export_ready' : result.publishedUrl ? 'public_url_attached' : 'waiting_lovable_project',
         projectId: result.projectId,
         editorUrl: result.editorUrl || '',
         previewUrl: result.previewUrl || '',
         url: result.publishedUrl || result.previewUrl || '',
         publishedUrl: result.publishedUrl || '',
-        handoffStatus: result.publishedUrl ? 'url_received' : 'preview_received',
-        reason: result.publishedUrl
+        latestRef: result.latestRef || '',
+        files,
+        handoffStatus: hasExport ? 'files_received' : result.publishedUrl ? 'url_received' : 'preview_received',
+        reason: hasExport
+          ? `Lovable official MCP created the project and exported ${files.length} source file(s).`
+          : result.publishedUrl
           ? 'Lovable official MCP created and deployed the project.'
           : 'Lovable official MCP created the project. Deployment is disabled or did not return a public URL.',
         prompt,

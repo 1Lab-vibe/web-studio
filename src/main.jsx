@@ -734,8 +734,8 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDeploy, onDecision }
           Открыть деплой Web Studio
         </a>
       )}
-      {lead.mockup?.githubUrl && (
-        <a className="lovable-link primary" href={lead.mockup.githubUrl} target="_blank" rel="noreferrer">
+      {(lead.mockup?.githubUrl || lead.mockup?.github?.repoUrl) && (
+        <a className="lovable-link primary" href={lead.mockup.githubUrl || lead.mockup.github.repoUrl} target="_blank" rel="noreferrer">
           <Globe2 size={16} />
           Открыть GitHub проекта
         </a>

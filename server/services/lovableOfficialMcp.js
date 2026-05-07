@@ -3,7 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { config, hasSecret } from '../config.js';
 
-function parseToolContent(result) {
+export function parseToolContent(result) {
   const content = Array.isArray(result?.content) ? result.content : [];
   const text = content
     .filter((item) => item?.type === 'text' && item.text)
@@ -20,6 +20,10 @@ function parseToolContent(result) {
 
 function projectIdFrom(data) {
   return data.project_id || data.projectId || data.id || data.project?.id || '';
+}
+
+function latestRefFrom(data) {
+  return data.latest_commit_sha || data.latestCommitSha || data.latest_commit?.sha || data.project?.latest_commit_sha || data.project?.latestCommitSha || '';
 }
 
 function urlFrom(data, keys) {
@@ -115,6 +119,7 @@ export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
     const projectId = projectIdFrom(create);
     const previewUrl = urlFrom(create, ['preview_url', 'previewUrl', 'sandbox_url', 'sandboxUrl']);
     const editorUrl = urlFrom(create, ['editor_url', 'editorUrl']);
+    const createMessageId = create.message_id || create.messageId || create.initial_message_id || create.initialMessageId || '';
     if (!projectId) {
       return { ok: false, reason: 'Lovable create_project did not return project_id', create };
     }
@@ -130,21 +135,69 @@ export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
       };
     }
 
-    const deployResult = await client.callTool({
-      name: 'deploy_project',
-      arguments: { project_id: projectId },
-    });
-    const deploy = parseToolContent(deployResult);
+    let deploy = {};
+    try {
+      const deployResult = await client.callTool({
+        name: 'deploy_project',
+        arguments: { project_id: projectId, name: lead.projectSlug || undefined },
+      });
+      deploy = parseToolContent(deployResult);
+    } catch (error) {
+      deploy = { ok: false, error: error.message };
+    }
     const publishedUrl = urlFrom(deploy, ['live_url', 'liveUrl', 'published_url', 'publishedUrl', 'url']);
+    const projectResult = await client.callTool({ name: 'get_project', arguments: { project_id: projectId } });
+    const project = parseToolContent(projectResult);
+    const latestRef = latestRefFrom(project) || latestRefFrom(create) || latestRefFrom(deploy);
+    const exportedFiles = latestRef ? await exportLovableFiles(client, projectId, latestRef) : [];
     return {
       ok: true,
       projectId,
       previewUrl,
       editorUrl,
       publishedUrl,
+      latestRef,
+      createMessageId,
+      files: exportedFiles,
       create,
       deploy,
+      project,
       deployed: Boolean(publishedUrl),
     };
   });
+}
+
+function normalizeFilesList(data) {
+  const files = data.files || data.items || data.tree || (Array.isArray(data) ? data : []);
+  if (!Array.isArray(files)) return [];
+  return files
+    .map((file) => ({
+      path: file.path || file.name || file.file_path || file.filePath || '',
+      size: Number(file.size ?? 0),
+      binary: Boolean(file.binary ?? file.is_binary ?? file.isBinary),
+    }))
+    .filter((file) => file.path && !file.path.endsWith('/'));
+}
+
+function contentFromReadFile(data) {
+  if (typeof data === 'string') return data;
+  return data.content || data.text || data.file?.content || '';
+}
+
+export async function exportLovableFiles(client, projectId, ref) {
+  const listResult = await client.callTool({ name: 'list_files', arguments: { project_id: projectId, ref } });
+  const listed = normalizeFilesList(parseToolContent(listResult));
+  const wanted = listed.filter((file) => {
+    const base = file.path.split('/').pop()?.toLowerCase() || '';
+    return !file.binary && !/^(node_modules|dist|build|\.git)\//.test(file.path) && base !== '.env' && !base.startsWith('.env.');
+  });
+  const files = [];
+  for (const file of wanted) {
+    const readResult = await client.callTool({ name: 'read_file', arguments: { project_id: projectId, path: file.path, ref } });
+    files.push({
+      ...file,
+      content: contentFromReadFile(parseToolContent(readResult)),
+    });
+  }
+  return files;
 }

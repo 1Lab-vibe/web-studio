@@ -1,9 +1,14 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { chromium } from 'playwright';
 import { config } from '../config.js';
 import { renderLeadVideo } from './filmer.js';
 import { crmAddEvent, syncA1CrmLead } from './a1Client.js';
+import { publishFilesToGitHub } from './githubPublisher.js';
+
+const execFileAsync = promisify(execFile);
 
 const cyrillicMap = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z',
@@ -34,6 +39,22 @@ function projectUrl(slug) {
 
 function sourceUrlForLead(lead, overrideUrl = '') {
   return overrideUrl || lead.mockup?.publishedUrl || lead.mockup?.url || lead.mockup?.previewUrl || '';
+}
+
+function safeProjectPath(root, filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!normalized || normalized.includes('\0') || normalized.split('/').some((part) => part === '..')) return null;
+  const target = path.resolve(root, normalized);
+  if (!target.startsWith(path.resolve(root) + path.sep) && target !== path.resolve(root)) return null;
+  return target;
+}
+
+function isPublishableSourceFile(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  const base = path.basename(normalized).toLowerCase();
+  if (base === '.env' || base.startsWith('.env.')) return false;
+  if (/(^|\/)(node_modules|dist|build|\.git)\//.test(normalized)) return false;
+  return true;
 }
 
 function injectBase(html, sourceUrl) {
@@ -181,4 +202,131 @@ export async function deployLeadPublicUrlProject(store, leadId, options = {}) {
   await store.addEvent(lead.id, 'lead.advanced', 'Lead moved to Checker after Coder deploy');
   await syncA1CrmLead(lead, 'project_deployed');
   return { ok: true, publicUrl, slug, strategy, lead };
+}
+
+async function writeSourceFiles(root, files) {
+  await rm(root, { recursive: true, force: true });
+  await mkdir(root, { recursive: true });
+  const written = [];
+  for (const file of files) {
+    if (file.binary || typeof file.content !== 'string') continue;
+    if (!isPublishableSourceFile(file.path)) continue;
+    const target = safeProjectPath(root, file.path);
+    if (!target) throw new Error(`Unsafe project file path: ${file.path}`);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, file.content, 'utf8');
+    written.push(file.path);
+  }
+  return written;
+}
+
+async function buildSourceProject(sourceRoot, publicRoot) {
+  await rm(publicRoot, { recursive: true, force: true });
+  const packageJson = path.join(sourceRoot, 'package.json');
+  try {
+    await execFileAsync('npm', ['install'], { cwd: sourceRoot, timeout: 240000, maxBuffer: 1024 * 1024 * 20 });
+    await execFileAsync('npm', ['run', 'build'], { cwd: sourceRoot, timeout: 240000, maxBuffer: 1024 * 1024 * 20 });
+    const dist = path.join(sourceRoot, 'dist');
+    await cp(dist, publicRoot, { recursive: true });
+    return { ok: true, strategy: 'vite_build' };
+  } catch (error) {
+    await mkdir(publicRoot, { recursive: true });
+    const hasPackage = await import('node:fs/promises').then((fs) => fs.access(packageJson).then(() => true).catch(() => false));
+    return { ok: false, strategy: hasPackage ? 'build_failed' : 'no_package_json', error: error.message };
+  }
+}
+
+export async function deployLeadExportedProject(store, leadId, { files = [], lovable = {}, projectName = '' } = {}) {
+  let lead = store.getLead(leadId);
+  if (!lead) return { ok: false, error: 'Lead not found' };
+  if (!files.length) return { ok: false, error: 'No Lovable files to deploy' };
+
+  const slugBase = projectName || lead.mockup?.projectName || lead.name || lead.id;
+  const slug = projectSlug(`${slugBase}-${lead.id.slice(0, 8)}`, `project-${lead.id.slice(0, 8)}`);
+  const sourceRoot = path.resolve(config.DATA_DIR, 'sources', slug);
+  const publicRoot = path.resolve(config.DATA_DIR, 'projects', slug);
+  const written = await writeSourceFiles(sourceRoot, files);
+  const build = await buildSourceProject(sourceRoot, publicRoot);
+  const publicUrl = projectUrl(slug);
+  const repoName = `${config.GITHUB_REPO_PREFIX}${slug}`.slice(0, 100).replace(/-+$/g, '');
+  const github = await publishFilesToGitHub({
+    repoName,
+    description: `Web Studio landing for ${lead.name}`,
+    files,
+    metadata: { leadId: lead.id, businessName: lead.name, lovableProjectId: lovable.projectId, publicUrl },
+  }).catch((error) => ({ ok: false, error: error.message }));
+
+  if (!build.ok) {
+    await writeFile(
+      path.join(publicRoot, 'index.html'),
+      fallbackFrameHtml({ title: lead.name || 'Web Studio project', sourceUrl: lovable.publishedUrl || lovable.previewUrl || lovable.editorUrl || '' }),
+      'utf8',
+    );
+  }
+  await writeFile(
+    path.join(publicRoot, 'webstudio-project.json'),
+    JSON.stringify(
+      {
+        leadId: lead.id,
+        businessName: lead.name,
+        city: lead.city,
+        niche: lead.niche,
+        publicUrl,
+        slug,
+        sourceFiles: written.length,
+        build,
+        github,
+        lovable,
+        deployedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  lead = await store.updateLead(lead.id, {
+    mockup: {
+      ...(lead.mockup ?? {}),
+      ok: true,
+      mode: 'lovable_official_mcp_export',
+      status: 'deployed',
+      publishedUrl: publicUrl,
+      deployedUrl: publicUrl,
+      publicUrl,
+      projectSlug: slug,
+      sourceRoot,
+      sourceFiles: written.length,
+      deploymentStrategy: build.strategy,
+      deploymentWarning: build.ok ? '' : build.error,
+      github,
+      lovable,
+      deployedAt: new Date().toISOString(),
+    },
+    lane: 'Видео',
+    owner: 'Filmer',
+    status: 'in_progress',
+  });
+
+  await store.addEvent(lead.id, 'project.deployed', `Coder deployed Lovable export: ${publicUrl}`);
+  await crmAddEvent({
+    entityType: lead.a1DealId ? 'deal' : 'lead',
+    entityId: lead.a1DealId || lead.a1LeadId || lead.id,
+    eventType: 'project.deployed',
+    text: `Coder deployed Lovable export: ${publicUrl}`,
+    payload: { webstudioLeadId: lead.id, publicUrl, slug, github, lovable, build },
+    idempotencyKey: `webstudio:${lead.id}:project.deployed:${slug}`,
+  });
+
+  const video = await renderLeadVideo(lead);
+  if (!video.ok) {
+    lead = await store.updateLead(lead.id, { video, status: 'needs_review' });
+    await store.addEvent(lead.id, 'video.failed', `Filmer could not render exported project: ${video.reason}`);
+    await syncA1CrmLead(lead, 'project_deployed_video_failed');
+    return { ok: false, publicUrl, slug, github, build, lead, video };
+  }
+  lead = await store.updateLead(lead.id, { video, lane: 'Проверка', owner: 'Checker', status: 'in_progress' });
+  await store.addEvent(lead.id, 'video.created', `Filmer rendered exported project: ${video.videoUrl}`);
+  await syncA1CrmLead(lead, 'project_deployed');
+  return { ok: true, publicUrl, slug, github, build, lead };
 }

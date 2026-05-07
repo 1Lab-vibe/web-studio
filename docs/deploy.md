@@ -77,6 +77,19 @@ TELEGRAM_CHAT_ID=<chat id>
 A1_API_URL=<A1 API URL>
 A1_MCP_URL=<A1 MCP URL>
 LOVABLE_API_KEY=<lov_ workspace api key, optional for official Lovable MCP>
+LOVABLE_OAUTH_TOKEN_PATH=/app/data/lovable-oauth.json
 LOVABLE_WORKSPACE_ID=<workspace id, optional>
 LOVABLE_AUTO_DEPLOY=true
+GITHUB_TOKEN=<optional repo create/write token>
+GITHUB_OWNER=1Lab-vibe
+GITHUB_REPO_PREFIX=webstudio-
+GITHUB_PRIVATE=false
 ```
+
+Generated customer previews are served from:
+
+```text
+https://webstudio.1true.ru/projects/<slug>/
+```
+
+The matching source export is stored in `DATA_DIR/sources/<slug>`. The built public files are stored in `DATA_DIR/projects/<slug>`.

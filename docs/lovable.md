@@ -46,7 +46,20 @@ When configured, Web Studio calls:
 
 1. `create_project` with the lead landing prompt.
 2. `deploy_project` when `LOVABLE_AUTO_DEPLOY=true`.
-3. Coder deploys the returned public URL under `/projects/<slug>`.
+3. `get_project`, `list_files`, and `read_file` to export the generated source from the latest commit.
+4. Coder writes the source to `DATA_DIR/sources/<slug>`, runs `npm install && npm run build`, and publishes the build under `/projects/<slug>`.
+5. If `GITHUB_TOKEN` is configured, Coder also creates or updates a GitHub repository and uploads the same exported source.
+
+GitHub publishing env:
+
+```text
+GITHUB_TOKEN=github_pat_...
+GITHUB_OWNER=1Lab-vibe
+GITHUB_REPO_PREFIX=webstudio-
+GITHUB_PRIVATE=false
+```
+
+If `GITHUB_TOKEN` is empty, the public `/projects/<slug>` deploy still runs; GitHub is recorded as skipped.
 
 Smoke endpoint:
 
@@ -90,7 +103,7 @@ Exposed tools:
 
 Lovable can read lead context and then write the result back in three ways:
 
-- `attach_lovable_url` when Lovable has a public preview or published URL. This is the preferred path. Web Studio Coder then deploys a local project under `/projects/<slug>` and Filmer renders media from our own domain.
+- `attach_lovable_url` when Lovable has only a public preview or published URL. Web Studio Coder then deploys a local snapshot/fallback under `/projects/<slug>` and Filmer renders media from our own domain.
 - `deploy_static_project` when Lovable can export static files directly.
 - `attach_lovable_repo` only when there is a real public GitHub repository URL. Do not pass `lovable.code.storage` internal remotes; Web Studio cannot read them.
 
