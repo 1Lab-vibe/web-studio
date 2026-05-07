@@ -450,17 +450,23 @@ function fallbackBriefPatch(text) {
 function inferBusinessPatch(text) {
   const value = String(text || '').trim();
   const result = {};
-  const named = value.match(/(?:сайт\s+нужен\s+для|для\s+компании|для\s+бренда)\s+["«]?([^".\n»]+)["»]?/i);
+  const named = value.match(/(?:сайт\s+нужен\s+для|для\s+компании|для\s+бренда)\s+["«]?([^".,\n»]+)["»]?/i);
   if (named?.[1]) result.businessName = cleanBusinessName(named[1]);
 
-  const business = value.match(/(?:^|[,.;\n]\s*|нет[, ]*)?(?:бизнес|проект|компания|направление)\s*(?:-|—|:|это)?\s*["«]?([^".\n»]+)["»]?/i);
+  const namedAs = value.match(/(?:бизнес|проект|компания|бренд)\s+(?:называется|зовется|это)\s+["«]?([^".,\n»]+)["»]?/i);
+  if (namedAs?.[1]) result.businessName ||= cleanBusinessName(namedAs[1]);
+
+  const business = value.match(/(?:^|[,.;\n]\s*|нет[, ]*)?(?:бизнес|проект|компания|направление)\s*(?:-|—|:|это)?\s*["«]?([^".,\n»]+)["»]?/i);
   if (business?.[1]) {
     const parsed = cleanBusinessName(business[1]);
     result.businessName ||= parsed;
-    result.niche ||= parsed;
+    if (!result.businessName || result.businessName === parsed) result.niche ||= parsed;
   }
 
-  if (/разработк[аи]\s+it|it[- ]?продукт|ии|искусственн/i.test(value)) {
+  const aiFocus = value.match(/(?:фокус|акцент|занимаемся|делаем|направление)\s+(?:на\s+)?([^.\n]+(?:ИИ|AI|нейро|автоматизац|бот|it[- ]?продукт)[^.\n]*)/i);
+  if (aiFocus?.[1]) result.niche = cleanBusinessName(aiFocus[1]);
+
+  if (/разработк[аи]\s+it|it[- ]?продукт|ии|искусственн|AI|нейро|автоматизац/i.test(value)) {
     result.niche ||= 'разработка IT-продуктов с использованием ИИ';
     if (!result.businessName && /бизнес|проект|компания|направление/i.test(value)) {
       result.businessName = 'Разработка IT-продуктов с использованием ИИ';
@@ -472,7 +478,9 @@ function inferBusinessPatch(text) {
 function cleanBusinessName(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
+    .replace(/^(?:называется|зовется|это|[-:—])\s+/i, '')
     .replace(/\s*(?:,?\s*а\s+сайт|,?\s*сайт|,?\s*нужно|,?\s*нужен).*$/i, '')
+    .replace(/\s*(?:,?\s*фокус|,?\s*акцент|,?\s*сделай|,?\s*и\s+сделай).*$/i, '')
     .trim();
 }
 
@@ -630,6 +638,24 @@ async function buildApprovedBriefPreview(store, lead, chatId) {
     status: mockup?.status === 'export_ready' ? 'export_ready' : mockup?.status || 'preview_waiting',
     owner: mockup?.status === 'export_ready' ? 'Coder' : 'Builder',
   });
+
+  if (mockup?.ok === false || mockup?.status === 'failed') {
+    const reason = mockup?.reason || mockup?.raw?.reason || mockup?.raw?.error || 'Lovable preview build failed';
+    updated = await store.updateLead(updated.id, {
+      status: 'preview_failed',
+      owner: 'Orchestrator',
+      nextAction: {
+        type: 'lovable_auth_or_handoff',
+        title: 'Проверить Lovable и повторить сборку превью',
+        reason,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    await store.addEvent(updated.id, 'customer.preview_build_failed', reason);
+    await sendTelegramTo(chatId, 'Не смог автоматически собрать первое превью. Я передал это администратору, он проверит Lovable и вернет результат сюда.');
+    await sendTelegram(`<b>Ошибка сборки клиентского превью</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>\nОшибка: <code>${escapeHtml(reason)}</code>`);
+    return { ok: false, lead: updated, reason, mockup };
+  }
 
   if (mockup?.status === 'export_ready') {
     const deployed = await deployLeadExportedProject(store, updated.id, {
