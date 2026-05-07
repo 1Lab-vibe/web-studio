@@ -254,6 +254,7 @@ export async function outboundQueueMessage(input) {
     channel: 'email',
     toAddress: input.toAddress || input.to,
     fromAddress: input.fromAddress,
+    senderProfile: input.senderProfile,
     subject: input.subject,
     bodyText: input.bodyText || input.body,
     bodyHtml: input.bodyHtml,
@@ -264,6 +265,7 @@ export async function outboundQueueMessage(input) {
       externalId: input.externalId,
       attachments: input.attachments || [],
       requiresApproval: input.requiresApproval ?? false,
+      purpose: input.purpose || input.messageType || '',
     },
   });
 }

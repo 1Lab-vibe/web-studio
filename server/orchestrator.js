@@ -402,6 +402,9 @@ export class Orchestrator {
       externalId: lead.id,
       dedupeKey: `webstudio:${lead.id}`,
       to: emailChannel.value,
+      senderProfile: '1lab',
+      fromAddress: '1lab@1true.ru',
+      purpose: 'sales_outbound',
       subject,
       body: message,
       attachments: [
@@ -637,6 +640,9 @@ export class Orchestrator {
           externalId: lead.id,
           dedupeKey: `webstudio:${lead.id}`,
           to: emailChannel?.value || lead.contacts.emails?.[0] || '',
+          senderProfile: '1lab',
+          fromAddress: '1lab@1true.ru',
+          purpose: 'sales_outbound',
           subject,
           body: message,
           attachments: [
