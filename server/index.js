@@ -159,7 +159,7 @@ app.post('/api/orchestrator/scout', async (req, res) => {
 });
 
 app.post('/api/orchestrator/tick', async (req, res) => {
-  const result = await orchestrator.tick();
+  const result = await runAutonomyTick('api');
   res.json(result);
 });
 
@@ -288,10 +288,33 @@ if (config.NODE_ENV === 'production') {
   });
 }
 
+let autonomyTickRunning = false;
+async function runAutonomyTick(reason = 'cron') {
+  if (autonomyTickRunning) {
+    console.warn('Autonomy tick skipped because previous tick is still running', { reason });
+    return { ok: false, skipped: true, reason: 'previous_tick_running' };
+  }
+  autonomyTickRunning = true;
+  const startedAt = Date.now();
+  try {
+    const result = await orchestrator.tick();
+    console.log('Autonomy tick finished', {
+      reason,
+      durationMs: Date.now() - startedAt,
+      scoutOk: result.scout?.ok,
+      scoutSkipped: result.scout?.skipped,
+      advanced: result.advanced?.length || 0,
+    });
+    return result;
+  } finally {
+    autonomyTickRunning = false;
+  }
+}
+
 if (config.AUTONOMY_ENABLED) {
   cron.schedule(config.AUTONOMY_CRON, async () => {
     try {
-      await orchestrator.tick();
+      await runAutonomyTick('cron');
     } catch (error) {
       console.error('Autonomy tick failed', error);
     }
