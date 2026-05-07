@@ -184,7 +184,14 @@ function normalizeFilesList(data) {
     .filter((file) => file.path && !file.path.endsWith('/'));
 }
 
-function contentFromReadFile(data) {
+function contentFromReadFileResult(result) {
+  const content = Array.isArray(result?.content) ? result.content : [];
+  const text = content
+    .filter((item) => item?.type === 'text' && typeof item.text === 'string')
+    .map((item) => item.text)
+    .join('\n');
+  if (text) return text;
+  const data = parseToolContent(result);
   if (typeof data === 'string') return data;
   return data.content || data.text || data.file?.content || '';
 }
@@ -201,7 +208,7 @@ export async function exportLovableFiles(client, projectId, ref) {
     const readResult = await client.callTool({ name: 'read_file', arguments: { project_id: projectId, path: file.path, ref } }, undefined, LOVABLE_SHORT_REQUEST);
     files.push({
       ...file,
-      content: contentFromReadFile(parseToolContent(readResult)),
+      content: contentFromReadFileResult(readResult),
     });
   }
   return files;
