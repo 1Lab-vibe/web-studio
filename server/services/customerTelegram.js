@@ -4,7 +4,7 @@ import { config, hasSecret } from '../config.js';
 import { crmConvertLeadToDeal, customerBotLink, dealAttachProduct, invoiceCreateYookassaLink, outboundQueueMessage, syncA1CrmLead } from './a1Client.js';
 import { emitCustomerA1Event } from './a1Webhook.js';
 import { prepareLovableMockup } from './lovableMcp.js';
-import { deployLeadExportedProject, deployLeadPublicUrlProject } from './projectPublisher.js';
+import { deployLeadExportedProject, deployLeadGeneratedPreview, deployLeadPublicUrlProject } from './projectPublisher.js';
 import { downloadTelegramFile, getTelegramFile, sendTelegram, sendTelegramTo } from './telegram.js';
 
 const QUESTIONS = [
@@ -642,8 +642,8 @@ async function buildApprovedBriefPreview(store, lead, chatId) {
   if (mockup?.ok === false || mockup?.status === 'failed') {
     const reason = mockup?.reason || mockup?.raw?.reason || mockup?.raw?.error || 'Lovable preview build failed';
     updated = await store.updateLead(updated.id, {
-      status: 'preview_failed',
-      owner: 'Orchestrator',
+      status: 'coder_fallback_preview',
+      owner: 'Coder',
       nextAction: {
         type: 'lovable_auth_or_handoff',
         title: 'Проверить Lovable и повторить сборку превью',
@@ -652,9 +652,17 @@ async function buildApprovedBriefPreview(store, lead, chatId) {
       },
     });
     await store.addEvent(updated.id, 'customer.preview_build_failed', reason);
-    await sendTelegramTo(chatId, 'Не смог автоматически собрать первое превью. Я передал это администратору, он проверит Lovable и вернет результат сюда.');
+    await sendTelegramTo(chatId, 'Lovable сейчас не отдал проект, поэтому собираю первое превью внутренним Coder на основе вашего ТЗ.');
     await sendTelegram(`<b>Ошибка сборки клиентского превью</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>\nОшибка: <code>${escapeHtml(reason)}</code>`);
-    return { ok: false, lead: updated, reason, mockup };
+    const generated = await deployLeadGeneratedPreview(store, updated.id, { reason, projectName: updated.name });
+    const finalLead = generated.lead || store.getLead(updated.id) || updated;
+    if (generated.publicUrl || finalLead.mockup?.publicUrl) {
+      const url = generated.publicUrl || finalLead.mockup.publicUrl;
+      await sendTelegramTo(chatId, `Первое превью готово:\n${url}\n\nЭто аварийный вариант от Web Studio Coder, пока Lovable требует повторной авторизации. Если направление подходит — отправьте /approve еще раз, и я сформирую оплату. Если нужно поправить — напишите обычным сообщением.`);
+      return { ok: true, lead: finalLead, publicUrl: url, fallback: true, reason, generated };
+    }
+    await sendTelegramTo(chatId, 'Не смог собрать даже аварийное превью. Я передал это администратору.');
+    return { ok: false, lead: finalLead, reason, mockup, generated };
   }
 
   if (mockup?.status === 'export_ready') {

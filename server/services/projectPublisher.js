@@ -116,6 +116,101 @@ function buildFailedHtml({ title, build }) {
 </html>`;
 }
 
+function generatedPreviewHtml(lead) {
+  const brief = lead.customerBrief ?? {};
+  const business = lead.name || brief.businessName || 'Ваш бизнес';
+  const niche = lead.niche || 'услуги для бизнеса';
+  const goal = brief.goal || 'получать больше целевых заявок';
+  const services = splitItems(brief.services || niche);
+  const contacts = brief.contacts || 'форма заявки, телефон, email';
+  const style = brief.style || 'современный, аккуратный, быстрый';
+  const proof = brief.materials || 'показываем кейсы, подход и понятный следующий шаг';
+  return `<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${escapeHtml(business)}</title>
+    <style>
+      :root { color-scheme: dark; --bg: #0b0d12; --panel: #121722; --text: #f6f7fb; --muted: #aeb7c8; --line: #273144; --accent: #55d6be; --accent2: #ffcf5a; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font: 16px/1.55 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); letter-spacing: 0; }
+      a { color: inherit; }
+      .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+      header { position: sticky; top: 0; z-index: 2; border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(11,13,18,.9); backdrop-filter: blur(16px); }
+      nav { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+      .brand { font-weight: 800; font-size: 18px; }
+      .nav-note { color: var(--muted); font-size: 14px; }
+      .hero { min-height: 82vh; display: grid; align-items: center; padding: 64px 0 48px; border-bottom: 1px solid var(--line); }
+      .hero-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr); gap: 48px; align-items: center; }
+      .eyebrow { color: var(--accent); font-weight: 700; text-transform: uppercase; font-size: 13px; }
+      h1 { margin: 14px 0 18px; font-size: clamp(42px, 7vw, 82px); line-height: .96; letter-spacing: 0; max-width: 900px; }
+      .lead { color: var(--muted); font-size: clamp(18px, 2vw, 22px); max-width: 760px; }
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+      .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 18px; border: 1px solid var(--line); border-radius: 6px; text-decoration: none; font-weight: 750; }
+      .btn.primary { background: var(--accent); color: #06110f; border-color: var(--accent); }
+      .panel { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 22px; }
+      .metric { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+      .metric div { border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+      .metric b { display: block; color: var(--accent2); font-size: 24px; line-height: 1; margin-bottom: 8px; }
+      section { padding: 72px 0; border-bottom: 1px solid var(--line); }
+      h2 { margin: 0 0 22px; font-size: clamp(28px, 4vw, 48px); line-height: 1.05; }
+      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+      .card { border: 1px solid var(--line); border-radius: 8px; padding: 20px; background: #10151f; min-height: 148px; }
+      .card b { display: block; margin-bottom: 10px; font-size: 18px; }
+      .muted { color: var(--muted); }
+      .steps { display: grid; gap: 12px; counter-reset: step; }
+      .step { display: grid; grid-template-columns: 48px 1fr; gap: 16px; align-items: start; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: #10151f; }
+      .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 40px; height: 40px; border-radius: 999px; background: var(--accent); color: #06110f; font-weight: 900; }
+      form { display: grid; gap: 12px; }
+      input, textarea { width: 100%; border: 1px solid var(--line); background: #0b0f17; color: var(--text); border-radius: 6px; padding: 14px 16px; font: inherit; }
+      textarea { min-height: 120px; resize: vertical; }
+      footer { padding: 32px 0; color: var(--muted); }
+      @media (max-width: 820px) { .hero-grid, .grid { grid-template-columns: 1fr; } h1 { font-size: 44px; } .nav-note { display: none; } }
+    </style>
+  </head>
+  <body>
+    <header><nav class="wrap"><div class="brand">${escapeHtml(business)}</div><div class="nav-note">${escapeHtml(niche)}</div></nav></header>
+    <main>
+      <section class="hero">
+        <div class="wrap hero-grid">
+          <div>
+            <div class="eyebrow">Первое превью сайта</div>
+            <h1>${escapeHtml(business)}</h1>
+            <p class="lead">Сайт для задачи: ${escapeHtml(goal)}. Стиль: ${escapeHtml(style)}.</p>
+            <div class="actions">
+              <a class="btn primary" href="#request">Обсудить проект</a>
+              <a class="btn" href="#services">Посмотреть услуги</a>
+            </div>
+          </div>
+          <aside class="panel">
+            <b>Что важно показать сразу</b>
+            <p class="muted">${escapeHtml(proof)}</p>
+            <div class="metric">
+              <div><b>2 дня</b><span class="muted">до первого рабочего варианта</span></div>
+              <div><b>30 000 ₽</b><span class="muted">старт для сайта-визитки</span></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+      <section id="services"><div class="wrap"><h2>Ключевые направления</h2><div class="grid">${services.map((item) => `<article class="card"><b>${escapeHtml(item)}</b><p class="muted">Коротко объясняем ценность, результат и следующий шаг для клиента.</p></article>`).join('')}</div></div></section>
+      <section><div class="wrap"><h2>Как будет устроен запуск</h2><div class="steps"><div class="step"><div><b>Уточняем задачу</b><p class="muted">Собираем цели, услуги, стиль, контакты и ограничения.</p></div></div><div class="step"><div><b>Собираем рабочий сайт</b><p class="muted">Делаем структуру, тексты, форму заявки и адаптивную верстку.</p></div></div><div class="step"><div><b>Вносим правки через бота</b><p class="muted">После запуска можно писать обычным текстом или голосом, что поменять.</p></div></div></div></div></section>
+      <section id="request"><div class="wrap hero-grid"><div><h2>Заявка на проект</h2><p class="muted">Контакты и поля формы: ${escapeHtml(contacts)}.</p></div><form><input placeholder="Имя"><input placeholder="Телефон или email"><textarea placeholder="Коротко опишите задачу"></textarea><button class="btn primary" type="button">Отправить заявку</button></form></div></section>
+    </main>
+    <footer><div class="wrap">Превью подготовлено Web Studio Coder на основе клиентского ТЗ.</div></footer>
+  </body>
+</html>`;
+}
+
+function splitItems(value) {
+  const items = String(value || '')
+    .split(/[,;\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  return items.length ? items : ['Главная услуга', 'Консультация', 'Заявка'];
+}
+
 async function capturePublicPage(sourceUrl) {
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   try {
@@ -227,6 +322,91 @@ export async function deployLeadPublicUrlProject(store, leadId, options = {}) {
   await store.addEvent(lead.id, 'lead.advanced', 'Lead moved to Checker after Coder deploy');
   await syncA1CrmLead(lead, 'project_deployed');
   return { ok: true, publicUrl, slug, strategy, lead };
+}
+
+export async function deployLeadGeneratedPreview(store, leadId, options = {}) {
+  let lead = store.getLead(leadId);
+  if (!lead) return { ok: false, error: 'Lead not found' };
+  const slugBase = options.projectName || lead.name || lead.id;
+  const slug = projectSlug(`${slugBase}-${lead.id.slice(0, 8)}`, `project-${lead.id.slice(0, 8)}`);
+  const root = path.resolve(config.DATA_DIR, 'projects', slug);
+  const publicUrl = projectUrl(slug);
+  await rm(root, { recursive: true, force: true });
+  await mkdir(root, { recursive: true });
+
+  const html = generatedPreviewHtml(lead);
+  const files = [
+    { path: 'index.html', content: html },
+    {
+      path: 'webstudio-project.json',
+      content: JSON.stringify(
+        {
+          leadId: lead.id,
+          businessName: lead.name,
+          city: lead.city,
+          niche: lead.niche,
+          publicUrl,
+          slug,
+          strategy: 'coder_generated_preview',
+          fallbackReason: options.reason || '',
+          deployedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+    },
+  ];
+  for (const file of files) await writeFile(path.join(root, file.path), file.content, 'utf8');
+
+  const repoName = `${config.GITHUB_REPO_PREFIX}${slug}`.slice(0, 100).replace(/-+$/g, '');
+  const github = await publishFilesToGitHub({
+    repoName,
+    description: `Web Studio generated preview for ${lead.name}`,
+    files,
+    metadata: { leadId: lead.id, businessName: lead.name, publicUrl, fallbackReason: options.reason || '' },
+  }).catch((error) => ({ ok: false, error: error.message }));
+
+  lead = await store.updateLead(lead.id, {
+    mockup: {
+      ...(lead.mockup ?? {}),
+      ok: true,
+      mode: 'coder_generated_preview',
+      status: 'deployed',
+      publishedUrl: publicUrl,
+      deployedUrl: publicUrl,
+      publicUrl,
+      projectSlug: slug,
+      projectName: options.projectName || lead.name || '',
+      deploymentStrategy: 'coder_generated_preview',
+      deploymentWarning: options.reason || '',
+      github,
+      deployedAt: new Date().toISOString(),
+    },
+    lane: 'Видео',
+    owner: 'Filmer',
+    status: 'in_progress',
+  });
+  await store.addEvent(lead.id, 'project.deployed', `Coder generated fallback preview: ${publicUrl}`);
+  await crmAddEvent({
+    entityType: lead.a1DealId ? 'deal' : 'lead',
+    entityId: lead.a1DealId || lead.a1LeadId || lead.id,
+    eventType: 'project.deployed',
+    text: `Coder generated fallback preview: ${publicUrl}`,
+    payload: { webstudioLeadId: lead.id, publicUrl, slug, github, fallbackReason: options.reason || '' },
+    idempotencyKey: `webstudio:${lead.id}:project.deployed:${slug}`,
+  });
+
+  const video = await renderLeadVideo(lead);
+  if (!video.ok) {
+    lead = await store.updateLead(lead.id, { video, status: 'needs_review' });
+    await store.addEvent(lead.id, 'video.failed', `Filmer could not render generated preview: ${video.reason}`);
+    await syncA1CrmLead(lead, 'generated_preview_video_failed');
+    return { ok: false, publicUrl, slug, github, lead, video };
+  }
+  lead = await store.updateLead(lead.id, { video, lane: 'Проверка', owner: 'Checker', status: 'in_progress' });
+  await store.addEvent(lead.id, 'video.created', `Filmer rendered generated preview: ${video.videoUrl}`);
+  await syncA1CrmLead(lead, 'generated_preview_deployed');
+  return { ok: true, publicUrl, slug, github, lead };
 }
 
 async function writeSourceFiles(root, files) {
