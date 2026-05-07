@@ -27,6 +27,21 @@ LOVABLE_OFFICIAL_MCP_URL=https://mcp.lovable.dev
 LOVABLE_AUTO_DEPLOY=true
 ```
 
+OAuth fallback:
+
+```text
+LOVABLE_OAUTH_TOKEN_PATH=/app/data/lovable-oauth.json
+LOVABLE_WORKSPACE_ID=...
+LOVABLE_AUTO_DEPLOY=true
+```
+
+Generate the OAuth token locally through the Cursor-registered Lovable client:
+
+```bash
+node scripts/lovable-oauth-cursor-capture.js manual-start
+node scripts/lovable-oauth-cursor-capture.js manual-finish "cursor://anysphere.cursor-mcp/oauth/callback?code=..."
+```
+
 When configured, Web Studio calls:
 
 1. `create_project` with the lead landing prompt.

@@ -1,3 +1,4 @@
+import { readFile, writeFile } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { config, hasSecret } from '../config.js';
@@ -30,16 +31,58 @@ function urlFrom(data, keys) {
 }
 
 export function lovableOfficialConfigured() {
-  return hasSecret(config.LOVABLE_API_KEY) && hasSecret(config.LOVABLE_WORKSPACE_ID);
+  return (hasSecret(config.LOVABLE_API_KEY) || hasSecret(config.LOVABLE_OAUTH_TOKEN_PATH)) && hasSecret(config.LOVABLE_WORKSPACE_ID);
+}
+
+async function loadOAuthToken() {
+  if (!hasSecret(config.LOVABLE_OAUTH_TOKEN_PATH)) return null;
+  try {
+    const token = JSON.parse(await readFile(config.LOVABLE_OAUTH_TOKEN_PATH, 'utf8'));
+    if (!token.access_token) return null;
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshOAuthToken(token) {
+  if (!token?.refresh_token) return token;
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: token.refresh_token,
+    client_id: token.client?.client_id || '6d465f583e1e4ce5801b1616f735670c',
+    resource: token.mcpUrl || 'https://mcp.lovable.dev',
+  });
+  const response = await fetch('https://lovable.dev/oauth/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  if (!response.ok) return token;
+  const refreshed = await response.json();
+  const next = {
+    ...token,
+    ...refreshed,
+    refresh_token: refreshed.refresh_token || token.refresh_token,
+    refreshedAt: new Date().toISOString(),
+  };
+  await writeFile(config.LOVABLE_OAUTH_TOKEN_PATH, JSON.stringify(next, null, 2), 'utf8').catch(() => {});
+  return next;
 }
 
 export async function withLovableClient(callback) {
   if (!lovableOfficialConfigured()) return { ok: false, skipped: true, reason: 'LOVABLE_API_KEY or LOVABLE_WORKSPACE_ID is not configured' };
+  const oauthToken = hasSecret(config.LOVABLE_API_KEY) ? null : await refreshOAuthToken(await loadOAuthToken());
+  if (!hasSecret(config.LOVABLE_API_KEY) && !oauthToken?.access_token) {
+    return { ok: false, skipped: true, reason: 'LOVABLE_OAUTH_TOKEN_PATH does not contain an access token' };
+  }
   const client = new Client({ name: 'web-studio-orchestrator', version: '0.1.0' }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(new URL(config.LOVABLE_OFFICIAL_MCP_URL), {
     requestInit: {
       headers: {
-        'Lovable-API-Key': config.LOVABLE_API_KEY,
+        ...(hasSecret(config.LOVABLE_API_KEY)
+          ? { 'Lovable-API-Key': config.LOVABLE_API_KEY }
+          : { Authorization: `Bearer ${oauthToken.access_token}` }),
       },
     },
   });

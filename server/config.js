@@ -58,6 +58,7 @@ const envSchema = z.object({
   LOVABLE_MCP_API_KEY: z.string().optional().default(''),
   LOVABLE_OFFICIAL_MCP_URL: z.string().default('https://mcp.lovable.dev'),
   LOVABLE_API_KEY: z.string().optional().default(''),
+  LOVABLE_OAUTH_TOKEN_PATH: z.string().default('./data/lovable-oauth.json'),
   LOVABLE_WORKSPACE_ID: z.string().optional().default(''),
   LOVABLE_AUTO_DEPLOY: boolFromEnv.default('false'),
   TELEGRAM_BOT_TOKEN: z.string().optional().default(''),
