@@ -108,46 +108,84 @@ export async function syncA1CrmLead(lead, reason = 'sync') {
 export async function crmUpsertLead(lead, reason = 'sync') {
   const email = Array.isArray(lead.contacts?.emails) ? lead.contacts.emails.find(Boolean) : '';
   return callA1McpTool('crm_upsert_lead', {
+    companyId: config.A1_COMPANY_ID,
     externalId: lead.id,
     dedupeKey: `webstudio:${lead.id}`,
+    webstudioId: lead.id,
+    title: lead.name || 'Web Studio lead',
+    description: lead.diagnosis || lead.angle || '',
+    contactName: lead.name || '',
+    contactEmail: email || undefined,
+    contactPhone: lead.contacts?.phone || lead.phone || undefined,
     companyName: lead.name || '',
-    city: lead.city || '',
-    niche: lead.niche || '',
-    contacts: {
-      emails: lead.contacts?.emails || (email ? [email] : []),
-      phone: lead.contacts?.phone || lead.phone || '',
-      channels: lead.contacts?.channels || [],
-    },
-    score: lead.fitScore ?? lead.priority ?? 0,
+    website: lead.site || undefined,
     source: 'webstudio',
+    channel: 'webstudio',
+    direction: 'outbound',
     stage: a1StageForLead(lead),
-    reason,
-    webstudioLead: publicLeadPayload(lead),
-    idempotencyKey: `webstudio:${lead.id}:upsert:${lead.updatedAt || reason}`,
+    tags: ['webstudio', lead.city, lead.niche].filter(Boolean),
+    data: {
+      reason,
+      score: lead.fitScore ?? lead.priority ?? 0,
+      contacts: {
+        emails: lead.contacts?.emails || (email ? [email] : []),
+        phone: lead.contacts?.phone || lead.phone || '',
+        channels: lead.contacts?.channels || [],
+      },
+      webstudioLead: publicLeadPayload(lead),
+      idempotencyKey: `webstudio:${lead.id}:upsert:${lead.updatedAt || reason}`,
+    },
   });
 }
 
 export async function crmMoveLeadStage(input) {
-  if (!input?.a1LeadId && !input?.externalId && !input?.dedupeKey) {
+  const leadId = input?.leadId || input?.a1LeadId;
+  if (!leadId) {
     return { ok: false, skipped: true, reason: 'Missing A1 lead reference' };
   }
-  return callA1McpTool('crm_move_lead_stage', input);
+  const stage = input.stage === 'converted' ? 'won' : input.stage;
+  return callA1McpTool('crm_move_lead_stage', {
+    companyId: config.A1_COMPANY_ID,
+    leadId,
+    stage,
+    status: input.status || (stage === 'won' || stage === 'lost' ? 'converted' : 'open'),
+    source: 'webstudio',
+    channel: 'webstudio',
+    payload: {
+      reason: input.reason,
+      actor: input.actor,
+      externalId: input.externalId,
+      dedupeKey: input.dedupeKey,
+      idempotencyKey: input.idempotencyKey,
+    },
+  });
 }
 
 export async function crmAddEvent(input) {
   return callA1McpTool('crm_add_event', {
+    companyId: config.A1_COMPANY_ID,
     source: 'webstudio',
-    ...input,
-    idempotencyKey: input.idempotencyKey || `webstudio:event:${input.entityType}:${input.entityId}:${input.eventType}:${Date.now()}`,
+    channel: input.channel || 'webstudio',
+    entityType: input.entityType,
+    entityId: input.entityId,
+    eventType: input.eventType,
+    eventId: input.eventId || input.idempotencyKey || `webstudio:event:${input.entityType}:${input.entityId}:${input.eventType}:${Date.now()}`,
+    direction: input.direction,
+    payload: {
+      text: input.text,
+      ...(input.payload || {}),
+      idempotencyKey: input.idempotencyKey || '',
+    },
   });
 }
 
 export async function crmConvertLeadToDeal(input) {
-  return callA1McpTool('crm_convert_lead_to_deal', input);
+  return { ok: false, skipped: true, reason: 'crm_convert_lead_to_deal is not exposed by A1 MCP server yet', input };
 }
 
 export async function dealAttachProduct(input) {
-  return callA1McpTool('deal_attach_product', {
+  return callA1McpTool('crm_attach_product', {
+    companyId: config.A1_COMPANY_ID,
     productCode: 'landing_site_setup',
     billingMode: 'one_time',
     ...input,
@@ -155,14 +193,47 @@ export async function dealAttachProduct(input) {
 }
 
 export async function invoiceCreateYookassaLink(input) {
-  return callA1McpTool('invoice_create_yookassa_link', input);
+  const firstItem = Array.isArray(input.items) ? input.items[0] : null;
+  return callA1McpTool('invoice_create_yookassa_link', {
+    companyId: config.A1_COMPANY_ID,
+    leadId: input.leadId || input.a1LeadId || input.a1DealId,
+    product: input.product || {
+      sku: firstItem?.productCode || firstItem?.sku || 'landing_site_setup',
+      name: firstItem?.title || firstItem?.name || 'Сайт под ключ',
+      description: firstItem?.description || '',
+      quantity: firstItem?.quantity || 1,
+    },
+    amount: input.amount ?? input.amountRub,
+    currency: input.currency || 'RUB',
+    customerEmail: input.customerEmail || input.email,
+    customerPhone: input.customerPhone || input.phone,
+    returnUrl: input.returnUrl || input.successUrl,
+    source: 'webstudio',
+    metadata: input.metadata || {},
+  });
 }
 
 export async function outboundQueueMessage(input) {
   if (input.channel && String(input.channel).toLowerCase() !== 'email') {
     return { ok: false, skipped: true, reason: 'Only email outbound is enabled in Web Studio v1' };
   }
-  return callA1McpTool('outbound_queue_message', { channel: 'email', requiresApproval: false, ...input });
+  return callA1McpTool('outbound_queue_message', {
+    companyId: config.A1_COMPANY_ID,
+    channel: 'email',
+    toAddress: input.toAddress || input.to,
+    fromAddress: input.fromAddress,
+    subject: input.subject,
+    bodyText: input.bodyText || input.body,
+    bodyHtml: input.bodyHtml,
+    entityType: 'lead',
+    entityId: input.a1LeadId || input.leadId,
+    dedupeKey: input.idempotencyKey || input.dedupeKey,
+    meta: {
+      externalId: input.externalId,
+      attachments: input.attachments || [],
+      requiresApproval: input.requiresApproval ?? false,
+    },
+  });
 }
 
 export async function voiceCallQueue() {
@@ -170,7 +241,7 @@ export async function voiceCallQueue() {
 }
 
 export async function crmGetUpdatesSince(since) {
-  return callA1McpTool('crm_get_updates_since', { since, source: 'webstudio' });
+  return callA1McpTool('crm_get_updates_since', { companyId: config.A1_COMPANY_ID, since, limit: 200 });
 }
 
 export function a1StageForLead(lead) {
@@ -183,7 +254,7 @@ export function a1StageForLane(lane) {
   if (value.includes('mockup') || value.includes('lovable') || value.includes('video') || value.includes('\u0432\u0438\u0434') || value.includes('РІРёРґ')) return 'in_work';
   if (value.includes('checked') || value.includes('offer') || value.includes('check') || value.includes('\u043f\u0440\u043e\u0432') || value.includes('РїСЂРѕРІ')) return 'offer';
   if (value.includes('outreach') || value.includes('sent') || value.includes('replied') || value.includes('reply') || value.includes('\u043e\u0442\u043f\u0440\u0430\u0432') || value.includes('\u043e\u0442\u0432\u0435\u0442') || value.includes('РѕС‚РїСЂР°РІ') || value.includes('РѕС‚РІРµС‚')) return 'follow_up';
-  if (value.includes('deal') || value.includes('converted')) return 'converted';
+  if (value.includes('deal') || value.includes('converted')) return 'won';
   return 'new';
 }
 
@@ -253,6 +324,7 @@ function a1McpHeaders() {
     'x-environment': config.A1_MCP_ENVIRONMENT,
     'x-actor-id': config.A1_MCP_ACTOR_ID,
   };
+  if (hasSecret(config.A1_COMPANY_ID)) headers['x-company-id'] = config.A1_COMPANY_ID;
   if (!hasSecret(config.A1_MCP_API_KEY)) return headers;
   const authHeader = config.A1_MCP_AUTH_HEADER || 'x-a1-mcp-key';
   const authValue = authHeader.toLowerCase() === 'authorization' ? `Bearer ${config.A1_MCP_API_KEY}` : config.A1_MCP_API_KEY;
