@@ -228,6 +228,8 @@ export class Orchestrator {
       }
 
       if (lead.lane === 'Видео') {
+        const artifactGate = await this.requireDeployedSite(lead);
+        if (!artifactGate.ok) return artifactGate;
         lead.video = await renderLeadVideo(lead);
         if (!lead.video.ok) {
           lead.status = 'needs_review';
@@ -249,6 +251,8 @@ export class Orchestrator {
       }
 
       if (lead.lane === 'Проверка') {
+        const artifactGate = await this.requireDeployedSite(lead);
+        if (!artifactGate.ok) return artifactGate;
         lead.checker = await evaluatePitch(lead);
         if (!lead.checker.passed) {
           lead.status = 'needs_review';
@@ -420,6 +424,26 @@ export class Orchestrator {
     );
     return { ok: false, waitingApproval: true, approval };
   }
+
+  async requireDeployedSite(lead) {
+    const hasSite = Boolean((lead.mockup?.publicUrl || lead.mockup?.deployedUrl || lead.mockup?.publishedUrl) && lead.mockup?.status === 'deployed');
+    if (hasSite) return { ok: true };
+    const updated = await this.store.updateLead(lead.id, {
+      lane: 'Диагноз',
+      owner: 'Diagnoser',
+      status: 'in_progress',
+      mockup: lead.mockup
+        ? {
+            ...lead.mockup,
+            status: 'not_built',
+            handoffStatus: 'returned_to_diagnosis',
+            returnedAt: new Date().toISOString(),
+          }
+        : undefined,
+    });
+    await this.store.addEvent(lead.id, 'mockup.missing_returned', 'Lead returned to Diagnosis because no deployed Web Studio site exists');
+    return { ok: false, held: true, reason: 'No deployed Web Studio site exists; returned to Diagnosis', lead: updated };
+  }
 }
 
 function actionForLead(lead, topLovableIds) {
@@ -434,12 +458,12 @@ function actionForLead(lead, topLovableIds) {
     return { action: 'deploy_github_repo', label: 'Деплой GitHub repo', score: lead.fitScore ?? 0, autoRunnable: false };
   }
   if (lead.lane === 'Lovable' && (lead.mockup?.handoffStatus === 'stalled' || lovableHandoffAgeMs(lead) >= LOVABLE_HANDOFF_STALE_MS)) {
-    return { action: 'lovable_handoff_stalled', label: 'Lovable: нужен URL/код', score: 100, autoRunnable: false };
+    return { action: 'lovable_handoff_stalled', label: 'Lovable: сайт не сделан', score: 100, autoRunnable: false };
   }
   if (lead.status === 'needs_review') return { action: 'review_message', label: 'Нужна ручная правка сообщения', score: 90, autoRunnable: false };
   if (lead.lane === 'Диагноз' && topLovableIds.has(lead.id)) return { action: 'build_lovable', label: 'Сделать сайт в Lovable', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Диагноз') return { action: 'hold_lovable', label: 'Ждет quota Lovable', score: lead.fitScore ?? 0, autoRunnable: false };
-  if (lead.lane === 'Lovable') return { action: 'wait_lovable_url', label: 'Ждет URL из Lovable MCP', score: lead.fitScore ?? 0, autoRunnable: false };
+  if (lead.lane === 'Lovable') return { action: 'wait_lovable_export', label: 'Ждет export из Lovable MCP', score: lead.fitScore ?? 0, autoRunnable: false };
   if (lead.lane === 'Видео') return { action: 'make_video', label: 'Подготовить видео/пропустить', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Проверка') return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Отправка') return { action: 'queue_pitch', label: 'Поставить в очередь отправки', score: lead.fitScore ?? 0, autoRunnable: true };
