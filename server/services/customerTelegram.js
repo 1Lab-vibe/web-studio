@@ -351,17 +351,25 @@ async function refineBriefFromMessage(store, lead, chatId, text) {
   const currentBrief = lead.customerBrief ?? {};
   const refined = await briefDialogAgent(lead, currentBrief, text);
   const history = Array.isArray(currentBrief.refinements) ? currentBrief.refinements.slice(-10) : [];
+  const leadPatch = {};
+  if (refined.patch?.businessName) leadPatch.name = refined.patch.businessName;
+  if (refined.patch?.niche) leadPatch.niche = refined.patch.niche;
+  const briefPatch = { ...(refined.patch || {}) };
+  delete briefPatch.businessName;
+  delete briefPatch.niche;
   const brief = {
     ...currentBrief,
-    ...(refined.patch || {}),
+    ...briefPatch,
     refinements: [...history, { text, appliedAt: new Date().toISOString(), patch: refined.patch || {} }],
     updatedAt: new Date().toISOString(),
   };
   const updated = await store.updateLead(lead.id, {
+    ...leadPatch,
     customerBrief: brief,
     customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'brief_review', step: QUESTIONS.length },
     status: 'brief_refined',
   });
+  if (Object.keys(leadPatch).length) await syncA1CrmLead(updated, 'customer_changed_business').catch(() => null);
   await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer refined brief in dialog', { brief, text, patch: refined.patch || {} });
   await sendTelegramTo(chatId, refined.reply || 'Принял правку и обновил ТЗ. Проверьте /brief, если все верно — /approve.');
   return { ok: true, lead: updated };
@@ -380,7 +388,8 @@ async function briefDialogAgent(lead, currentBrief, text) {
             'Клиент пишет свободно: это может быть правка, уточнение, ответ или сомнение.',
             'Не перезаписывай последний вопрос автоматически. Обновляй только поля, к которым относится сообщение.',
             'Верни строго JSON без markdown: patch object и reply string.',
-            'patch может содержать только: previewDirection, goal, services, style, contacts, materials, deadline, notes.',
+            'patch может содержать только: businessName, niche, previewDirection, goal, services, style, contacts, materials, deadline, notes.',
+            'Если клиент явно говорит, что бизнес/проект другой, добавь patch.businessName и/или patch.niche.',
             'reply: 1-2 короткие фразы, живо, без канцелярита. Если ТЗ стало понятнее, предложи /brief или /approve.',
           ].join('\n'),
         },
@@ -409,7 +418,7 @@ async function briefDialogAgent(lead, currentBrief, text) {
 }
 
 function sanitizeBriefPatch(patch = {}) {
-  const allowed = ['previewDirection', 'goal', 'services', 'style', 'contacts', 'materials', 'deadline', 'notes'];
+  const allowed = ['businessName', 'niche', 'previewDirection', 'goal', 'services', 'style', 'contacts', 'materials', 'deadline', 'notes'];
   return Object.fromEntries(
     Object.entries(patch)
       .filter(([key, value]) => allowed.includes(key) && value !== undefined && value !== null && String(value).trim())
@@ -418,8 +427,9 @@ function sanitizeBriefPatch(patch = {}) {
 }
 
 function fallbackBriefPatch(text) {
+  const businessMatch = String(text || '').match(/(?:бизнес|проект|компания)\s*(?:-|—|:|это)?\s*([^.\n]+)/i);
   return {
-    patch: { notes: text },
+    patch: businessMatch ? { businessName: businessMatch[1].trim(), notes: text } : { notes: text },
     reply: 'Принял как уточнение к ТЗ. Проверьте /brief, если все верно — отправьте /approve.',
   };
 }
