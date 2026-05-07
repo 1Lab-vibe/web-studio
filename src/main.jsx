@@ -67,12 +67,13 @@ function emailCandidates(lead) {
 function outboundPreview(lead) {
   const siteUrl = absoluteUrl(lead?.mockup?.publishedUrl || lead?.mockup?.deployedUrl || lead?.mockup?.publicUrl || '');
   const videoUrl = absoluteUrl(lead?.video?.videoUrl || '');
-  const botLink = lead?.customerBotLink || (lead?.publicLeadToken ? 'будет добавлена персональная ссылка на Telegram-бота' : '');
+  const botLink = lead?.customerBotLink || '';
   const body = [
-    lead?.message || '',
+    `Здравствуйте. Мы посмотрели, как ${lead?.name || 'ваша компания'} сейчас выглядит в поиске и на картах, и подготовили один вариант превью сайта под ${lead?.niche || 'ваш бизнес'}.`,
+    'Это не шаблон к обязательному запуску, а быстрый пример направления: структуру, тексты и визуал можно поменять под ваши идеи.',
     siteUrl ? `\nПревью сайта: ${siteUrl}` : '',
     videoUrl ? `Видео-превью: ${videoUrl}` : '',
-    botLink ? `Ссылка для обсуждения сайта: ${botLink}` : '',
+    botLink ? `Если интересно обсудить или дать правки, напишите сюда: ${botLink}` : '',
   ]
     .filter(Boolean)
     .join('\n')

@@ -15,6 +15,7 @@ import { handleCustomerTelegramMessage } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
 import { listLovableTools, lovableOfficialConfigured } from './services/lovableOfficialMcp.js';
+import { customerBotLink } from './services/a1Client.js';
 
 const app = express();
 const store = new Store(config.DATA_DIR);
@@ -64,8 +65,8 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.get('/api/state', (req, res) => res.json({ ok: true, data: store.state }));
-app.get('/api/leads', (req, res) => res.json({ ok: true, data: store.listLeads() }));
+app.get('/api/state', (req, res) => res.json({ ok: true, data: publicState() }));
+app.get('/api/leads', (req, res) => res.json({ ok: true, data: publicLeads() }));
 
 app.post('/api/leads', async (req, res) => {
   const lead = await store.upsertLead(req.body ?? {});
@@ -237,6 +238,20 @@ if (config.AUTONOMY_ENABLED) {
       console.error('Autonomy tick failed', error);
     }
   });
+}
+
+function publicState() {
+  return {
+    ...store.state,
+    leads: publicLeads(),
+  };
+}
+
+function publicLeads() {
+  return store.listLeads().map((lead) => ({
+    ...lead,
+    customerBotLink: customerBotLink(lead),
+  }));
 }
 
 app.listen(config.PORT, config.HOST, () => {
