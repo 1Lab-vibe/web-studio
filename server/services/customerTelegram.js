@@ -350,6 +350,8 @@ async function collectBriefAnswer(store, lead, chatId, text) {
 async function refineBriefFromMessage(store, lead, chatId, text) {
   const currentBrief = lead.customerBrief ?? {};
   const refined = await briefDialogAgent(lead, currentBrief, text);
+  const inferred = inferBusinessPatch(text);
+  refined.patch = { ...(refined.patch || {}), ...inferred };
   const history = Array.isArray(currentBrief.refinements) ? currentBrief.refinements.slice(-10) : [];
   const leadPatch = {};
   if (refined.patch?.businessName) leadPatch.name = refined.patch.businessName;
@@ -357,6 +359,9 @@ async function refineBriefFromMessage(store, lead, chatId, text) {
   const briefPatch = { ...(refined.patch || {}) };
   delete briefPatch.businessName;
   delete briefPatch.niche;
+  if ((leadPatch.name || leadPatch.niche) && /бизнес|проект|компани|сайт нужен/i.test(String(currentBrief.deadline || ''))) {
+    briefPatch.deadline = '';
+  }
   const brief = {
     ...currentBrief,
     ...briefPatch,
@@ -371,7 +376,10 @@ async function refineBriefFromMessage(store, lead, chatId, text) {
   });
   if (Object.keys(leadPatch).length) await syncA1CrmLead(updated, 'customer_changed_business').catch(() => null);
   await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer refined brief in dialog', { brief, text, patch: refined.patch || {} });
-  await sendTelegramTo(chatId, refined.reply || 'Принял правку и обновил ТЗ. Проверьте /brief, если все верно — /approve.');
+  const reply = leadPatch.name || leadPatch.niche
+    ? `Понял, меняю бизнес в ТЗ${leadPatch.name ? ` на «${leadPatch.name}»` : ''}. Проверьте /brief.`
+    : refined.reply || 'Принял правку и обновил ТЗ. Проверьте /brief, если все верно — /approve.';
+  await sendTelegramTo(chatId, reply);
   return { ok: true, lead: updated };
 }
 
@@ -427,11 +435,40 @@ function sanitizeBriefPatch(patch = {}) {
 }
 
 function fallbackBriefPatch(text) {
-  const businessMatch = String(text || '').match(/(?:бизнес|проект|компания)\s*(?:-|—|:|это)?\s*([^.\n]+)/i);
+  const businessMatch = inferBusinessPatch(text);
   return {
-    patch: businessMatch ? { businessName: businessMatch[1].trim(), notes: text } : { notes: text },
+    patch: Object.keys(businessMatch).length ? { ...businessMatch, notes: text } : { notes: text },
     reply: 'Принял как уточнение к ТЗ. Проверьте /brief, если все верно — отправьте /approve.',
   };
+}
+
+function inferBusinessPatch(text) {
+  const value = String(text || '').trim();
+  const result = {};
+  const named = value.match(/(?:сайт\s+нужен\s+для|для\s+компании|для\s+бренда)\s+["«]?([^".\n»]+)["»]?/i);
+  if (named?.[1]) result.businessName = cleanBusinessName(named[1]);
+
+  const business = value.match(/(?:^|[,.;\n]\s*|нет[, ]*)?(?:бизнес|проект|компания|направление)\s*(?:-|—|:|это)?\s*["«]?([^".\n»]+)["»]?/i);
+  if (business?.[1]) {
+    const parsed = cleanBusinessName(business[1]);
+    result.businessName ||= parsed;
+    result.niche ||= parsed;
+  }
+
+  if (/разработк[аи]\s+it|it[- ]?продукт|ии|искусственн/i.test(value)) {
+    result.niche ||= 'разработка IT-продуктов с использованием ИИ';
+    if (!result.businessName && /бизнес|проект|компания|направление/i.test(value)) {
+      result.businessName = 'Разработка IT-продуктов с использованием ИИ';
+    }
+  }
+  return result;
+}
+
+function cleanBusinessName(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*(?:,?\s*а\s+сайт|,?\s*сайт|,?\s*нужно|,?\s*нужен).*$/i, '')
+    .trim();
 }
 
 async function transcribeTelegramVoice(fileId) {
