@@ -91,6 +91,31 @@ function fallbackFrameHtml({ title, sourceUrl }) {
 </html>`;
 }
 
+function buildFailedHtml({ title, build }) {
+  return `<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${escapeHtml(title)}</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 16px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111827; background: #f8fafc; }
+      main { width: min(760px, calc(100vw - 32px)); padding: 28px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+      h1 { margin: 0 0 12px; font-size: 24px; }
+      p { margin: 0 0 14px; color: #475569; }
+      pre { overflow: auto; max-height: 360px; padding: 14px; border-radius: 6px; background: #111827; color: #e5e7eb; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>${escapeHtml(title)}</h1>
+      <p>Экспорт Lovable получен, но локальная сборка проекта не прошла. Coder сохранил исходники и GitHub-репозиторий для ручной диагностики.</p>
+      <pre>${escapeHtml(build?.error || 'Build failed')}</pre>
+    </main>
+  </body>
+</html>`;
+}
+
 async function capturePublicPage(sourceUrl) {
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   try {
@@ -259,7 +284,7 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
   if (!build.ok) {
     await writeFile(
       path.join(publicRoot, 'index.html'),
-      fallbackFrameHtml({ title: lead.name || 'Web Studio project', sourceUrl: lovable.publishedUrl || lovable.previewUrl || lovable.editorUrl || '' }),
+      buildFailedHtml({ title: lead.name || 'Web Studio project', build }),
       'utf8',
     );
   }

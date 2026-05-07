@@ -716,18 +716,6 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDeploy, onDecision }
           Открыть Lovable Build URL
         </a>
       )}
-      {lead.mockup?.url && (
-        <a className="lovable-link primary" href={lead.mockup.url} target="_blank" rel="noreferrer">
-          <Globe2 size={16} />
-          Открыть Lovable preview
-        </a>
-      )}
-      {lead.mockup?.publishedUrl && (
-        <a className="lovable-link primary" href={lead.mockup.publishedUrl} target="_blank" rel="noreferrer">
-          <Globe2 size={16} />
-          Открыть публичный сайт
-        </a>
-      )}
       {lead.mockup?.deployedUrl && (
         <a className="lovable-link primary" href={lead.mockup.deployedUrl} target="_blank" rel="noreferrer">
           <Globe2 size={16} />

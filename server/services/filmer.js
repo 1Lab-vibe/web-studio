@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -27,10 +27,17 @@ async function ffmpegAvailable() {
   }
 }
 
-async function captureScreenshots(lead, url, dir) {
-  const count = Math.max(1, Math.min(8, Number(config.FILMER_SCREENSHOT_COUNT) || 5));
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+async function captureScrollFrames(lead, url, dir) {
+  const screenshotCount = Math.max(1, Math.min(8, Number(config.FILMER_SCREENSHOT_COUNT) || 5));
+  const duration = Math.max(2, Number(config.FILMER_VIDEO_SECONDS) || 10);
+  const frameCount = Math.max(30, Math.min(180, Math.round(duration * 12)));
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-  const shots = [];
+  const frames = [];
+  const screenshots = [];
   try {
     const page = await browser.newPage({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 });
     const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 90000 });
@@ -45,33 +52,34 @@ async function captureScreenshots(lead, url, dir) {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const scrollHeight = await page.evaluate(() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));
     const maxScroll = Math.max(0, scrollHeight - 1920);
-    for (let index = 0; index < count; index += 1) {
-      const y = count === 1 ? 0 : Math.round((maxScroll * index) / (count - 1));
+    const screenshotEvery = Math.max(1, Math.floor(frameCount / screenshotCount));
+    for (let index = 0; index < frameCount; index += 1) {
+      const progress = frameCount === 1 ? 0 : index / (frameCount - 1);
+      const y = Math.round(maxScroll * easeInOutCubic(progress));
       await page.evaluate((scrollY) => window.scrollTo({ top: scrollY, behavior: 'instant' }), y);
-      await page.waitForTimeout(500);
-      const shotPath = path.join(dir, `shot-${String(index + 1).padStart(2, '0')}.png`);
-      await page.screenshot({ path: shotPath, fullPage: false });
-      shots.push(shotPath);
+      await page.waitForTimeout(40);
+      const framePath = path.join(dir, `frame-${String(index + 1).padStart(4, '0')}.png`);
+      await page.screenshot({ path: framePath, fullPage: false });
+      frames.push(framePath);
+      if (screenshots.length < screenshotCount && (index % screenshotEvery === 0 || index === frameCount - 1)) {
+        const shotPath = path.join(dir, `shot-${String(screenshots.length + 1).padStart(2, '0')}.png`);
+        await page.screenshot({ path: shotPath, fullPage: false });
+        screenshots.push(shotPath);
+      }
     }
   } finally {
     await browser.close();
   }
-  return shots;
+  return { frames, screenshots };
 }
 
-async function makeVideo(shots, dir) {
+async function makeVideo(frames, dir) {
   const duration = Math.max(2, Number(config.FILMER_VIDEO_SECONDS) || 10);
-  const perShot = Math.max(1, duration / Math.max(1, shots.length));
-  const listPath = path.join(dir, 'frames.txt');
+  const inputFps = Math.max(1, frames.length / duration);
   const videoPath = path.join(dir, 'video.mp4');
-  const list = [
-    ...shots.flatMap((shot) => [`file '${shot.replaceAll("'", "'\\''")}'`, `duration ${perShot.toFixed(2)}`]),
-    `file '${shots.at(-1).replaceAll("'", "'\\''")}'`,
-  ].join('\n');
-  await writeFile(listPath, list, 'utf8');
   await execFileAsync(
     'ffmpeg',
-    ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-vf', 'fps=30,format=yuv420p', '-movflags', '+faststart', videoPath],
+    ['-y', '-framerate', inputFps.toFixed(3), '-i', path.join(dir, 'frame-%04d.png'), '-vf', 'fps=30,format=yuv420p', '-movflags', '+faststart', videoPath],
     { timeout: 120000, maxBuffer: 1024 * 1024 * 5 },
   );
   return videoPath;
@@ -91,13 +99,14 @@ export async function renderLeadVideo(lead) {
 
   const dir = renderDir(lead);
   await mkdir(dir, { recursive: true });
-  const screenshots = await captureScreenshots(lead, url, dir);
-  const video = await makeVideo(screenshots, dir);
+  const { frames, screenshots } = await captureScrollFrames(lead, url, dir);
+  const video = await makeVideo(frames, dir);
   const publicBase = `/renders/${path.basename(dir)}`;
   return {
     ok: true,
     sourceUrl: url,
     screenshots: screenshots.map((shot) => `${publicBase}/${path.basename(shot)}`),
+    frames: frames.length,
     videoUrl: `${publicBase}/${path.basename(video)}`,
     durationSeconds: Math.max(2, Number(config.FILMER_VIDEO_SECONDS) || 10),
     resolution: '1080x1920',

@@ -115,6 +115,7 @@ export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
       arguments: {
         workspace_id: config.LOVABLE_WORKSPACE_ID,
         description: `${lead.name} - ${lead.city}`,
+        tech_stack: 'classic',
         initial_message: prompt,
         wait: true,
         timeout_seconds: 900,
@@ -129,45 +130,23 @@ export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
       return { ok: false, reason: 'Lovable create_project did not return project_id', create };
     }
 
-    if (!config.LOVABLE_AUTO_DEPLOY) {
-      return {
-        ok: true,
-        projectId,
-        previewUrl,
-        editorUrl,
-        create,
-        deployed: false,
-      };
-    }
-
-    let deploy = {};
-    try {
-      const deployResult = await client.callTool({
-        name: 'deploy_project',
-        arguments: { project_id: projectId, name: lead.projectSlug || undefined },
-      }, undefined, LOVABLE_LONG_REQUEST);
-      deploy = parseToolContent(deployResult);
-    } catch (error) {
-      deploy = { ok: false, error: error.message };
-    }
-    const publishedUrl = urlFrom(deploy, ['live_url', 'liveUrl', 'published_url', 'publishedUrl', 'url']);
     const projectResult = await client.callTool({ name: 'get_project', arguments: { project_id: projectId } }, undefined, LOVABLE_SHORT_REQUEST);
     const project = parseToolContent(projectResult);
-    const latestRef = latestRefFrom(project) || latestRefFrom(create) || latestRefFrom(deploy);
+    const latestRef = latestRefFrom(project) || latestRefFrom(create);
     const exportedFiles = latestRef ? await exportLovableFiles(client, projectId, latestRef) : [];
     return {
       ok: true,
       projectId,
       previewUrl,
       editorUrl,
-      publishedUrl,
+      publishedUrl: '',
       latestRef,
       createMessageId,
       files: exportedFiles,
       create,
-      deploy,
+      deploy: { skipped: true, reason: 'Web Studio deploys exported source under /projects/<slug>; Lovable publishing is disabled.' },
       project,
-      deployed: Boolean(publishedUrl),
+      deployed: false,
     };
   });
 }
