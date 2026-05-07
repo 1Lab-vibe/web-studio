@@ -15,6 +15,7 @@ const initialState = {
   },
   metrics: {
     mockupsToday: 0,
+    mockupDate: '',
     scannedToday: 0,
     sentToday: 0,
     repliesToday: 0,
@@ -258,6 +259,11 @@ export class Store {
     if (this.state.metrics.googleSearchDate !== today) {
       this.state.metrics.googleSearchDate = today;
       this.state.metrics.googleSearchesToday = 0;
+      await this.save();
+    }
+    if (this.state.metrics.mockupDate !== today) {
+      this.state.metrics.mockupDate = today;
+      this.state.metrics.mockupsToday = 0;
       await this.save();
     }
     if (this.state.metrics.sendDate !== today) {
