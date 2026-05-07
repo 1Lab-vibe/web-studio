@@ -3,6 +3,8 @@ import OpenAI from 'openai';
 import { config, hasSecret } from '../config.js';
 import { crmConvertLeadToDeal, customerBotLink, dealAttachProduct, invoiceCreateYookassaLink, outboundQueueMessage, syncA1CrmLead } from './a1Client.js';
 import { emitCustomerA1Event } from './a1Webhook.js';
+import { prepareLovableMockup } from './lovableMcp.js';
+import { deployLeadExportedProject, deployLeadPublicUrlProject } from './projectPublisher.js';
 import { downloadTelegramFile, getTelegramFile, sendTelegram, sendTelegramTo } from './telegram.js';
 
 const QUESTIONS = [
@@ -188,7 +190,7 @@ async function startInboundCustomer(store, chatId, from, text) {
     customerBrief: text && !text.startsWith('/start') ? { initialMessage: text, updatedAt: new Date().toISOString() } : {},
     contacts: { emails: [], phone: '', channels: [] },
   });
-  await syncA1CrmLead(lead, 'telegram_inbound_started').catch(() => null);
+  lead = await syncLeadToA1(store, lead, 'telegram_inbound_started');
   await store.addEvent(lead.id, 'customer.telegram_started', `Inbound customer opened bot: ${from?.username || chatId}`);
   await notifyAdminCustomerStarted(lead, customerTelegram);
   await sendTelegramTo(chatId, onboardingText(lead, false));
@@ -233,7 +235,7 @@ function onboardingText(lead, hasPreview) {
 async function requestEmailVerification(store, lead, chatId, email) {
   const code = String(randomInt(100000, 999999));
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-  const updated = await store.updateLead(lead.id, {
+  let updated = await store.updateLead(lead.id, {
     customerTelegram: {
       ...(lead.customerTelegram ?? {}),
       mode: 'email_code',
@@ -252,7 +254,7 @@ async function requestEmailVerification(store, lead, chatId, email) {
     },
     status: 'email_verification_sent',
   });
-  await syncA1CrmLead(updated, 'customer_email_verification').catch(() => null);
+  await syncLeadToA1(store, updated, 'customer_email_verification');
   const sent = await outboundQueueMessage({
     a1LeadId: updated.a1LeadId || updated.a1?.leadId || '',
     externalId: updated.id,
@@ -286,7 +288,7 @@ async function confirmEmailCode(store, lead, chatId, text) {
     return { ok: false, invalid: true };
   }
   const email = lead.customerTelegram?.email || '';
-  const updated = await store.updateLead(lead.id, {
+  let updated = await store.updateLead(lead.id, {
     customerTelegram: {
       ...(lead.customerTelegram ?? {}),
       mode: 'brief',
@@ -299,7 +301,7 @@ async function confirmEmailCode(store, lead, chatId, text) {
     status: 'email_verified',
   });
   await emitCustomerA1Event(updated, 'customer.email_verified', 'Customer verified email', { customerEmail: email });
-  await syncA1CrmLead(updated, 'customer_email_verified').catch(() => null);
+  await syncLeadToA1(store, updated, 'customer_email_verified');
   await sendTelegramTo(chatId, `Email подтвержден. Теперь соберем короткое ТЗ.\n\n${QUESTIONS[Number(updated.customerTelegram?.step ?? 0)]?.text || QUESTIONS[0].text}`);
   return { ok: true, lead: updated };
 }
@@ -368,13 +370,16 @@ async function refineBriefFromMessage(store, lead, chatId, text) {
     refinements: [...history, { text, appliedAt: new Date().toISOString(), patch: refined.patch || {} }],
     updatedAt: new Date().toISOString(),
   };
-  const updated = await store.updateLead(lead.id, {
+  let updated = await store.updateLead(lead.id, {
     ...leadPatch,
+    ...(Object.keys(leadPatch).length
+      ? { mockup: { ...(lead.mockup ?? {}), status: 'needs_rebuild', previousPublicUrl: lead.mockup?.publicUrl || lead.mockup?.deployedUrl || lead.mockup?.publishedUrl || '' } }
+      : {}),
     customerBrief: brief,
     customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'brief_review', step: QUESTIONS.length },
     status: 'brief_refined',
   });
-  if (Object.keys(leadPatch).length) await syncA1CrmLead(updated, 'customer_changed_business').catch(() => null);
+  if (Object.keys(leadPatch).length) updated = await syncLeadToA1(store, updated, 'customer_changed_business');
   await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer refined brief in dialog', { brief, text, patch: refined.patch || {} });
   const reply = leadPatch.name || leadPatch.niche
     ? `Понял, меняю бизнес в ТЗ${leadPatch.name ? ` на «${leadPatch.name}»` : ''}. Проверьте /brief.`
@@ -515,6 +520,11 @@ async function approveBrief(store, lead, chatId) {
   await store.addEvent(lead.id, 'customer.brief_approved', 'Customer approved the brief');
   await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer approved the brief', { brief: updated.customerBrief, approved: true });
 
+  if (!hasReadyPreview(updated)) {
+    const preview = await buildApprovedBriefPreview(store, updated, chatId);
+    return { ok: preview.ok, lead: preview.lead, preview };
+  }
+
   const a1LeadId = updated.a1LeadId || updated.a1?.leadId || '';
   if (a1LeadId && !updated.a1?.conversionRequestedAt) {
     const convert = await crmConvertLeadToDeal({
@@ -604,6 +614,65 @@ async function approveBrief(store, lead, chatId) {
   return { ok: true, lead: updated };
 }
 
+async function buildApprovedBriefPreview(store, lead, chatId) {
+  await sendTelegramTo(chatId, 'ТЗ утверждено. Готовлю первое превью сайта, это может занять немного времени.');
+  let updated = await store.updateLead(lead.id, {
+    lane: 'Lovable',
+    owner: 'Builder',
+    status: 'building_preview',
+  });
+  await store.addEvent(updated.id, 'customer.preview_build_started', 'Customer approved brief; preview build started');
+  await syncLeadToA1(store, updated, 'customer_preview_build_started');
+
+  const mockup = await prepareLovableMockup(updated);
+  updated = await store.updateLead(updated.id, {
+    mockup,
+    status: mockup?.status === 'export_ready' ? 'export_ready' : mockup?.status || 'preview_waiting',
+    owner: mockup?.status === 'export_ready' ? 'Coder' : 'Builder',
+  });
+
+  if (mockup?.status === 'export_ready') {
+    const deployed = await deployLeadExportedProject(store, updated.id, {
+      files: mockup.files ?? [],
+      lovable: {
+        projectId: mockup.projectId || '',
+        editorUrl: mockup.editorUrl || '',
+        previewUrl: mockup.previewUrl || '',
+        publishedUrl: mockup.publishedUrl || mockup.url || '',
+        latestRef: mockup.latestRef || '',
+      },
+      projectName: mockup.projectName || updated.name,
+    });
+    const finalLead = deployed.lead || store.getLead(updated.id) || updated;
+    if (deployed.ok && (deployed.publicUrl || finalLead.mockup?.publicUrl)) {
+      const url = deployed.publicUrl || finalLead.mockup.publicUrl;
+      await sendTelegramTo(chatId, `Первое превью готово:\n${url}\n\nПосмотрите. Если направление подходит — отправьте /approve еще раз, и я сформирую оплату. Если нужно поправить — напишите обычным сообщением.`);
+      return { ok: true, lead: finalLead, publicUrl: url };
+    }
+    await sendTelegramTo(chatId, 'Превью собрано, но деплой не завершился. Я передал это администратору.');
+    await sendTelegram(`<b>Ошибка деплоя превью</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>\nОшибка: <code>${escapeHtml(deployed.error || deployed.video?.reason || 'unknown')}</code>`);
+    return { ok: false, lead: finalLead, deployed };
+  }
+
+  if (mockup?.status === 'public_url_attached') {
+    const deployed = await deployLeadPublicUrlProject(store, updated.id, { url: mockup.publishedUrl || mockup.url, projectName: updated.name });
+    const finalLead = deployed.lead || store.getLead(updated.id) || updated;
+    if (deployed.ok && (deployed.publicUrl || finalLead.mockup?.publicUrl)) {
+      const url = deployed.publicUrl || finalLead.mockup.publicUrl;
+      await sendTelegramTo(chatId, `Первое превью готово:\n${url}\n\nПосмотрите. Если направление подходит — отправьте /approve еще раз, и я сформирую оплату. Если нужно поправить — напишите обычным сообщением.`);
+      return { ok: true, lead: finalLead, publicUrl: url };
+    }
+  }
+
+  await sendTelegramTo(chatId, 'Я поставил превью в работу. Как только Lovable вернет файлы или ссылку, пришлю результат.');
+  await sendTelegram(`<b>Превью ждет handoff</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>\nСтатус: <code>${escapeHtml(mockup?.status || 'unknown')}</code>`);
+  return { ok: true, lead: updated, waiting: true };
+}
+
+function hasReadyPreview(lead) {
+  return Boolean((lead.mockup?.publicUrl || lead.mockup?.deployedUrl || lead.mockup?.publishedUrl) && lead.mockup?.status === 'deployed');
+}
+
 function parseToolData(result) {
   const text = result?.data?.content?.find?.((item) => item.type === 'text')?.text;
   if (!text) return result?.data || null;
@@ -638,6 +707,18 @@ function billingEmailForLead(lead) {
     if (email) return email;
   }
   return '';
+}
+
+async function syncLeadToA1(store, lead, reason) {
+  const sync = await syncA1CrmLead(lead, reason).catch((error) => ({ ok: false, error: error.message }));
+  const a1LeadId = sync?.a1LeadId || sync?.upsert?.data?.lead?.id || sync?.upsert?.data?.id || '';
+  if (a1LeadId && !(lead.a1LeadId || lead.a1?.leadId)) {
+    return store.updateLead(lead.id, {
+      a1LeadId,
+      a1: { ...(lead.a1 ?? {}), leadId: a1LeadId, dedupeKey: sync.dedupeKey || `webstudio:${lead.id}`, lastSyncAt: new Date().toISOString() },
+    });
+  }
+  return lead;
 }
 
 function extractEmail(value) {
