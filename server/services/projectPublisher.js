@@ -1,4 +1,4 @@
-import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -444,6 +444,29 @@ async function buildSourceProject(sourceRoot, publicRoot, basePath = '') {
   }
 }
 
+async function patchBrowserRouterBasename(sourceRoot) {
+  const candidates = ['src/App.tsx', 'src/App.jsx', 'src/App.ts', 'src/App.js'];
+  for (const relative of candidates) {
+    const filePath = path.join(sourceRoot, relative);
+    let content = '';
+    try {
+      content = await readFile(filePath, 'utf8');
+    } catch {
+      continue;
+    }
+    if (!content.includes('<BrowserRouter>')) continue;
+    const patched = content.replace(
+      '<BrowserRouter>',
+      '<BrowserRouter basename={import.meta.env.BASE_URL.replace(/\\/$/, "") || "/"}>',
+    );
+    if (patched !== content) {
+      await writeFile(filePath, patched, 'utf8');
+      return { ok: true, file: relative };
+    }
+  }
+  return { ok: false };
+}
+
 export async function deployLeadExportedProject(store, leadId, { files = [], lovable = {}, projectName = '' } = {}) {
   let lead = store.getLead(leadId);
   if (!lead) return { ok: false, error: 'Lead not found' };
@@ -455,6 +478,7 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
   const publicRoot = path.resolve(config.DATA_DIR, 'projects', slug);
   const written = await writeSourceFiles(sourceRoot, files);
   const publicUrl = projectUrl(slug);
+  const routerPatch = await patchBrowserRouterBasename(sourceRoot);
   const build = await buildSourceProject(sourceRoot, publicRoot, `/projects/${slug}/`);
   const repoName = `${config.GITHUB_REPO_PREFIX}${slug}`.slice(0, 100).replace(/-+$/g, '');
   const github = await publishFilesToGitHub({
@@ -483,6 +507,7 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
         slug,
         sourceFiles: written.length,
         build,
+        routerPatch,
         github,
         lovable,
         deployedAt: new Date().toISOString(),
@@ -507,6 +532,7 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
       sourceFiles: written.length,
       deploymentStrategy: build.strategy,
       deploymentWarning: build.ok ? '' : build.error,
+      routerPatch,
       github,
       lovable,
       deployedAt: new Date().toISOString(),
@@ -522,7 +548,7 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
     entityId: lead.a1DealId || lead.a1LeadId || lead.id,
     eventType: 'project.deployed',
     text: `Coder deployed Lovable export: ${publicUrl}`,
-    payload: { webstudioLeadId: lead.id, publicUrl, slug, github, lovable, build },
+    payload: { webstudioLeadId: lead.id, publicUrl, slug, github, lovable, build, routerPatch },
     idempotencyKey: `webstudio:${lead.id}:project.deployed:${slug}`,
   });
 
