@@ -376,7 +376,7 @@ export async function deployLeadGeneratedPreview(store, leadId, options = {}) {
       ...(lead.mockup ?? {}),
       ok: true,
       mode: 'coder_generated_preview',
-      status: 'deployed',
+      status: 'internal_fallback_preview',
       publishedUrl: publicUrl,
       deployedUrl: publicUrl,
       publicUrl,
@@ -384,19 +384,20 @@ export async function deployLeadGeneratedPreview(store, leadId, options = {}) {
       projectName: options.projectName || lead.name || '',
       deploymentStrategy: 'coder_generated_preview',
       deploymentWarning: options.reason || '',
+      clientSendAllowed: false,
       github,
       deployedAt: new Date().toISOString(),
     },
-    lane: 'Видео',
-    owner: 'Filmer',
-    status: 'in_progress',
+    lane: 'Lovable',
+    owner: 'Builder',
+    status: 'needs_lovable_preview',
   });
-  await store.addEvent(lead.id, 'project.deployed', `Coder generated fallback preview: ${publicUrl}`);
+  await store.addEvent(lead.id, 'project.internal_fallback_preview', `Coder generated internal fallback preview: ${publicUrl}`);
   await crmAddEvent({
     entityType: lead.a1DealId ? 'deal' : 'lead',
     entityId: lead.a1DealId || lead.a1LeadId || lead.id,
-    eventType: 'project.deployed',
-    text: `Coder generated fallback preview: ${publicUrl}`,
+    eventType: 'project.internal_fallback_preview',
+    text: `Coder generated internal fallback preview: ${publicUrl}`,
     payload: { webstudioLeadId: lead.id, publicUrl, slug, github, fallbackReason: options.reason || '' },
     idempotencyKey: `webstudio:${lead.id}:project.deployed:${slug}`,
   });

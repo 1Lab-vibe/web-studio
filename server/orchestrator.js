@@ -378,6 +378,16 @@ export class Orchestrator {
       await sendTelegram(`<b>Нужен канал отправки</b>\n${lead.name}\nEmail не найден. Автоотправка остановлена.`);
       throw new Error('No verified email');
     }
+    const packageGate = outboundPackageGate(lead);
+    if (!packageGate.ok) {
+      await this.store.updateLead(lead.id, { outboundPackage: packageGate, outboundStatus: 'blocked' });
+      await this.store.transitionLead(lead.id, {
+        pipelineStage: 'needs_review',
+        stageStatus: 'outbound_blocked',
+        reason: packageGate.issues.join('; '),
+      });
+      throw new Error(`Outbound package blocked: ${packageGate.issues.join('; ')}`);
+    }
     if (!lead.qualityGate?.ok) throw new Error('Preview quality gate is not passed');
     if (!lead.checker?.passed) throw new Error('Checker is not passed');
     const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
@@ -847,6 +857,7 @@ function outboundPackageGate(lead) {
   const videoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
   const body = outboundEmailBody(lead, { botLink, siteUrl, videoUrl });
   const issues = [];
+  if (isCoderFallbackPreview(lead)) issues.push('coder_fallback_preview_not_client_sendable');
   if (!siteUrl) issues.push('missing_preview_link');
   if (!botLink) issues.push('missing_telegram_bot_link');
   if (!lead.name) issues.push('missing_company_name');
@@ -864,6 +875,16 @@ function outboundPackageGate(lead) {
     botLink,
     channel: 'email',
   };
+}
+
+function isCoderFallbackPreview(lead) {
+  const mockup = lead.mockup || {};
+  return (
+    mockup.mode === 'coder_generated_preview' ||
+    mockup.deploymentStrategy === 'coder_generated_preview' ||
+    mockup.status === 'internal_fallback_preview' ||
+    mockup.clientSendAllowed === false
+  );
 }
 
 function skipAction(action, reason) {

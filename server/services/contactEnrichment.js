@@ -54,13 +54,15 @@ async function searchEmails(lead) {
 }
 
 export async function enrichContacts(lead) {
+  const existingEmails = unique([lead.email, ...(lead.contacts?.emails ?? [])].map(normalizeEmail));
+  const existingEmailChannels = (lead.contacts?.channels ?? []).filter((channel) => channel.type === 'email' && channel.value);
   const websiteEmails = await findEmailsOnWebsite(lead.url);
   const a1Yandex = websiteEmails.length ? { emails: [], urls: [] } : await searchContactsViaA1Yandex(lead);
   const a1YandexEmails = unique((a1Yandex.text?.match(EMAIL_RE) || []).map(normalizeEmail));
   const searchEmailsFound = websiteEmails.length || a1YandexEmails.length ? [] : await searchEmails(lead);
-  const emails = unique([...websiteEmails, ...a1YandexEmails, ...searchEmailsFound]);
-  const channels = [];
-  if (emails.length) {
+  const emails = unique([...existingEmails, ...websiteEmails, ...a1YandexEmails, ...searchEmailsFound]);
+  const channels = [...existingEmailChannels];
+  if (emails.length && !channels.some((channel) => normalizeEmail(channel.value) === emails[0])) {
     const confidence = websiteEmails.length ? 0.85 : a1YandexEmails.length ? 0.65 : 0.55;
     channels.push({ type: 'email', value: emails[0], confidence });
   }

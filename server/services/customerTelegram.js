@@ -643,13 +643,13 @@ async function buildApprovedBriefPreview(store, lead, chatId) {
       },
     });
     await store.addEvent(updated.id, 'customer.preview_build_failed', reason);
-    await sendTelegramTo(chatId, 'Lovable сейчас не отдал проект, поэтому собираю первое превью внутренним Coder на основе вашего ТЗ.');
+    await sendTelegramTo(chatId, 'Lovable сейчас не отдал проект. Я передал это администратору и не буду отправлять технический черновик вместо нормального превью.');
     await sendTelegram(`<b>Ошибка сборки клиентского превью</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>\nОшибка: <code>${escapeHtml(reason)}</code>`);
-    const generated = await deployLeadGeneratedPreview(store, updated.id, { reason, projectName: updated.name });
+    const generated = await deployLeadGeneratedPreview(store, updated.id, { reason, projectName: updated.name, renderVideo: false });
     const finalLead = generated.lead || store.getLead(updated.id) || updated;
     if (generated.publicUrl || finalLead.mockup?.publicUrl) {
       const url = generated.publicUrl || finalLead.mockup.publicUrl;
-      await sendTelegramTo(chatId, `Первое превью готово:\n${url}\n\nЭто аварийный вариант от Web Studio Coder, пока Lovable требует повторной авторизации. Если направление подходит — отправьте /approve еще раз, и я сформирую оплату. Если нужно поправить — напишите обычным сообщением.`);
+      await sendTelegram(`<b>Внутренний Coder fallback создан</b>\nЛид: ${escapeHtml(updated.name)}\nURL: ${escapeHtml(url)}\nКлиенту не отправлен. Нужно восстановить Lovable и собрать нормальное превью.`);
       return { ok: true, lead: finalLead, publicUrl: url, fallback: true, reason, generated };
     }
     await sendTelegramTo(chatId, 'Не смог собрать даже аварийное превью. Я передал это администратору.');
