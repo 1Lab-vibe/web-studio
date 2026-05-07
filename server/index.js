@@ -11,7 +11,7 @@ import { answerCallback, getTelegramUpdates, getTelegramWebhookInfo, isAdminTele
 import { registerMcpRoutes } from './mcp.js';
 import { registerAuth } from './auth.js';
 import { handleA1Webhook } from './services/a1Webhook.js';
-import { handleCustomerTelegramMessage } from './services/customerTelegram.js';
+import { handleCustomerTelegramMessage, isCustomerTelegramCommand } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
 import { listLovableTools, lovableOfficialConfigured } from './services/lovableOfficialMcp.js';
@@ -202,6 +202,10 @@ async function processTelegramUpdate(update) {
   }
   if (update?.message) {
     const message = update.message;
+    if (isCustomerTelegramCommand(store, message)) {
+      await handleCustomerTelegramMessage(store, message);
+      return { ok: true };
+    }
     if (isAdminTelegramUser(message.from?.id, message.chat?.id)) {
       const handled = await handleAdminTelegramMessage(store, orchestrator, message);
       if (!handled.skipped) return { ok: true };

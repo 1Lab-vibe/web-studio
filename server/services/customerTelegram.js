@@ -1,6 +1,6 @@
 import { crmConvertLeadToDeal, customerBotLink, dealAttachProduct, invoiceCreateYookassaLink } from './a1Client.js';
 import { emitCustomerA1Event } from './a1Webhook.js';
-import { sendTelegramTo } from './telegram.js';
+import { sendTelegram, sendTelegramTo } from './telegram.js';
 
 const QUESTIONS = [
   { key: 'goal', text: 'Какая главная задача сайта: заявки, запись, доверие, каталог услуг или другое?' },
@@ -47,7 +47,28 @@ export async function handleCustomerTelegramMessage(store, message) {
     return { ok: true };
   }
 
+  const pendingEmail = extractEmail(text);
+  if (lead.payment?.status === 'needs_customer_email' && pendingEmail) {
+    const updated = await store.updateLead(lead.id, {
+      customerTelegram: { ...(lead.customerTelegram ?? {}), email: pendingEmail },
+      payment: { ...(lead.payment ?? {}), customerEmail: pendingEmail, status: 'email_collected' },
+    });
+    await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer provided billing email', { customerEmail: pendingEmail });
+    await sendTelegramTo(chatId, 'Почту сохранил. Теперь отправьте /approve, чтобы сформировать ссылку на оплату.');
+    return { ok: true, lead: updated };
+  }
+
   return collectBriefAnswer(store, lead, chatId, text);
+}
+
+export function isCustomerTelegramCommand(store, message) {
+  const chatId = message?.chat?.id;
+  const text = String(message?.text || '').trim();
+  if (!chatId || !text.startsWith('/')) return false;
+  if (/^\/start\s+lead_[a-f0-9]{16,64}/i.test(text)) return true;
+  if (!store.listLeads().some((item) => String(item.customerTelegram?.chatId || '') === String(chatId))) return false;
+  const command = text.split(/\s+/)[0].split('@')[0];
+  return ['/brief', '/approve', '/revision'].includes(command);
 }
 
 async function startCustomerLead(store, chatId, from, token) {
@@ -70,6 +91,7 @@ async function startCustomerLead(store, chatId, from, token) {
   lead = await store.updateLead(lead.id, { customerTelegram, status: 'customer_chat' });
   await store.addEvent(lead.id, 'customer.telegram_started', `Customer opened bot: ${from?.username || chatId}`);
   await emitCustomerA1Event(lead, 'customer.telegram_started', 'Customer started Telegram bot', { customerTelegram });
+  await notifyAdminCustomerStarted(lead, customerTelegram);
 
   const convert = await crmConvertLeadToDeal({
     a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
@@ -103,6 +125,22 @@ async function startCustomerLead(store, chatId, from, token) {
     ].join('\n'),
   );
   return { ok: true, lead };
+}
+
+async function notifyAdminCustomerStarted(lead, customerTelegram) {
+  const name = [customerTelegram.firstName, customerTelegram.lastName].filter(Boolean).join(' ').trim();
+  const username = customerTelegram.username ? `@${customerTelegram.username}` : '';
+  await sendTelegram(
+    [
+      '<b>Новый пользователь написал боту</b>',
+      `${escapeHtml(name || username || String(customerTelegram.chatId))}`,
+      username && name ? escapeHtml(username) : '',
+      `Telegram ID: <code>${escapeHtml(customerTelegram.userId || customerTelegram.chatId)}</code>`,
+      `Лид: <b>${escapeHtml(lead.name)}</b>`,
+      `ID: <code>${escapeHtml(lead.id)}</code>`,
+      `Этап: <code>${escapeHtml(lead.lane || '')}</code>`,
+    ].filter(Boolean).join('\n'),
+  );
 }
 
 async function collectBriefAnswer(store, lead, chatId, text) {
@@ -278,4 +316,12 @@ function parseMaybeJson(value) {
   } catch {
     return null;
   }
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }
