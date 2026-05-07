@@ -64,6 +64,37 @@ function emailCandidates(lead) {
   return Array.from(new Set([...emails, ...channelEmails]));
 }
 
+function outboundPreview(lead) {
+  const siteUrl = absoluteUrl(lead?.mockup?.publishedUrl || lead?.mockup?.deployedUrl || lead?.mockup?.publicUrl || '');
+  const videoUrl = absoluteUrl(lead?.video?.videoUrl || '');
+  const botLink = lead?.customerBotLink || (lead?.publicLeadToken ? 'будет добавлена персональная ссылка на Telegram-бота' : '');
+  const body = [
+    lead?.message || '',
+    siteUrl ? `\nПревью сайта: ${siteUrl}` : '',
+    videoUrl ? `Видео-превью: ${videoUrl}` : '',
+    botLink ? `Ссылка для обсуждения сайта: ${botLink}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  return {
+    to: primaryEmail(lead) || 'email не найден',
+    subject: `Сайт для ${lead?.name || ''}`,
+    body,
+    attachments: [
+      siteUrl ? `Превью сайта: ${siteUrl}` : '',
+      videoUrl ? `Видео-превью: ${videoUrl}` : '',
+    ].filter(Boolean),
+  };
+}
+
+function absoluteUrl(url) {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return origin ? `${origin}${url.startsWith('/') ? '' : '/'}${url}` : url;
+}
+
 function scoringSummary(lead) {
   const scoring = lead?.scoring || {};
   const parts = [
@@ -781,6 +812,7 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDeploy, onDecision }
       <TextBlock title="Диагноз" text={lead.diagnosis || 'Еще не подготовлен. Передай лида дальше, чтобы Diagnoser сформировал диагноз.'} />
       <TextBlock title="Hero angle" text={lead.angle || 'Еще не подготовлен'} />
       <TextBlock title={`Сообщение · ${lead.channel || 'канал не выбран'}`} text={lead.message || 'Еще не подготовлено'} />
+      <EmailPreview lead={lead} />
       <TextBlock title="Email кандидаты" text={emails.length ? emails.join('\n') : 'не найдены'} />
       {lead.mockup?.handoffPrompt && <TextBlock title="Lovable handoff prompt" text={lead.mockup.handoffPrompt} />}
       {lead.mockup?.buildOpenedAt && <TextBlock title="Lovable open log" text={`Last opened: ${lead.mockup.buildOpenedAt}`} />}
@@ -816,6 +848,28 @@ function TextBlock({ title, text }) {
     <div className="text-block">
       <span>{title}</span>
       <p>{text}</p>
+    </div>
+  );
+}
+
+function EmailPreview({ lead }) {
+  const preview = outboundPreview(lead);
+  return (
+    <div className="email-preview">
+      <span>Превью письма Pitcher</span>
+      <div className="email-row">
+        <small>Кому</small>
+        <strong>{preview.to}</strong>
+      </div>
+      <div className="email-row">
+        <small>Тема</small>
+        <strong>{preview.subject}</strong>
+      </div>
+      <p>{preview.body || 'Сообщение еще не подготовлено'}</p>
+      <div className="email-attachments">
+        <small>Ссылки</small>
+        {preview.attachments.length ? preview.attachments.map((item) => <code key={item}>{item}</code>) : <code>нет</code>}
+      </div>
     </div>
   );
 }

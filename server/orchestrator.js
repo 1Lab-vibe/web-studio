@@ -287,7 +287,9 @@ export class Orchestrator {
         if (reserved.reserved < 1) return { ok: false, held: true, reason: 'Daily send limit reached', lead };
         const emailChannel = lead.contacts.channels.find((channel) => channel.type === 'email');
         const botLink = customerBotLink(lead);
-        const message = [lead.message || '', botLink ? `\nСсылка для обсуждения сайта: ${botLink}` : ''].join('').trim();
+        const siteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
+        const videoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
+        const message = outboundEmailBody(lead, { botLink, siteUrl, videoUrl });
         const outbound = await outboundQueueMessage({
           a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
           externalId: lead.id,
@@ -296,8 +298,8 @@ export class Orchestrator {
           subject: `Сайт для ${lead.name}`,
           body: message,
           attachments: [
-            lead.mockup?.publishedUrl ? { type: 'link', url: lead.mockup.publishedUrl, title: 'Превью сайта' } : null,
-            lead.video?.videoUrl ? { type: 'link', url: lead.video.videoUrl, title: 'Видео-превью' } : null,
+            siteUrl ? { type: 'link', url: siteUrl, title: 'Превью сайта' } : null,
+            videoUrl ? { type: 'link', url: videoUrl, title: 'Видео-превью' } : null,
           ].filter(Boolean),
           idempotencyKey: `webstudio:${lead.id}:outbound:${lead.updatedAt || Date.now()}`,
         });
@@ -472,6 +474,25 @@ function actionForLead(lead, topLovableIds) {
 
 function formatRub(value) {
   return `${Number(value ?? 0).toLocaleString('ru-RU')} ₽`;
+}
+
+function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } = {}) {
+  return [
+    lead.message || '',
+    siteUrl ? `\nПревью сайта: ${siteUrl}` : '',
+    videoUrl ? `Видео-превью: ${videoUrl}` : '',
+    botLink ? `Ссылка для обсуждения сайта: ${botLink}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function absolutePublicUrl(url) {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  const base = String(config.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+  return base ? `${base}${url.startsWith('/') ? '' : '/'}${url}` : url;
 }
 
 function lovableHandoffAgeMs(lead) {

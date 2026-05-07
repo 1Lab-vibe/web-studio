@@ -894,6 +894,60 @@ button {
   white-space: pre-line;
 }
 
+.email-preview {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+}
+
+.email-preview > span,
+.email-attachments small,
+.email-row small {
+  color: var(--soft);
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.email-row {
+  display: grid;
+  gap: 3px;
+}
+
+.email-row strong {
+  color: var(--ink);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.email-preview p {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  white-space: pre-line;
+}
+
+.email-attachments {
+  display: grid;
+  gap: 5px;
+}
+
+.email-attachments code {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 11px;
+  padding: 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .action-grid {
   gap: 8px;
   margin-top: 12px;
