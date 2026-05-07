@@ -142,6 +142,7 @@ async function main() {
     new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for cursor:// callback')), 5 * 60_000)),
   ]);
   const token = await exchangeCode(code, verifier);
+  const savedAt = new Date();
   const saved = {
     client: {
       client_id: clientId,
@@ -149,7 +150,8 @@ async function main() {
       redirect_uri: redirectUri,
     },
     ...token,
-    savedAt: new Date().toISOString(),
+    savedAt: savedAt.toISOString(),
+    expiresAt: token.expires_in ? new Date(savedAt.getTime() + Number(token.expires_in) * 1000).toISOString() : undefined,
     mcpUrl: 'https://mcp.lovable.dev',
     source: 'cursor-oauth-capture',
   };
@@ -175,6 +177,7 @@ async function manualFinish(callbackUrl) {
   const code = extractCode(callbackUrl, pending.state);
   if (!code) throw new Error('Callback URL has no code or state does not match');
   const token = await exchangeCode(code, pending.verifier);
+  const savedAt = new Date();
   const saved = {
     client: {
       client_id: clientId,
@@ -182,7 +185,8 @@ async function manualFinish(callbackUrl) {
       redirect_uri: redirectUri,
     },
     ...token,
-    savedAt: new Date().toISOString(),
+    savedAt: savedAt.toISOString(),
+    expiresAt: token.expires_in ? new Date(savedAt.getTime() + Number(token.expires_in) * 1000).toISOString() : undefined,
     mcpUrl: 'https://mcp.lovable.dev',
     source: 'cursor-oauth-manual',
   };

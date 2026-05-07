@@ -52,8 +52,26 @@ async function loadOAuthToken() {
   }
 }
 
+function tokenExpiresAt(token) {
+  if (token?.expiresAt) {
+    const parsed = Date.parse(token.expiresAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const issuedAt = Date.parse(token?.refreshedAt || token?.savedAt || token?.createdAt || '');
+  const ttl = Number(token?.expires_in || 0);
+  if (Number.isFinite(issuedAt) && ttl > 0) return issuedAt + ttl * 1000;
+  return 0;
+}
+
+function shouldRefreshOAuthToken(token) {
+  const expiresAt = tokenExpiresAt(token);
+  if (!expiresAt) return true;
+  return expiresAt - Date.now() < 10 * 60 * 1000;
+}
+
 async function refreshOAuthToken(token) {
   if (!token?.refresh_token) return token;
+  if (!shouldRefreshOAuthToken(token)) return token;
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: token.refresh_token,
@@ -65,13 +83,23 @@ async function refreshOAuthToken(token) {
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body,
   });
-  if (!response.ok) return token;
-  const refreshed = await response.json();
+  const text = await response.text();
+  if (!response.ok) {
+    return {
+      ...token,
+      refreshFailedAt: new Date().toISOString(),
+      refreshError: `Lovable OAuth refresh failed: ${response.status} ${text.slice(0, 300)}`,
+    };
+  }
+  const refreshed = JSON.parse(text);
+  const refreshedAt = new Date();
   const next = {
     ...token,
     ...refreshed,
     refresh_token: refreshed.refresh_token || token.refresh_token,
-    refreshedAt: new Date().toISOString(),
+    refreshedAt: refreshedAt.toISOString(),
+    expiresAt: refreshed.expires_in ? new Date(refreshedAt.getTime() + Number(refreshed.expires_in) * 1000).toISOString() : token.expiresAt,
+    refreshError: '',
   };
   await writeFile(config.LOVABLE_OAUTH_TOKEN_PATH, JSON.stringify(next, null, 2), 'utf8').catch(() => {});
   return next;
@@ -82,6 +110,9 @@ export async function withLovableClient(callback) {
   const oauthToken = hasSecret(config.LOVABLE_API_KEY) ? null : await refreshOAuthToken(await loadOAuthToken());
   if (!hasSecret(config.LOVABLE_API_KEY) && !oauthToken?.access_token) {
     return { ok: false, skipped: true, reason: 'LOVABLE_OAUTH_TOKEN_PATH does not contain an access token' };
+  }
+  if (!hasSecret(config.LOVABLE_API_KEY) && oauthToken?.refreshError && tokenExpiresAt(oauthToken) <= Date.now()) {
+    return { ok: false, skipped: false, reason: oauthToken.refreshError };
   }
   const client = new Client({ name: 'web-studio-orchestrator', version: '0.1.0' }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(new URL(config.LOVABLE_OFFICIAL_MCP_URL), {
