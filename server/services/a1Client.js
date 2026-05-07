@@ -186,9 +186,13 @@ export async function crmConvertLeadToDeal(input) {
 export async function dealAttachProduct(input) {
   return callA1McpTool('crm_attach_product', {
     companyId: config.A1_COMPANY_ID,
-    productCode: 'landing_site_setup',
-    billingMode: 'one_time',
     ...input,
+    leadId: input.leadId || input.a1LeadId || input.a1DealId,
+    sku: input.sku || input.productCode || 'landing_site_setup',
+    name: input.name || input.title || 'Сайт под ключ',
+    description: input.description || '',
+    amount: input.amount ?? input.amountRub,
+    billingMode: input.billingMode || 'one_time',
   });
 }
 
