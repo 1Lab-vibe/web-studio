@@ -68,19 +68,35 @@ function outboundPreview(lead) {
   const siteUrl = absoluteUrl(lead?.mockup?.publishedUrl || lead?.mockup?.deployedUrl || lead?.mockup?.publicUrl || '');
   const videoUrl = absoluteUrl(lead?.video?.videoUrl || '');
   const botLink = lead?.customerBotLink || '';
+  const owner = lead?.ownerName || lead?.contactName || '';
+  const greeting = owner ? `${owner}, здравствуйте.` : 'Здравствуйте.';
+  const business = lead?.name || 'ваша компания';
+  const niche = lead?.niche || 'ваш бизнес';
+  const angle = lead?.angle || `сделать сайт, который быстро объясняет ценность ${business} и ведет клиента к заявке`;
+  const diagnosis = lead?.diagnosis || 'Сейчас часть клиентов может уходить к тем, кого проще найти, понять и быстро оставить заявку онлайн.';
+  const price = formatRub(lead?.deal || 30000);
   const body = [
-    `Здравствуйте. Мы посмотрели, как ${lead?.name || 'ваша компания'} сейчас выглядит в поиске и на картах, и подготовили один вариант превью сайта под ${lead?.niche || 'ваш бизнес'}.`,
-    'Это не шаблон к обязательному запуску, а быстрый пример направления: структуру, тексты и визуал можно поменять под ваши идеи.',
-    siteUrl ? `\nПревью сайта: ${siteUrl}` : '',
-    videoUrl ? `Видео-превью: ${videoUrl}` : '',
-    botLink ? `Если интересно обсудить или дать правки, напишите сюда: ${botLink}` : '',
+    greeting,
+    '',
+    `Мы посмотрели, как ${business} сейчас можно усилить в интернете, и собрали не абстрактное предложение, а готовое превью сайта под ${niche}.`,
+    '',
+    `Идея первого экрана: ${angle}`,
+    `Почему это может дать заявки: ${diagnosis}`,
+    '',
+    siteUrl ? `Посмотрите превью: ${siteUrl}` : '',
+    videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
+    '',
+    `Если направление нравится, мы быстро заменим тексты, фотографии, цены, контакты и форму заявки под вас. Старт простого сайта-визитки — от ${price}, оплата после первого согласованного превью.`,
+    botLink ? `Правки и ТЗ можно дать прямо в Telegram-боте: ${botLink}` : '',
+    '',
+    'Если не актуально, просто ответьте “не интересно”, больше не будем отвлекать.',
   ]
     .filter(Boolean)
     .join('\n')
     .trim();
   return {
     to: primaryEmail(lead) || 'email не найден',
-    subject: `Сайт для ${lead?.name || ''}`,
+    subject: owner ? `${owner}, показали, как может продавать сайт ${business}` : `Показали, как может продавать сайт ${business}`,
     body,
     attachments: [
       siteUrl ? `Превью сайта: ${siteUrl}` : '',

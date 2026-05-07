@@ -386,12 +386,13 @@ export class Orchestrator {
     const siteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
     const videoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
     const message = outboundEmailBody(lead, { botLink, siteUrl, videoUrl });
+    const subject = outboundEmailSubject(lead);
     const outbound = await outboundQueueMessage({
       a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
       externalId: lead.id,
       dedupeKey: `webstudio:${lead.id}`,
       to: emailChannel.value,
-      subject: `Подготовили превью сайта для ${lead.name}`,
+      subject,
       body: message,
       attachments: [
         siteUrl ? { type: 'link', url: siteUrl, title: 'Превью сайта' } : null,
@@ -404,7 +405,7 @@ export class Orchestrator {
       leadId: lead.id,
       channel: 'Email',
       to: emailChannel.value,
-      subject: `Подготовили превью сайта для ${lead.name}`,
+      subject,
       message,
       fitScore: lead.fitScore ?? 0,
       a1Outbound: outbound,
@@ -620,12 +621,13 @@ export class Orchestrator {
         const siteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
         const videoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
         const message = outboundEmailBody(lead, { botLink, siteUrl, videoUrl });
+        const subject = outboundEmailSubject(lead);
         const outbound = await outboundQueueMessage({
           a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
           externalId: lead.id,
           dedupeKey: `webstudio:${lead.id}`,
           to: emailChannel?.value || lead.contacts.emails?.[0] || '',
-          subject: `Сайт для ${lead.name}`,
+          subject,
           body: message,
           attachments: [
             siteUrl ? { type: 'link', url: siteUrl, title: 'Превью сайта' } : null,
@@ -636,6 +638,7 @@ export class Orchestrator {
         const item = await this.store.addOutreachQueueItem({
           leadId: lead.id,
           channel: 'Email',
+          subject,
           message,
           fitScore: lead.fitScore ?? 0,
           a1Outbound: outbound,
@@ -854,7 +857,7 @@ function outboundPackageGate(lead) {
   return {
     ok: issues.length === 0,
     issues,
-    subject: `Подготовили превью сайта для ${lead.name || 'вашего бизнеса'}`,
+    subject: outboundEmailSubject(lead),
     body,
     previewUrl: siteUrl,
     videoUrl,
@@ -878,13 +881,35 @@ function formatRub(value) {
   return `${Number(value ?? 0).toLocaleString('ru-RU')} ₽`;
 }
 
+function outboundEmailSubject(lead) {
+  const business = lead.name || 'вашего бизнеса';
+  const owner = lead.ownerName || lead.contactName || '';
+  return owner ? `${owner}, показали, как может продавать сайт ${business}` : `Показали, как может продавать сайт ${business}`;
+}
+
 function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } = {}) {
+  const owner = lead.ownerName || lead.contactName || '';
+  const greeting = owner ? `${owner}, здравствуйте.` : 'Здравствуйте.';
+  const business = lead.name || 'ваша компания';
+  const niche = lead.niche || 'ваш бизнес';
+  const angle = lead.angle || `сделать сайт, который быстро объясняет ценность ${business} и ведет клиента к заявке`;
+  const diagnosis = lead.diagnosis || `Сейчас часть клиентов может уходить к тем, кого проще найти, понять и быстро забронировать онлайн.`;
+  const price = formatRub(lead.deal || 30000);
   return [
-    `Здравствуйте. Мы посмотрели, как ${lead.name} сейчас выглядит в поиске и на картах, и подготовили один вариант превью сайта под ${lead.niche || 'ваш бизнес'}.`,
-    'Это не шаблон к обязательному запуску, а быстрый пример направления: структуру, тексты и визуал можно поменять под ваши идеи.',
-    siteUrl ? `\nПревью сайта: ${siteUrl}` : '',
-    videoUrl ? `Видео-превью: ${videoUrl}` : '',
-    botLink ? `Если интересно обсудить или дать правки, напишите сюда: ${botLink}` : '',
+    greeting,
+    '',
+    `Мы посмотрели, как ${business} сейчас можно усилить в интернете, и собрали не абстрактное предложение, а готовое превью сайта под ${niche}.`,
+    '',
+    `Идея первого экрана: ${angle}`,
+    `Почему это может дать заявки: ${diagnosis}`,
+    '',
+    siteUrl ? `Посмотрите превью: ${siteUrl}` : '',
+    videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
+    '',
+    `Если направление нравится, мы быстро заменим тексты, фотографии, цены, контакты и форму заявки под вас. Старт простого сайта-визитки — от ${price}, оплата после первого согласованного превью.`,
+    botLink ? `Правки и ТЗ можно дать прямо в Telegram-боте: ${botLink}` : '',
+    '',
+    'Если не актуально, просто ответьте “не интересно”, больше не будем отвлекать.',
   ]
     .filter(Boolean)
     .join('\n')
