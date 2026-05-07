@@ -11,6 +11,10 @@ const QUESTIONS = [
   { key: 'deadline', text: 'К какому сроку хотите получить первый рабочий вариант?' },
 ];
 
+function privacyUrl() {
+  return `${process.env.PUBLIC_BASE_URL || 'https://webstudio.1true.ru'}/privacy`;
+}
+
 export async function handleCustomerTelegramMessage(store, message) {
   const chatId = message?.chat?.id;
   const text = String(message?.text || '').trim();
@@ -25,8 +29,13 @@ export async function handleCustomerTelegramMessage(store, message) {
     return { ok: true, unmatched: true };
   }
 
-  if (text === '/brief') return sendBriefSummary(store, lead, chatId);
-  if (text === '/approve') return approveBrief(store, lead, chatId);
+  const command = text.split(/\s+/)[0].split('@')[0];
+  if (command === '/help') {
+    await sendTelegramTo(chatId, customerHelpText(lead));
+    return { ok: true, lead };
+  }
+  if (command === '/brief') return sendBriefSummary(store, lead, chatId);
+  if (command === '/approve') return approveBrief(store, lead, chatId);
   if (text === '/revision') {
     await store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'revision' } });
     await sendTelegramTo(chatId, 'Напишите, что нужно изменить на сайте. Одним сообщением, можно списком.');
@@ -68,7 +77,7 @@ export function isCustomerTelegramCommand(store, message) {
   if (/^\/start\s+lead_[a-f0-9]{16,64}/i.test(text)) return true;
   if (!store.listLeads().some((item) => String(item.customerTelegram?.chatId || '') === String(chatId))) return false;
   const command = text.split(/\s+/)[0].split('@')[0];
-  return ['/brief', '/approve', '/revision'].includes(command);
+  return ['/help', '/brief', '/approve', '/revision'].includes(command);
 }
 
 async function startCustomerLead(store, chatId, from, token) {
@@ -118,13 +127,40 @@ async function startCustomerLead(store, chatId, from, token) {
   await sendTelegramTo(
     chatId,
     [
-      `Здравствуйте. Я помогу собрать ТЗ для сайта «${lead.name}».`,
+      `👋 Здравствуйте! Я ассистент студии <b>1Lab</b>.`,
+      '',
+      `Мы можем разработать для <b>${escapeHtml(lead.name)}</b> индивидуальный сайт за несколько коротких шагов: уточним задачу, соберем ТЗ, подготовим первое рабочее превью и доведем его правками.`,
+      '',
+      '💼 Стоимость разработки начинается от <b>30 000 ₽</b> за простой сайт-визитку. Оплата — после первого готового превью, когда понятно, что именно получается.',
+      '',
+      '🛠 После запуска вы сможете пользоваться мной как помощником по сайту: писать обычным сообщением, какие тексты, контакты, фото или блоки нужно изменить.',
+      '',
+      `🔐 Продолжая диалог, вы соглашаетесь на обработку персональных данных. Политика конфиденциальности: ${privacyUrl()}`,
+      '',
       'Отвечайте коротко, как удобно. В конце я покажу готовое ТЗ на утверждение.',
       '',
       QUESTIONS[0].text,
     ].join('\n'),
   );
   return { ok: true, lead };
+}
+
+function customerHelpText(lead) {
+  return [
+    '<b>1Lab · помощник по сайту</b>',
+    '',
+    'Я помогу собрать ТЗ, запустить сайт и принимать правки после публикации.',
+    '',
+    '<b>Команды</b>',
+    '/brief — показать черновик ТЗ',
+    '/approve — утвердить ТЗ и перейти к оплате/работе',
+    '/revision — отправить правку по сайту',
+    '/help — показать это меню',
+    '',
+    `Проект: <b>${escapeHtml(lead?.name || 'ваш сайт')}</b>`,
+    'Стоимость простого сайта-визитки начинается от 30 000 ₽. Итоговая цена зависит от объема страниц, контента и интеграций.',
+    `Политика конфиденциальности: ${privacyUrl()}`,
+  ].join('\n');
 }
 
 async function notifyAdminCustomerStarted(lead, customerTelegram) {

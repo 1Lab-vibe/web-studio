@@ -59,19 +59,46 @@ export async function answerCallback(callbackQueryId, text) {
 
 export async function setTelegramCommands() {
   if (!hasSecret(config.TELEGRAM_BOT_TOKEN)) return { ok: false, skipped: true };
-  const commands = [
+  const customerCommands = [
+    { command: 'help', description: 'Как работает разработка сайта' },
+    { command: 'brief', description: 'Показать черновик ТЗ' },
+    { command: 'approve', description: 'Утвердить ТЗ' },
+    { command: 'revision', description: 'Отправить правку по сайту' },
+  ];
+  const adminCommands = [
     { command: 'help', description: 'Команды Web Studio' },
     { command: 'actions', description: 'Топ действий оркестратора' },
     { command: 'lead', description: 'Карточка лида: /lead <id>' },
     { command: 'handoff', description: 'Lovable handoff prompt: /handoff <id>' },
   ];
+  const results = [];
+  results.push(await setCommands(customerCommands, { type: 'default' }));
+  if (!results[0].ok) return results[0];
+
+  const adminChatIds = new Set(
+    [config.TELEGRAM_CHAT_ID, ...String(config.TELEGRAM_ADMIN_USER_IDS || '').split(',')]
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  );
+  for (const chatId of adminChatIds) {
+    results.push(await setCommands(adminCommands, { type: 'chat', chat_id: chatId }));
+  }
+
+  return {
+    ok: true,
+    data: results.map((result) => result.data),
+    warnings: results.filter((result) => !result.ok),
+  };
+}
+
+async function setCommands(commands, scope) {
   const response = await fetch(telegramUrl('setMyCommands'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ commands, scope: { type: 'default' } }),
+    body: JSON.stringify({ commands, scope }),
   });
-  if (!response.ok) return { ok: false, status: response.status, error: await response.text() };
-  return { ok: true, data: await response.json() };
+  if (!response.ok) return { ok: false, status: response.status, error: await response.text(), scope };
+  return { ok: true, data: await response.json(), scope };
 }
 
 export async function getTelegramWebhookInfo() {
