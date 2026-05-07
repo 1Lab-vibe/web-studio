@@ -177,7 +177,7 @@ async function startInboundCustomer(store, chatId, from, text) {
     emailVerified: false,
   };
   const displayName = [from?.first_name, from?.last_name].filter(Boolean).join(' ').trim() || from?.username || `Telegram ${chatId}`;
-  const lead = await store.upsertLead({
+  let lead = await store.upsertLead({
     name: `Новая заявка Telegram · ${displayName}`,
     city: '',
     niche: 'индивидуальный сайт',
