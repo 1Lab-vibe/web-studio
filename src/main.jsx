@@ -159,6 +159,14 @@ function App() {
     if (!auth.loading && (auth.authenticated || !auth.authEnabled)) loadBackend();
   }, [auth.loading, auth.authenticated, auth.authEnabled]);
 
+  useEffect(() => {
+    if (auth.loading || (!auth.authenticated && auth.authEnabled)) return undefined;
+    const timer = window.setInterval(() => {
+      loadBackend();
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [auth.loading, auth.authenticated, auth.authEnabled]);
+
   const handleLogin = async (login, password) => {
     const response = await fetch('/api/auth/login', {
       method: 'POST',
