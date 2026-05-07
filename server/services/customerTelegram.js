@@ -322,6 +322,9 @@ async function notifyAdminCustomerStarted(lead, customerTelegram) {
 
 async function collectBriefAnswer(store, lead, chatId, text) {
   const step = Number(lead.customerTelegram?.step ?? 0);
+  if (step >= QUESTIONS.length || lead.customerTelegram?.mode === 'brief_review') {
+    return refineBriefFromMessage(store, lead, chatId, text);
+  }
   const question = QUESTIONS[step] || QUESTIONS[QUESTIONS.length - 1];
   const brief = {
     ...(lead.customerBrief ?? {}),
@@ -331,7 +334,7 @@ async function collectBriefAnswer(store, lead, chatId, text) {
   const nextStep = step + 1;
   const updated = await store.updateLead(lead.id, {
     customerBrief: brief,
-    customerTelegram: { ...(lead.customerTelegram ?? {}), step: nextStep, mode: 'brief' },
+    customerTelegram: { ...(lead.customerTelegram ?? {}), step: nextStep, mode: nextStep >= QUESTIONS.length ? 'brief_review' : 'brief' },
     status: 'briefing',
   });
   await emitCustomerA1Event(updated, 'customer.brief_updated', `Brief answer: ${question.key}`, { brief, key: question.key, answer: text });
@@ -342,6 +345,83 @@ async function collectBriefAnswer(store, lead, chatId, text) {
   }
 
   return sendBriefSummary(store, updated, chatId);
+}
+
+async function refineBriefFromMessage(store, lead, chatId, text) {
+  const currentBrief = lead.customerBrief ?? {};
+  const refined = await briefDialogAgent(lead, currentBrief, text);
+  const history = Array.isArray(currentBrief.refinements) ? currentBrief.refinements.slice(-10) : [];
+  const brief = {
+    ...currentBrief,
+    ...(refined.patch || {}),
+    refinements: [...history, { text, appliedAt: new Date().toISOString(), patch: refined.patch || {} }],
+    updatedAt: new Date().toISOString(),
+  };
+  const updated = await store.updateLead(lead.id, {
+    customerBrief: brief,
+    customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'brief_review', step: QUESTIONS.length },
+    status: 'brief_refined',
+  });
+  await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer refined brief in dialog', { brief, text, patch: refined.patch || {} });
+  await sendTelegramTo(chatId, refined.reply || 'Принял правку и обновил ТЗ. Проверьте /brief, если все верно — /approve.');
+  return { ok: true, lead: updated };
+}
+
+async function briefDialogAgent(lead, currentBrief, text) {
+  if (!openai) return fallbackBriefPatch(text);
+  try {
+    const response = await openai.responses.create({
+      model: config.OPENAI_MODEL,
+      input: [
+        {
+          role: 'system',
+          content: [
+            'Ты короткий диалоговый агент 1Lab для уточнения ТЗ сайта.',
+            'Клиент пишет свободно: это может быть правка, уточнение, ответ или сомнение.',
+            'Не перезаписывай последний вопрос автоматически. Обновляй только поля, к которым относится сообщение.',
+            'Верни строго JSON без markdown: patch object и reply string.',
+            'patch может содержать только: previewDirection, goal, services, style, contacts, materials, deadline, notes.',
+            'reply: 1-2 короткие фразы, живо, без канцелярита. Если ТЗ стало понятнее, предложи /brief или /approve.',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            lead: {
+              name: lead.name,
+              niche: lead.niche,
+              previewUrl: lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || '',
+            },
+            currentBrief,
+            customerMessage: text,
+          }),
+        },
+      ],
+    });
+    const parsed = JSON.parse(response.output_text?.trim() || '{}');
+    return {
+      patch: sanitizeBriefPatch(parsed.patch),
+      reply: String(parsed.reply || '').trim().slice(0, 700),
+    };
+  } catch {
+    return fallbackBriefPatch(text);
+  }
+}
+
+function sanitizeBriefPatch(patch = {}) {
+  const allowed = ['previewDirection', 'goal', 'services', 'style', 'contacts', 'materials', 'deadline', 'notes'];
+  return Object.fromEntries(
+    Object.entries(patch)
+      .filter(([key, value]) => allowed.includes(key) && value !== undefined && value !== null && String(value).trim())
+      .map(([key, value]) => [key, String(value).trim()]),
+  );
+}
+
+function fallbackBriefPatch(text) {
+  return {
+    patch: { notes: text },
+    reply: 'Принял как уточнение к ТЗ. Проверьте /brief, если все верно — отправьте /approve.',
+  };
 }
 
 async function transcribeTelegramVoice(fileId) {
@@ -371,9 +451,10 @@ async function sendBriefSummary(store, lead, chatId) {
     `Контакты/форма: ${brief.contacts || '-'}`,
     `Материалы: ${brief.materials || '-'}`,
     `Срок: ${brief.deadline || '-'}`,
+    brief.notes ? `Уточнения: ${brief.notes}` : '',
     '',
     'Если все верно, отправьте /approve. Если нужно поправить, просто напишите уточнение.',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
   await sendTelegramTo(chatId, summary);
   return { ok: true, lead };
 }
