@@ -7,14 +7,14 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { Store } from './store.js';
 import { Orchestrator } from './orchestrator.js';
-import { answerCallback, getTelegramUpdates, getTelegramWebhookInfo, isAdminTelegramUser, setTelegramCommands } from './services/telegram.js';
+import { answerCallback, getTelegramUpdates, getTelegramWebhookInfo, isAdminTelegramUser, sendTelegram, setTelegramCommands } from './services/telegram.js';
 import { registerMcpRoutes } from './mcp.js';
 import { registerAuth } from './auth.js';
 import { handleA1Webhook } from './services/a1Webhook.js';
 import { handleCustomerTelegramMessage, isCustomerTelegramCommand } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
-import { listLovableTools, lovableOfficialConfigured } from './services/lovableOfficialMcp.js';
+import { listLovableTools, lovableOfficialConfigured, probeLovableAuth } from './services/lovableOfficialMcp.js';
 import { customerBotLink } from './services/a1Client.js';
 
 const app = express();
@@ -296,6 +296,33 @@ if (config.AUTONOMY_ENABLED) {
       console.error('Autonomy tick failed', error);
     }
   });
+}
+
+async function lovableTokenHeartbeat() {
+  if (!lovableOfficialConfigured()) return;
+  const result = await probeLovableAuth();
+  if (result.ok) {
+    console.log('Lovable token heartbeat ok', { email: result.email, workspaceCount: result.workspaceCount });
+  } else {
+    console.error('Lovable token heartbeat failed', result.reason || result.error || result);
+    await sendTelegram(
+      [
+        '<b>Lovable OAuth требует внимания</b>',
+        'Heartbeat не смог проверить авторизацию Lovable MCP.',
+        `Причина: <code>${String(result.reason || result.error || 'unknown').slice(0, 500)}</code>`,
+        'Нужна повторная OAuth-авторизация, иначе Builder не сможет создавать проекты в Lovable.',
+      ].join('\n'),
+    );
+  }
+}
+
+if (config.LOVABLE_TOKEN_HEARTBEAT_ENABLED) {
+  cron.schedule(config.LOVABLE_TOKEN_HEARTBEAT_CRON, () => {
+    lovableTokenHeartbeat().catch((error) => console.error('Lovable token heartbeat crashed', error));
+  });
+  setTimeout(() => {
+    lovableTokenHeartbeat().catch((error) => console.error('Lovable token startup heartbeat crashed', error));
+  }, 15000);
 }
 
 function publicState() {

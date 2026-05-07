@@ -139,6 +139,21 @@ export async function listLovableTools() {
   });
 }
 
+export async function probeLovableAuth() {
+  return withLovableClient(async (client) => {
+    const me = parseToolContent(await client.callTool({ name: 'get_me', arguments: {} }, undefined, LOVABLE_SHORT_REQUEST));
+    if (me?.raw?.isError || /invalid token/i.test(String(me?.text || ''))) {
+      return { ok: false, reason: me.text || 'Lovable get_me failed', raw: me };
+    }
+    return {
+      ok: true,
+      userId: me.id || '',
+      email: me.email || '',
+      workspaceCount: Array.isArray(me.workspaces) ? me.workspaces.length : 0,
+    };
+  });
+}
+
 export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
   return withLovableClient(async (client) => {
     const createResult = await client.callTool({

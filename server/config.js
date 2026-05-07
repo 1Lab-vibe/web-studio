@@ -61,6 +61,8 @@ const envSchema = z.object({
   LOVABLE_OAUTH_TOKEN_PATH: z.string().default('./data/lovable-oauth.json'),
   LOVABLE_WORKSPACE_ID: z.string().optional().default(''),
   LOVABLE_AUTO_DEPLOY: boolFromEnv.default('false'),
+  LOVABLE_TOKEN_HEARTBEAT_ENABLED: boolFromEnv.default('true'),
+  LOVABLE_TOKEN_HEARTBEAT_CRON: z.string().default('0 */6 * * *'),
   GITHUB_TOKEN: z.string().optional().default(''),
   GITHUB_OWNER: z.string().default('1Lab-vibe'),
   GITHUB_REPO_PREFIX: z.string().default('webstudio-'),
