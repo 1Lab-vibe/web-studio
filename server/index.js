@@ -106,6 +106,7 @@ app.get('/api/health', (req, res) => {
       jobLockMinutes: config.AUTONOMY_JOB_LOCK_MINUTES,
       deadAfterAttempts: config.AUTONOMY_DEAD_AFTER_ATTEMPTS,
       cron: config.AUTONOMY_CRON,
+      dailyMockupLimit: config.DAILY_MOCKUP_LIMIT,
     },
   });
 });

@@ -333,7 +333,7 @@ function App() {
           <AutonomyMonitor backend={backend} />
           <TopNextActions actions={backend.topActions} onSelect={setActiveLeadId} />
           <FunnelBoard leads={scoredVisibleLeads} activeLeadId={activeLead?.id} onSelect={setActiveLeadId} />
-          <ControlDeck metrics={backend.metrics} approvals={backend.approvals} outreachQueue={backend.outreachQueue} />
+          <ControlDeck metrics={backend.metrics} approvals={backend.approvals} outreachQueue={backend.outreachQueue} mockupLimit={backend.autonomy?.dailyMockupLimit ?? 10} />
         </section>
 
         <aside className="inspector">
@@ -402,6 +402,7 @@ function LoginScreen({ onLogin }) {
 
 function TopBar({ city, cities, setCity, backend, user, onLogout }) {
   const mockupsToday = Number(backend.metrics.mockupsToday ?? 0);
+  const mockupLimit = Number(backend.autonomy?.dailyMockupLimit ?? 10);
   return (
     <header className="topbar">
       <div className="brand">
@@ -426,7 +427,7 @@ function TopBar({ city, cities, setCity, backend, user, onLogout }) {
         </div>
         <div className="metric-chip">
           <Gauge size={16} />
-          Lovable {mockupsToday}/5
+          Lovable {mockupsToday}/{mockupLimit}
         </div>
         <div className={`api-chip ${backend.status}`}>
           <Activity size={16} />
@@ -768,9 +769,9 @@ function AutonomyMonitor({ backend }) {
   );
 }
 
-function ControlDeck({ metrics, approvals, outreachQueue = [] }) {
+function ControlDeck({ metrics, approvals, outreachQueue = [], mockupLimit = 10 }) {
   const mockupsToday = Number(metrics.mockupsToday ?? 0);
-  const usedPct = Math.min(100, (mockupsToday / 5) * 100);
+  const usedPct = Math.min(100, (mockupsToday / Math.max(1, Number(mockupLimit) || 10)) * 100);
   const pending = approvals.filter((approval) => approval.status === 'pending').length;
   const queued = outreachQueue.filter((item) => item.status === 'queued').length;
   return (
@@ -781,7 +782,7 @@ function ControlDeck({ metrics, approvals, outreachQueue = [] }) {
           <span>Lovable MCP quota</span>
         </div>
         <div className="progress"><span style={{ width: `${usedPct}%` }} /></div>
-        <strong>{mockupsToday}/5 мокапов сегодня</strong>
+        <strong>{mockupsToday}/{mockupLimit} мокапов сегодня</strong>
       </div>
       <div className="pause-card">
         <div className="panel-title inline">

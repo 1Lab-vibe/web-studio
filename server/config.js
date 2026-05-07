@@ -37,7 +37,7 @@ const envSchema = z.object({
   MIN_YEARS_ON_MAP: z.coerce.number().default(5),
   MAX_REVIEWS: z.coerce.number().default(50),
   MIN_RATING: z.coerce.number().default(4.4),
-  DAILY_MOCKUP_LIMIT: z.coerce.number().default(5),
+  DAILY_MOCKUP_LIMIT: z.coerce.number().default(10),
   DAILY_SEND_LIMIT: z.coerce.number().default(25),
   FILMER_ENABLED: boolFromEnv.default('true'),
   FILMER_SCREENSHOT_COUNT: z.coerce.number().default(5),
