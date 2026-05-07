@@ -1,4 +1,4 @@
-import { crmAddEvent } from './a1Client.js';
+import { crmAddEvent, crmConvertLeadToDeal } from './a1Client.js';
 
 const LANES = {
   scout: '\u0420\u0430\u0437\u0432\u0435\u0434\u043a\u0430',
@@ -51,7 +51,28 @@ export async function handleA1Webhook(store, envelope, idempotencyKey = '') {
   }
 
   const patch = patchForA1Event(lead, envelope);
-  if (Object.keys(patch).length) await store.updateLead(lead.id, patch);
+  const updatedLead = Object.keys(patch).length ? await store.updateLead(lead.id, patch) : lead;
+  if (envelope.eventType === 'lead.replied' && isPositiveReply(envelope.payload) && (updatedLead.a1LeadId || updatedLead.a1?.leadId)) {
+    const convert = await crmConvertLeadToDeal({
+      a1LeadId: updatedLead.a1LeadId || updatedLead.a1?.leadId,
+      dealTitle: `Site for ${updatedLead.name}`,
+      customerContact: updatedLead.reply || {},
+      sourceLead: updatedLead,
+      initialBrief: updatedLead.customerBrief || {},
+      idempotencyKey: `webstudio:${updatedLead.id}:convert:${eventId}`,
+      reason: 'positive_a1_reply',
+    });
+    if (convert.ok) {
+      await store.updateLead(updatedLead.id, {
+        status: 'positive_reply',
+        a1: {
+          ...(updatedLead.a1 ?? {}),
+          conversionRequestedAt: new Date().toISOString(),
+          conversionMode: convert.conversionMode || 'a1',
+        },
+      });
+    }
+  }
   await store.addEvent(lead.id, `a1.${eventType}`, eventMessage(envelope));
   await store.markA1EventProcessed(eventId, { status: 'processed', leadId: lead.id });
   return { ok: true, lead: store.getLead(lead.id), patch };
@@ -165,4 +186,15 @@ function localLaneForA1Stage(stage) {
 function eventMessage(envelope) {
   const payload = envelope.payload ?? {};
   return payload.text || payload.message || `${envelope.eventType} from A1`;
+}
+
+function isPositiveReply(payload = {}) {
+  const values = [
+    payload.intent,
+    payload.replyIntent,
+    payload.sentiment,
+    payload.status,
+    payload.classification,
+  ].map((value) => String(value || '').toLowerCase());
+  return payload.positive === true || values.some((value) => ['positive', 'interested', 'qualified', 'hot', 'accepted'].includes(value));
 }

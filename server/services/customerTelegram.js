@@ -81,9 +81,15 @@ async function startCustomerLead(store, chatId, from, token) {
   });
   if (convert.ok) {
     const data = parseToolData(convert);
+    const dealId = data?.a1DealId || data?.dealId || '';
     lead = await store.updateLead(lead.id, {
-      a1DealId: data?.a1DealId || data?.dealId || data?.id || lead.a1DealId,
-      a1: { ...(lead.a1 ?? {}), dealId: data?.a1DealId || data?.dealId || data?.id || lead.a1?.dealId },
+      a1DealId: dealId || lead.a1DealId,
+      a1: {
+        ...(lead.a1 ?? {}),
+        conversionRequestedAt: new Date().toISOString(),
+        conversionMode: convert.conversionMode || 'a1',
+        dealId: dealId || lead.a1?.dealId,
+      },
     });
   }
 
@@ -150,26 +156,72 @@ async function approveBrief(store, lead, chatId) {
   await store.addEvent(lead.id, 'customer.brief_approved', 'Customer approved the brief');
   await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer approved the brief', { brief: updated.customerBrief, approved: true });
 
-  if (updated.a1DealId) {
+  const a1LeadId = updated.a1LeadId || updated.a1?.leadId || '';
+  if (a1LeadId && !updated.a1?.conversionRequestedAt) {
+    const convert = await crmConvertLeadToDeal({
+      a1LeadId,
+      dealTitle: `Site for ${updated.name}`,
+      customerContact: updated.customerTelegram || {},
+      sourceLead: updated,
+      initialBrief: updated.customerBrief || {},
+      idempotencyKey: `webstudio:${updated.id}:convert:brief-approved`,
+      reason: 'brief_approved',
+    });
+    if (convert.ok) {
+      updated = await store.updateLead(updated.id, {
+        a1: {
+          ...(updated.a1 ?? {}),
+          conversionRequestedAt: new Date().toISOString(),
+          conversionMode: convert.conversionMode || 'a1',
+        },
+      });
+    }
+  }
+
+  const billingEmail = billingEmailForLead(updated);
+  if (!billingEmail) {
+    updated = await store.updateLead(updated.id, {
+      payment: { ...(updated.payment ?? {}), status: 'needs_customer_email', amountRub: updated.deal || 140000 },
+    });
+    await store.addEvent(updated.id, 'payment.needs_customer_email', 'Payment link was not requested because customer email is missing');
+    await sendTelegramTo(chatId, 'Для ссылки на оплату нужна почта. Пришлите email одним сообщением, затем снова отправьте /approve.');
+    return { ok: true, lead: updated, needsEmail: true };
+  }
+
+  if (a1LeadId) {
     await dealAttachProduct({
+      leadId: a1LeadId,
       a1DealId: updated.a1DealId,
+      productCode: 'landing_site_setup',
       title: `Лендинг для ${updated.name}`,
       description: 'Готовый лендинг с первичным запуском, формой заявки и базовыми правками.',
       amountRub: updated.deal || 140000,
       idempotencyKey: `webstudio:${updated.id}:product:landing_site_setup`,
     });
     const invoice = await invoiceCreateYookassaLink({
+      leadId: a1LeadId,
       a1DealId: updated.a1DealId,
-      items: [{ title: `Лендинг для ${updated.name}`, amountRub: updated.deal || 140000, quantity: 1 }],
+      customerEmail: billingEmail,
+      items: [{ productCode: 'landing_site_setup', title: `Лендинг для ${updated.name}`, amountRub: updated.deal || 140000, quantity: 1 }],
       amountRub: updated.deal || 140000,
       successUrl: customerBotLink(updated) || '',
-      metadata: { webstudioLeadId: updated.id },
+      metadata: { webstudioLeadId: updated.id, a1LeadId, a1DealId: updated.a1DealId || '' },
       idempotencyKey: `webstudio:${updated.id}:invoice:${updated.deal || 140000}`,
     });
-    const data = parseToolData(invoice);
+    const data = paymentData(invoice);
     if (invoice.ok && data?.paymentUrl) {
       updated = await store.updateLead(updated.id, {
-        payment: { invoiceId: data.invoiceId || '', paymentUrl: data.paymentUrl, amountRub: updated.deal || 140000, status: 'created' },
+        payment: { invoiceId: data.invoiceId || '', paymentUrl: data.paymentUrl, amountRub: updated.deal || 140000, status: 'created', customerEmail: billingEmail },
+      });
+    } else {
+      updated = await store.updateLead(updated.id, {
+        payment: {
+          ...(updated.payment ?? {}),
+          amountRub: updated.deal || 140000,
+          customerEmail: billingEmail,
+          status: invoice.ok ? 'requested' : 'failed',
+          error: invoice.ok ? '' : invoice.error || invoice.reason || 'invoice_create_yookassa_link failed',
+        },
       });
     }
   }
@@ -183,6 +235,46 @@ function parseToolData(result) {
   if (!text) return result?.data || null;
   try {
     return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function paymentData(result) {
+  const parsed = parseToolData(result);
+  const nested = parseMaybeJson(parsed?.result?.response?.final_response || parsed?.response?.final_response);
+  const data = nested || parsed || {};
+  return {
+    invoiceId: data.invoiceId || data.invoice_id || data.id || data.result?.invoiceId || '',
+    paymentUrl: data.paymentUrl || data.payment_url || data.confirmationUrl || data.confirmation_url || data.url || data.result?.paymentUrl || '',
+  };
+}
+
+function billingEmailForLead(lead) {
+  const candidates = [
+    lead?.customerContact?.email,
+    lead?.customerTelegram?.email,
+    lead?.email,
+    ...(Array.isArray(lead?.contacts?.emails) ? lead.contacts.emails : []),
+    ...(Array.isArray(lead?.contacts?.channels) ? lead.contacts.channels.map((channel) => channel?.value || channel?.email || '') : []),
+    lead?.customerBrief?.contacts,
+  ];
+  for (const candidate of candidates) {
+    const email = extractEmail(candidate);
+    if (email) return email;
+  }
+  return '';
+}
+
+function extractEmail(value) {
+  const match = String(value || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0] || '';
+}
+
+function parseMaybeJson(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
   } catch {
     return null;
   }

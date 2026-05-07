@@ -152,6 +152,7 @@ export async function crmMoveLeadStage(input) {
     source: 'webstudio',
     channel: 'webstudio',
     payload: {
+      ...(input.payload || {}),
       reason: input.reason,
       actor: input.actor,
       externalId: input.externalId,
@@ -180,7 +181,30 @@ export async function crmAddEvent(input) {
 }
 
 export async function crmConvertLeadToDeal(input) {
-  return { ok: false, skipped: true, reason: 'crm_convert_lead_to_deal is not exposed by A1 MCP server yet', input };
+  const leadId = input?.leadId || input?.a1LeadId;
+  if (!leadId) return { ok: false, skipped: true, reason: 'Missing A1 lead reference', input };
+
+  const result = await crmMoveLeadStage({
+    leadId,
+    externalId: input.externalId || input.sourceLead?.id,
+    dedupeKey: input.dedupeKey || (input.sourceLead?.id ? `webstudio:${input.sourceLead.id}` : undefined),
+    stage: 'won',
+    status: 'converted',
+    reason: input.reason || 'positive_customer_intent',
+    actor: input.actor || config.A1_MCP_ACTOR_ID || 'web-studio-orchestrator',
+    idempotencyKey: input.idempotencyKey,
+    payload: {
+      dealTitle: input.dealTitle,
+      customerContact: input.customerContact,
+      initialBrief: input.initialBrief,
+    },
+  });
+
+  return {
+    ...result,
+    method: 'crm_move_lead_stage',
+    conversionMode: 'a1_auto_convert_on_won',
+  };
 }
 
 export async function dealAttachProduct(input) {
@@ -198,6 +222,10 @@ export async function dealAttachProduct(input) {
 
 export async function invoiceCreateYookassaLink(input) {
   const firstItem = Array.isArray(input.items) ? input.items[0] : null;
+  const customerEmail = input.customerEmail || input.email;
+  if (!customerEmail) {
+    return { ok: false, skipped: true, reason: 'Missing customerEmail for YooKassa invoice' };
+  }
   return callA1McpTool('invoice_create_yookassa_link', {
     companyId: config.A1_COMPANY_ID,
     leadId: input.leadId || input.a1LeadId || input.a1DealId,
@@ -209,7 +237,7 @@ export async function invoiceCreateYookassaLink(input) {
     },
     amount: input.amount ?? input.amountRub,
     currency: input.currency || 'RUB',
-    customerEmail: input.customerEmail || input.email,
+    customerEmail,
     customerPhone: input.customerPhone || input.phone,
     returnUrl: input.returnUrl || input.successUrl,
     source: 'webstudio',
