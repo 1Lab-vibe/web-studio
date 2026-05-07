@@ -90,13 +90,42 @@ export class Orchestrator {
   async tick() {
     const scout = await this.scout();
     const stalledLovable = await this.inspectStalledLovableHandoffs();
-    const topActions = this.topActions(12);
+    const topActions = this.topActions(config.AUTONOMY_TOP_ACTIONS_LIMIT);
     const advanced = [];
+    const skipped = [];
+    let actionCount = 0;
+    let lovableBuildCount = 0;
     for (const action of topActions.filter((item) => item.autoRunnable)) {
+      if (actionCount >= config.AUTONOMY_MAX_ACTIONS_PER_TICK) {
+        skipped.push(skipAction(action, 'max_actions_per_tick'));
+        continue;
+      }
+      if (action.action === 'build_lovable' && lovableBuildCount >= config.AUTONOMY_MAX_LOVABLE_BUILDS_PER_TICK) {
+        skipped.push(skipAction(action, 'max_lovable_builds_per_tick'));
+        continue;
+      }
+      console.log('Autonomy action started', {
+        action: action.action,
+        leadId: action.lead.id,
+        name: action.lead.name,
+        lane: action.lead.lane,
+        owner: action.lead.owner,
+      });
+      const startedAt = Date.now();
       const result = await this.advanceLead(action.lead.id);
+      console.log('Autonomy action finished', {
+        action: action.action,
+        leadId: action.lead.id,
+        ok: Boolean(result?.ok),
+        held: Boolean(result?.held),
+        reason: result?.reason || result?.error || '',
+        durationMs: Date.now() - startedAt,
+      });
+      actionCount += 1;
+      if (action.action === 'build_lovable') lovableBuildCount += 1;
       if (result?.ok) advanced.push(result.lead);
     }
-    return { ok: true, scout, stalledLovable, advanced, topActions };
+    return { ok: true, scout, stalledLovable, advanced, skipped, topActions };
   }
 
   topActions(limit = 10) {
@@ -470,6 +499,17 @@ function actionForLead(lead, topLovableIds) {
   if (lead.lane === 'Проверка') return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Отправка') return { action: 'queue_pitch', label: 'Поставить в очередь отправки', score: lead.fitScore ?? 0, autoRunnable: true };
   return { action: 'none', label: 'Нет действия', score: 0, autoRunnable: false };
+}
+
+function skipAction(action, reason) {
+  return {
+    reason,
+    action: action.action,
+    leadId: action.lead?.id,
+    name: action.lead?.name,
+    lane: action.lead?.lane,
+    owner: action.lead?.owner,
+  };
 }
 
 function formatRub(value) {
