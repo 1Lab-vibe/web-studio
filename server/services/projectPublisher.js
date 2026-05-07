@@ -429,8 +429,9 @@ async function buildSourceProject(sourceRoot, publicRoot) {
   await rm(publicRoot, { recursive: true, force: true });
   const packageJson = path.join(sourceRoot, 'package.json');
   try {
-    await execFileAsync('npm', ['install'], { cwd: sourceRoot, timeout: 240000, maxBuffer: 1024 * 1024 * 20 });
-    await execFileAsync('npm', ['run', 'build'], { cwd: sourceRoot, timeout: 240000, maxBuffer: 1024 * 1024 * 20 });
+    const env = { ...process.env, NODE_ENV: 'development', NPM_CONFIG_PRODUCTION: 'false' };
+    await execFileAsync('npm', ['install', '--include=dev'], { cwd: sourceRoot, env, timeout: 240000, maxBuffer: 1024 * 1024 * 20 });
+    await execFileAsync('npm', ['run', 'build'], { cwd: sourceRoot, env, timeout: 240000, maxBuffer: 1024 * 1024 * 20 });
     const dist = path.join(sourceRoot, 'dist');
     await cp(dist, publicRoot, { recursive: true });
     return { ok: true, strategy: 'vite_build' };
