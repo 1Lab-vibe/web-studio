@@ -449,6 +449,67 @@ button {
   padding: 14px;
 }
 
+.autonomy-monitor {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.monitor-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.monitor-grid > div {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.monitor-grid small,
+.monitor-grid span {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+}
+
+.monitor-grid strong {
+  display: block;
+  font-size: 13px;
+  margin: 3px 0;
+  overflow-wrap: anywhere;
+}
+
+.job-line,
+.job-errors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.job-line span,
+.job-errors span {
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 5px 8px;
+}
+
+.job-line span {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.job-errors span {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
 .action-list {
   display: grid;
   gap: 8px;
@@ -1045,6 +1106,7 @@ button {
 
   .top-actions,
   .control-deck,
+  .monitor-grid,
   .source-grid,
   .sidebar,
   .inspector {

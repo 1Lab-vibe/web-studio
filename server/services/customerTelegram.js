@@ -132,28 +132,6 @@ async function startCustomerLead(store, chatId, from, token) {
   await emitCustomerA1Event(lead, 'customer.telegram_started', 'Customer started Telegram bot', { customerTelegram });
   await notifyAdminCustomerStarted(lead, customerTelegram);
 
-  const convert = await crmConvertLeadToDeal({
-    a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
-    dealTitle: `Сайт для ${lead.name}`,
-    customerContact: customerTelegram,
-    sourceLead: lead,
-    initialBrief: lead.customerBrief || {},
-    idempotencyKey: `webstudio:${lead.id}:convert:${chatId}`,
-  });
-  if (convert.ok) {
-    const data = parseToolData(convert);
-    const dealId = data?.a1DealId || data?.dealId || '';
-    lead = await store.updateLead(lead.id, {
-      a1DealId: dealId || lead.a1DealId,
-      a1: {
-        ...(lead.a1 ?? {}),
-        conversionRequestedAt: new Date().toISOString(),
-        conversionMode: convert.conversionMode || 'a1',
-        dealId: dealId || lead.a1?.dealId,
-      },
-    });
-  }
-
   await sendTelegramTo(
     chatId,
     onboardingText(lead, true),
@@ -529,8 +507,21 @@ async function approveBrief(store, lead, chatId) {
   await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer approved the brief', { brief: updated.customerBrief, approved: true });
 
   if (!hasReadyPreview(updated)) {
-    const preview = await buildApprovedBriefPreview(store, updated, chatId);
-    return { ok: preview.ok, lead: preview.lead, preview };
+    const queued = await store.enqueueJob({
+      type: 'customer_preview_build',
+      leadId: updated.id,
+      priority: 95,
+      maxAttempts: 3,
+      payload: { chatId },
+      idempotencyKey: `customer_preview_build:${updated.id}:${updated.customerBrief?.approvedAt || approvedAt}`,
+    });
+    updated = await store.transitionLead(updated.id, {
+      pipelineStage: 'lovable_queued',
+      stageStatus: 'customer_preview_queued',
+      reason: 'customer_brief_approved',
+    });
+    await sendTelegramTo(chatId, 'ТЗ утверждено. Я поставил сборку превью в очередь и пришлю ссылку после проверки качества.');
+    return { ok: true, lead: updated, queued: queued.job };
   }
 
   const a1LeadId = updated.a1LeadId || updated.a1?.leadId || '';

@@ -6,6 +6,8 @@ const initialState = {
   leads: [],
   events: [],
   approvals: [],
+  jobs: [],
+  orchestratorRuns: [],
   outreachQueue: [],
   integrationInbox: [],
   processedA1Events: {},
@@ -40,6 +42,45 @@ function normalizeLane(value) {
   return laneMap.get(value) || value || 'Разведка';
 }
 
+function pipelineStageFromLegacy(lead = {}) {
+  if (lead.pipelineStage) return lead.pipelineStage;
+  if (lead.status === 'needs_review') return 'needs_review';
+  if (lead.pitch?.queued || ['РћС‚РІРµС‚С‹', 'Ответы'].includes(lead.lane)) return 'outbound_sent';
+  if (['РћС‚РїСЂР°РІРєР°', 'Отправка'].includes(lead.lane)) return 'outbound_ready';
+  if (['РџСЂРѕРІРµСЂРєР°', 'Проверка'].includes(lead.lane)) return 'checked';
+  if (['Р’РёРґРµРѕ', 'Видео'].includes(lead.lane)) return lead.video?.ok ? 'media_ready' : 'deployed';
+  if (lead.mockup?.status === 'deployed') return 'deployed';
+  if (lead.mockup?.status === 'export_ready') return 'lovable_export_ready';
+  if (lead.lane === 'Lovable') return 'lovable_building';
+  if (['Р”РёР°РіРЅРѕР·', 'Диагноз'].includes(lead.lane)) return 'diagnosed';
+  if (['Р Р°Р·РІРµРґРєР°', 'Разведка'].includes(lead.lane)) return 'scouted';
+  return 'scouted';
+}
+
+function legacyForPipelineStage(stage) {
+  const map = {
+    scouted: { lane: 'Разведка', owner: 'Scout' },
+    enriched: { lane: 'Разведка', owner: 'Scout' },
+    diagnosed: { lane: 'Диагноз', owner: 'Diagnoser' },
+    lovable_queued: { lane: 'Lovable', owner: 'Builder' },
+    lovable_building: { lane: 'Lovable', owner: 'Builder' },
+    lovable_export_ready: { lane: 'Lovable', owner: 'Coder' },
+    deployed: { lane: 'Видео', owner: 'Filmer' },
+    media_ready: { lane: 'Проверка', owner: 'Checker' },
+    checked: { lane: 'Отправка', owner: 'Pitcher' },
+    outbound_ready: { lane: 'Отправка', owner: 'Pitcher' },
+    outbound_sent: { lane: 'Ответы', owner: 'Mobile' },
+    replied: { lane: 'Ответы', owner: 'Mobile' },
+    qualified: { lane: 'Ответы', owner: 'Mobile' },
+    deal_created: { lane: 'Ответы', owner: 'Mobile' },
+    payment_pending: { lane: 'Ответы', owner: 'Mobile' },
+    paid: { lane: 'Ответы', owner: 'Mobile' },
+    production: { lane: 'Ответы', owner: 'Coder' },
+    needs_review: { lane: null, owner: 'Orchestrator' },
+  };
+  return map[stage] || {};
+}
+
 export class Store {
   constructor(dataDir) {
     this.dataDir = path.resolve(dataDir);
@@ -60,6 +101,8 @@ export class Store {
     this.state.events ??= [];
     this.state.leads ??= [];
     this.state.approvals ??= [];
+    this.state.jobs ??= [];
+    this.state.orchestratorRuns ??= [];
     this.state.outreachQueue ??= [];
     this.state.integrationInbox ??= [];
     this.state.processedA1Events ??= {};
@@ -69,6 +112,12 @@ export class Store {
       ...lead,
       lane: normalizeLane(lead.lane),
       owner: lead.owner || 'Scout',
+      pipelineStage: lead.pipelineStage || pipelineStageFromLegacy(lead),
+      stageStatus: lead.stageStatus || lead.status || 'new',
+      assignedAgent: lead.assignedAgent || lead.owner || 'Scout',
+      artifactStatus: lead.artifactStatus || lead.mockup?.status || lead.video?.status || '',
+      lastTransitionAt: lead.lastTransitionAt || lead.updatedAt || lead.createdAt || '',
+      lastTransitionReason: lead.lastTransitionReason || '',
       priority: Number.isFinite(Number(lead.priority)) ? Number(lead.priority) : 50,
       publicLeadToken: lead.publicLeadToken || randomToken(),
     }));
@@ -120,6 +169,12 @@ export class Store {
       updatedAt: new Date().toISOString(),
       lane: 'Разведка',
       owner: 'Scout',
+      pipelineStage: 'scouted',
+      stageStatus: 'new',
+      assignedAgent: 'Scout',
+      artifactStatus: '',
+      lastTransitionAt: new Date().toISOString(),
+      lastTransitionReason: 'lead_created',
       priority: 50,
       status: 'new',
       publicLeadToken: randomToken(),
@@ -127,6 +182,31 @@ export class Store {
     };
     this.state.leads.push(lead);
     await this.addEvent(lead.id, 'lead.created', `Создан лид ${lead.name}`, { silent: true });
+    await this.save();
+    return lead;
+  }
+
+  async transitionLead(id, input = {}) {
+    const lead = this.getLead(id);
+    if (!lead) return null;
+    const now = new Date().toISOString();
+    const pipelineStage = input.pipelineStage || lead.pipelineStage || pipelineStageFromLegacy(lead);
+    const legacy = legacyForPipelineStage(pipelineStage);
+    const patch = {
+      ...(input.patch ?? {}),
+      pipelineStage,
+      stageStatus: input.stageStatus || input.status || lead.stageStatus || lead.status || 'in_progress',
+      assignedAgent: input.assignedAgent || input.owner || legacy.owner || lead.assignedAgent || lead.owner || 'Orchestrator',
+      artifactStatus: input.artifactStatus ?? lead.artifactStatus ?? lead.mockup?.status ?? '',
+      lane: input.lane || legacy.lane || lead.lane,
+      owner: input.owner || input.assignedAgent || legacy.owner || lead.owner,
+      status: input.status || input.stageStatus || lead.status || 'in_progress',
+      lastTransitionAt: now,
+      lastTransitionReason: input.reason || lead.lastTransitionReason || '',
+      updatedAt: now,
+    };
+    Object.assign(lead, patch);
+    await this.addEvent(id, 'lead.transition', `${pipelineStage}: ${patch.lastTransitionReason || 'stage updated'}`, { silent: true });
     await this.save();
     return lead;
   }
@@ -179,6 +259,154 @@ export class Store {
 
   listApprovals() {
     return this.state.approvals;
+  }
+
+  listJobs(filter = {}) {
+    this.state.jobs ??= [];
+    return this.state.jobs
+      .filter((job) => {
+        if (filter.status && job.status !== filter.status) return false;
+        if (filter.type && job.type !== filter.type) return false;
+        if (filter.leadId && job.leadId !== filter.leadId) return false;
+        return true;
+      })
+      .sort((a, b) => Date.parse(b.createdAt || b.updatedAt || 0) - Date.parse(a.createdAt || a.updatedAt || 0));
+  }
+
+  listOrchestratorRuns(limit = 50) {
+    this.state.orchestratorRuns ??= [];
+    return this.state.orchestratorRuns.slice(0, Math.max(1, Math.min(200, Number(limit) || 50)));
+  }
+
+  async addOrchestratorRun(input) {
+    this.state.orchestratorRuns ??= [];
+    const run = {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      ...input,
+    };
+    this.state.orchestratorRuns.unshift(run);
+    this.state.orchestratorRuns = this.state.orchestratorRuns.slice(0, 200);
+    await this.save();
+    return run;
+  }
+
+  async enqueueJob(input) {
+    this.state.jobs ??= [];
+    const now = new Date().toISOString();
+    const idempotencyKey = input.idempotencyKey || `${input.type}:${input.leadId || 'global'}`;
+    const existing = this.state.jobs.find(
+      (job) =>
+        job.idempotencyKey === idempotencyKey &&
+        ['queued', 'running', 'failed'].includes(job.status) &&
+        Number(job.attempts ?? 0) < Number(job.maxAttempts ?? 3),
+    );
+    if (existing) return { job: existing, deduped: true };
+    const job = {
+      id: randomUUID(),
+      type: input.type,
+      leadId: input.leadId || '',
+      status: 'queued',
+      priority: Number(input.priority ?? 50),
+      attempts: 0,
+      maxAttempts: Number(input.maxAttempts ?? 3),
+      nextRunAt: input.nextRunAt || now,
+      lockedUntil: '',
+      startedAt: '',
+      finishedAt: '',
+      lastError: '',
+      payload: input.payload ?? {},
+      idempotencyKey,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.state.jobs.unshift(job);
+    await this.addEvent(job.leadId || null, 'job.queued', `Queued job ${job.type}`, { silent: true });
+    await this.save();
+    return { job, deduped: false };
+  }
+
+  async recoverExpiredJobs({ now = new Date(), deadAfterAttempts = 3 } = {}) {
+    this.state.jobs ??= [];
+    const recovered = [];
+    for (const job of this.state.jobs) {
+      if (job.status !== 'running') continue;
+      const lockedUntil = Date.parse(job.lockedUntil || '');
+      if (!Number.isFinite(lockedUntil) || lockedUntil > now.getTime()) continue;
+      job.status = Number(job.attempts ?? 0) >= Number(deadAfterAttempts) ? 'dead' : 'failed';
+      job.lastError = job.lastError || 'Job lock expired';
+      job.lockedUntil = '';
+      job.nextRunAt = new Date(now.getTime() + 60_000).toISOString();
+      job.updatedAt = now.toISOString();
+      recovered.push(job);
+    }
+    if (recovered.length) await this.save();
+    return recovered;
+  }
+
+  async claimNextJobs({ limit = 3, lockMinutes = 30, maxLovable = 1, maxFilmer = 1 } = {}) {
+    this.state.jobs ??= [];
+    const now = new Date();
+    const runningLeadIds = new Set(
+      this.state.jobs
+        .filter((job) => job.status === 'running' && job.leadId && Date.parse(job.lockedUntil || '') > now.getTime())
+        .map((job) => job.leadId),
+    );
+    const candidates = this.state.jobs
+      .filter((job) => ['queued', 'failed'].includes(job.status))
+      .filter((job) => Date.parse(job.nextRunAt || job.createdAt || '') <= now.getTime())
+      .filter((job) => Number(job.attempts ?? 0) < Number(job.maxAttempts ?? 3))
+      .sort((a, b) => Number(b.priority ?? 0) - Number(a.priority ?? 0) || Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0));
+    const claimed = [];
+    let lovableCount = 0;
+    let filmerCount = 0;
+    for (const job of candidates) {
+      if (claimed.length >= Number(limit)) break;
+      if (job.leadId && runningLeadIds.has(job.leadId)) continue;
+      if (job.type === 'lovable_build' && lovableCount >= Number(maxLovable)) continue;
+      if (job.type === 'filmer_render' && filmerCount >= Number(maxFilmer)) continue;
+      job.status = 'running';
+      job.attempts = Number(job.attempts ?? 0) + 1;
+      job.startedAt = now.toISOString();
+      job.lockedUntil = new Date(now.getTime() + Number(lockMinutes) * 60_000).toISOString();
+      job.updatedAt = now.toISOString();
+      job.lastError = '';
+      claimed.push(job);
+      if (job.leadId) runningLeadIds.add(job.leadId);
+      if (job.type === 'lovable_build') lovableCount += 1;
+      if (job.type === 'filmer_render') filmerCount += 1;
+    }
+    if (claimed.length) await this.save();
+    return claimed;
+  }
+
+  async finishJob(id, result = {}) {
+    const job = this.state.jobs?.find((item) => item.id === id);
+    if (!job) return null;
+    const now = new Date().toISOString();
+    job.status = result.status || 'succeeded';
+    job.result = result;
+    job.finishedAt = now;
+    job.lockedUntil = '';
+    job.updatedAt = now;
+    await this.addEvent(job.leadId || null, 'job.succeeded', `Succeeded job ${job.type}`, { silent: true });
+    await this.save();
+    return job;
+  }
+
+  async failJob(id, error, { retryDelayMs = 60_000 } = {}) {
+    const job = this.state.jobs?.find((item) => item.id === id);
+    if (!job) return null;
+    const now = new Date();
+    job.status = Number(job.attempts ?? 0) >= Number(job.maxAttempts ?? 3) ? 'dead' : 'failed';
+    job.lastError = error?.message || String(error || 'Job failed');
+    job.finishedAt = now.toISOString();
+    job.lockedUntil = '';
+    job.nextRunAt = new Date(now.getTime() + retryDelayMs).toISOString();
+    job.updatedAt = now.toISOString();
+    await this.addEvent(job.leadId || null, 'job.failed', `${job.type}: ${job.lastError}`, { silent: true });
+    await this.save();
+    return job;
   }
 
   listOutreachQueue() {

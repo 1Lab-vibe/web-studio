@@ -109,6 +109,17 @@ function scoringSummary(lead) {
   return parts.join(' · ');
 }
 
+function formatTime(value) {
+  if (!value) return 'n/a';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'n/a';
+  return date.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+}
+
+function shortId(value) {
+  return value ? String(value).slice(0, 8) : 'global';
+}
+
 function App() {
   const [auth, setAuth] = useState({ loading: true, authenticated: false, authEnabled: true, user: null });
   const [backend, setBackend] = useState({
@@ -120,6 +131,9 @@ function App() {
     approvals: [],
     topActions: [],
     outreachQueue: [],
+    jobs: [],
+    orchestratorRuns: [],
+    autonomy: {},
   });
   const [city, setCity] = useState('Все города');
   const [activeLeadId, setActiveLeadId] = useState(null);
@@ -143,7 +157,7 @@ function App() {
 
   const loadBackend = async () => {
     try {
-      const [healthResponse, stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse] = await Promise.all([
+      const [healthResponse, stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse, jobsResponse, runsResponse] = await Promise.all([
         fetch('/api/health', { credentials: 'include' }),
         fetch('/api/state', { credentials: 'include' }),
         fetch('/api/leads', { credentials: 'include' }),
@@ -151,12 +165,14 @@ function App() {
         fetch('/api/approvals', { credentials: 'include' }),
         fetch('/api/orchestrator/top-actions?limit=8', { credentials: 'include' }),
         fetch('/api/outreach-queue', { credentials: 'include' }),
+        fetch('/api/jobs', { credentials: 'include' }),
+        fetch('/api/orchestrator/runs?limit=10', { credentials: 'include' }),
       ]);
-      if ([stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse].some((response) => response.status === 401)) {
+      if ([stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse, jobsResponse, runsResponse].some((response) => response.status === 401)) {
         setAuth((current) => ({ ...current, authenticated: false }));
         return;
       }
-      const [health, state, leadData, eventData, approvalData, actionData, queueData] = await Promise.all([
+      const [health, state, leadData, eventData, approvalData, actionData, queueData, jobsData, runsData] = await Promise.all([
         healthResponse.json(),
         stateResponse.json(),
         leadsResponse.json(),
@@ -164,6 +180,8 @@ function App() {
         approvalsResponse.json(),
         actionsResponse.json(),
         queueResponse.json(),
+        jobsResponse.json(),
+        runsResponse.json(),
       ]);
       const leads = Array.isArray(leadData.data) ? leadData.data : [];
       setBackend({
@@ -175,6 +193,9 @@ function App() {
         approvals: Array.isArray(approvalData.data) ? approvalData.data : [],
         topActions: Array.isArray(actionData.data) ? actionData.data : [],
         outreachQueue: Array.isArray(queueData.data) ? queueData.data : [],
+        jobs: Array.isArray(jobsData.data) ? jobsData.data : [],
+        orchestratorRuns: Array.isArray(runsData.data) ? runsData.data : [],
+        autonomy: { enabled: Boolean(health.autonomyEnabled), ...(health.autonomy ?? {}) },
       });
       setActiveLeadId((current) => current || leads[0]?.id || null);
     } catch {
@@ -309,6 +330,7 @@ function App() {
         <section className="main-column">
           <SourcePanel leads={backend.leads} metrics={backend.metrics} />
           <BackendActions backend={backend} busy={busy} onRun={runBackendAction} onAdvanceLane={advanceCurrentLane} />
+          <AutonomyMonitor backend={backend} />
           <TopNextActions actions={backend.topActions} onSelect={setActiveLeadId} />
           <FunnelBoard leads={scoredVisibleLeads} activeLeadId={activeLead?.id} onSelect={setActiveLeadId} />
           <ControlDeck metrics={backend.metrics} approvals={backend.approvals} outreachQueue={backend.outreachQueue} />
@@ -318,6 +340,7 @@ function App() {
           <LeadInspector
             lead={activeLead}
             approval={activeApproval}
+            jobs={backend.jobs}
             busy={busy}
             onAdvance={advanceLead}
             onDeploy={deployLead}
@@ -691,6 +714,60 @@ function TopNextActions({ actions, onSelect }) {
   );
 }
 
+function AutonomyMonitor({ backend }) {
+  const jobs = backend.jobs ?? [];
+  const runs = backend.orchestratorRuns ?? [];
+  const running = jobs.filter((job) => job.status === 'running');
+  const failed = jobs.filter((job) => ['failed', 'dead'].includes(job.status));
+  const queued = jobs.filter((job) => job.status === 'queued');
+  const lastRun = runs[0] || null;
+  const today = backend.metrics ?? {};
+  return (
+    <section className="autonomy-monitor">
+      <div className="panel-title inline">
+        <Gauge size={18} />
+        <span>Autonomy Monitor</span>
+      </div>
+      <div className="monitor-grid">
+        <div>
+          <small>Автономия</small>
+          <strong>{backend.autonomy?.enabled ? 'включена' : 'выключена'}</strong>
+          <span>cron {backend.autonomy?.cron || 'n/a'}</span>
+        </div>
+        <div>
+          <small>Последний tick</small>
+          <strong>{lastRun ? `${Math.round((lastRun.durationMs || 0) / 1000)}с` : 'нет'}</strong>
+          <span>{lastRun ? formatTime(lastRun.createdAt) : 'еще не запускался'}</span>
+        </div>
+        <div>
+          <small>Jobs</small>
+          <strong>{running.length} run · {queued.length} queue</strong>
+          <span>{failed.length} failed/dead</span>
+        </div>
+        <div>
+          <small>Сегодня</small>
+          <strong>{today.scannedToday ?? 0} scanned</strong>
+          <span>{today.mockupsToday ?? 0} built · {today.sentToday ?? 0} sent</span>
+        </div>
+      </div>
+      {running.length > 0 && (
+        <div className="job-line">
+          {running.slice(0, 3).map((job) => (
+            <span key={job.id}>{job.type} · {shortId(job.leadId)}</span>
+          ))}
+        </div>
+      )}
+      {failed.length > 0 && (
+        <div className="job-errors">
+          {failed.slice(0, 3).map((job) => (
+            <span key={job.id}>{job.type}: {job.lastError || job.status}</span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ControlDeck({ metrics, approvals, outreachQueue = [] }) {
   const mockupsToday = Number(metrics.mockupsToday ?? 0);
   const usedPct = Math.min(100, (mockupsToday / 5) * 100);
@@ -728,7 +805,7 @@ function ControlDeck({ metrics, approvals, outreachQueue = [] }) {
   );
 }
 
-function LeadInspector({ lead, approval, busy, onAdvance, onDeploy, onDecision }) {
+function LeadInspector({ lead, approval, jobs = [], busy, onAdvance, onDeploy, onDecision }) {
   if (!lead) {
     return (
       <section className="panel lead-inspector empty-state">
@@ -740,6 +817,8 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDeploy, onDecision }
   }
   const email = primaryEmail(lead);
   const emails = emailCandidates(lead);
+  const leadJobs = jobs.filter((job) => job.leadId === lead.id);
+  const currentJob = leadJobs.find((job) => job.status === 'running') || leadJobs.find((job) => job.status === 'queued') || leadJobs.find((job) => ['failed', 'dead'].includes(job.status));
   return (
     <section className="panel lead-inspector">
       <div className="inspector-head">
@@ -789,6 +868,13 @@ function LeadInspector({ lead, approval, busy, onAdvance, onDeploy, onDecision }
         <Fact label="Отзывы" value={lead.reviews ?? 0} />
         <Fact label="Источник" value={lead.source === 'google_places' ? 'Google' : 'Яндекс'} />
         <Fact label="Сайт" value={lead.site || 'не определен'} />
+      </div>
+
+      <div className="fact-grid compact">
+        <Fact label="Pipeline" value={lead.pipelineStage || lead.lane || 'n/a'} />
+        <Fact label="Job" value={currentJob ? `${currentJob.type} · ${currentJob.status}` : 'нет активной'} />
+        <Fact label="Quality" value={lead.qualityGate?.ok ? 'passed' : lead.qualityGate?.issues?.join(', ') || 'не проверено'} />
+        <Fact label="Outbound" value={lead.outboundStatus || lead.pitch?.channel || 'не готов'} />
       </div>
 
       {approval && (

@@ -309,6 +309,11 @@ export async function deployLeadPublicUrlProject(store, leadId, options = {}) {
     idempotencyKey: `webstudio:${lead.id}:project.deployed:${slug}`,
   });
 
+  if (options.renderVideo === false) {
+    await syncA1CrmLead(lead, 'project_deployed');
+    return { ok: true, publicUrl, slug, strategy, lead, videoQueued: true };
+  }
+
   const video = await renderLeadVideo(lead);
   if (!video.ok) {
     lead = await store.updateLead(lead.id, { video, status: 'needs_review' });
@@ -396,6 +401,11 @@ export async function deployLeadGeneratedPreview(store, leadId, options = {}) {
     idempotencyKey: `webstudio:${lead.id}:project.deployed:${slug}`,
   });
 
+  if (options.renderVideo === false) {
+    await syncA1CrmLead(lead, 'generated_preview_deployed');
+    return { ok: true, publicUrl, slug, github, lead, videoQueued: true };
+  }
+
   const video = await renderLeadVideo(lead);
   if (!video.ok) {
     lead = await store.updateLead(lead.id, { video, status: 'needs_review' });
@@ -467,7 +477,7 @@ async function patchBrowserRouterBasename(sourceRoot) {
   return { ok: false };
 }
 
-export async function deployLeadExportedProject(store, leadId, { files = [], lovable = {}, projectName = '' } = {}) {
+export async function deployLeadExportedProject(store, leadId, { files = [], lovable = {}, projectName = '', renderVideo = true } = {}) {
   let lead = store.getLead(leadId);
   if (!lead) return { ok: false, error: 'Lead not found' };
   if (!files.length) return { ok: false, error: 'No Lovable files to deploy' };
@@ -551,6 +561,11 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
     payload: { webstudioLeadId: lead.id, publicUrl, slug, github, lovable, build, routerPatch },
     idempotencyKey: `webstudio:${lead.id}:project.deployed:${slug}`,
   });
+
+  if (renderVideo === false) {
+    await syncA1CrmLead(lead, 'project_deployed');
+    return { ok: true, publicUrl, slug, github, build, lead, videoQueued: true };
+  }
 
   const video = await renderLeadVideo(lead);
   if (!video.ok) {

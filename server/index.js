@@ -99,6 +99,14 @@ app.get('/api/health', (req, res) => {
       telegram: Boolean(config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID),
       webAuth: Boolean(config.WEB_AUTH_LOGIN && config.WEB_AUTH_PASSWORD),
     },
+    autonomy: {
+      maxJobsPerTick: config.AUTONOMY_MAX_JOBS_PER_TICK,
+      maxLovableJobsPerTick: config.AUTONOMY_MAX_LOVABLE_JOBS_PER_TICK,
+      maxFilmerJobsPerTick: config.AUTONOMY_MAX_FILMER_JOBS_PER_TICK,
+      jobLockMinutes: config.AUTONOMY_JOB_LOCK_MINUTES,
+      deadAfterAttempts: config.AUTONOMY_DEAD_AFTER_ATTEMPTS,
+      cron: config.AUTONOMY_CRON,
+    },
   });
 });
 
@@ -171,6 +179,8 @@ app.post('/api/orchestrator/advance-lane', async (req, res) => {
 app.get('/api/events', (req, res) => res.json({ ok: true, data: store.listEvents(req.query.leadId) }));
 app.get('/api/approvals', (req, res) => res.json({ ok: true, data: store.listApprovals() }));
 app.get('/api/outreach-queue', (req, res) => res.json({ ok: true, data: store.listOutreachQueue() }));
+app.get('/api/jobs', (req, res) => res.json({ ok: true, data: store.listJobs({ status: req.query.status, type: req.query.type, leadId: req.query.leadId }) }));
+app.get('/api/orchestrator/runs', (req, res) => res.json({ ok: true, data: store.listOrchestratorRuns(Number(req.query.limit ?? 50)) }));
 app.get('/api/orchestrator/top-actions', (req, res) => {
   res.json({ ok: true, data: orchestrator.topActions(Number(req.query.limit ?? 12)) });
 });
