@@ -425,13 +425,15 @@ async function writeSourceFiles(root, files) {
   return written;
 }
 
-async function buildSourceProject(sourceRoot, publicRoot) {
+async function buildSourceProject(sourceRoot, publicRoot, basePath = '') {
   await rm(publicRoot, { recursive: true, force: true });
   const packageJson = path.join(sourceRoot, 'package.json');
   try {
     const env = { ...process.env, NODE_ENV: 'development', NPM_CONFIG_PRODUCTION: 'false' };
     await execFileAsync('npm', ['install', '--include=dev'], { cwd: sourceRoot, env, timeout: 240000, maxBuffer: 1024 * 1024 * 20 });
-    await execFileAsync('npm', ['run', 'build'], { cwd: sourceRoot, env, timeout: 240000, maxBuffer: 1024 * 1024 * 20 });
+    const buildArgs = ['run', 'build'];
+    if (basePath) buildArgs.push('--', '--base', basePath);
+    await execFileAsync('npm', buildArgs, { cwd: sourceRoot, env, timeout: 240000, maxBuffer: 1024 * 1024 * 20 });
     const dist = path.join(sourceRoot, 'dist');
     await cp(dist, publicRoot, { recursive: true });
     return { ok: true, strategy: 'vite_build' };
@@ -452,8 +454,8 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
   const sourceRoot = path.resolve(config.DATA_DIR, 'sources', slug);
   const publicRoot = path.resolve(config.DATA_DIR, 'projects', slug);
   const written = await writeSourceFiles(sourceRoot, files);
-  const build = await buildSourceProject(sourceRoot, publicRoot);
   const publicUrl = projectUrl(slug);
+  const build = await buildSourceProject(sourceRoot, publicRoot, `/projects/${slug}/`);
   const repoName = `${config.GITHUB_REPO_PREFIX}${slug}`.slice(0, 100).replace(/-+$/g, '');
   const github = await publishFilesToGitHub({
     repoName,
