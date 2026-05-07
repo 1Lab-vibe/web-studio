@@ -3,6 +3,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { config, hasSecret } from '../config.js';
 
+const LOVABLE_LONG_REQUEST = { timeout: 15 * 60 * 1000, maxTotalTimeout: 20 * 60 * 1000, resetTimeoutOnProgress: true };
+const LOVABLE_SHORT_REQUEST = { timeout: 2 * 60 * 1000 };
+
 export function parseToolContent(result) {
   const content = Array.isArray(result?.content) ? result.content : [];
   const text = content
@@ -113,8 +116,10 @@ export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
         workspace_id: config.LOVABLE_WORKSPACE_ID,
         description: `${lead.name} - ${lead.city}`,
         initial_message: prompt,
+        wait: true,
+        timeout_seconds: 900,
       },
-    });
+    }, undefined, LOVABLE_LONG_REQUEST);
     const create = parseToolContent(createResult);
     const projectId = projectIdFrom(create);
     const previewUrl = urlFrom(create, ['preview_url', 'previewUrl', 'sandbox_url', 'sandboxUrl']);
@@ -140,13 +145,13 @@ export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
       const deployResult = await client.callTool({
         name: 'deploy_project',
         arguments: { project_id: projectId, name: lead.projectSlug || undefined },
-      });
+      }, undefined, LOVABLE_LONG_REQUEST);
       deploy = parseToolContent(deployResult);
     } catch (error) {
       deploy = { ok: false, error: error.message };
     }
     const publishedUrl = urlFrom(deploy, ['live_url', 'liveUrl', 'published_url', 'publishedUrl', 'url']);
-    const projectResult = await client.callTool({ name: 'get_project', arguments: { project_id: projectId } });
+    const projectResult = await client.callTool({ name: 'get_project', arguments: { project_id: projectId } }, undefined, LOVABLE_SHORT_REQUEST);
     const project = parseToolContent(projectResult);
     const latestRef = latestRefFrom(project) || latestRefFrom(create) || latestRefFrom(deploy);
     const exportedFiles = latestRef ? await exportLovableFiles(client, projectId, latestRef) : [];
@@ -185,7 +190,7 @@ function contentFromReadFile(data) {
 }
 
 export async function exportLovableFiles(client, projectId, ref) {
-  const listResult = await client.callTool({ name: 'list_files', arguments: { project_id: projectId, ref } });
+  const listResult = await client.callTool({ name: 'list_files', arguments: { project_id: projectId, ref } }, undefined, LOVABLE_SHORT_REQUEST);
   const listed = normalizeFilesList(parseToolContent(listResult));
   const wanted = listed.filter((file) => {
     const base = file.path.split('/').pop()?.toLowerCase() || '';
@@ -193,7 +198,7 @@ export async function exportLovableFiles(client, projectId, ref) {
   });
   const files = [];
   for (const file of wanted) {
-    const readResult = await client.callTool({ name: 'read_file', arguments: { project_id: projectId, path: file.path, ref } });
+    const readResult = await client.callTool({ name: 'read_file', arguments: { project_id: projectId, path: file.path, ref } }, undefined, LOVABLE_SHORT_REQUEST);
     files.push({
       ...file,
       content: contentFromReadFile(parseToolContent(readResult)),
