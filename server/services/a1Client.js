@@ -79,7 +79,7 @@ export async function syncA1CrmLead(lead, reason = 'sync') {
   const dedupeKey = `webstudio:${lead.id}`;
   const upsert = await crmUpsertLead(lead, reason);
   const upsertData = parsedToolData(upsert);
-  const a1LeadId = upsertData?.a1LeadId || upsertData?.leadId || upsertData?.id || lead.a1LeadId || lead.a1?.leadId || '';
+  const a1LeadId = upsertData?.a1LeadId || upsertData?.leadId || upsertData?.id || upsertData?.lead?.id || lead.a1LeadId || lead.a1?.leadId || '';
 
   if (!upsert.ok) return { ...upsert, method: 'crm_upsert_lead', dedupeKey };
 
