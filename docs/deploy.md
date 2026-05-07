@@ -84,6 +84,8 @@ GITHUB_TOKEN=<optional repo create/write token>
 GITHUB_OWNER=1Lab-vibe
 GITHUB_REPO_PREFIX=webstudio-
 GITHUB_PRIVATE=false
+GITHUB_PUBLISH_MODE=auto
+GITHUB_SSH_HOST=github-1lab-vibe
 ```
 
 Generated customer previews are served from:

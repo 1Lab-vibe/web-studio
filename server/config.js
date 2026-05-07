@@ -65,6 +65,8 @@ const envSchema = z.object({
   GITHUB_OWNER: z.string().default('1Lab-vibe'),
   GITHUB_REPO_PREFIX: z.string().default('webstudio-'),
   GITHUB_PRIVATE: boolFromEnv.default('false'),
+  GITHUB_PUBLISH_MODE: z.enum(['auto', 'api', 'ssh', 'off']).default('auto'),
+  GITHUB_SSH_HOST: z.string().default('github.com'),
   TELEGRAM_BOT_TOKEN: z.string().optional().default(''),
   TELEGRAM_CHAT_ID: z.string().optional().default(''),
   TELEGRAM_ADMIN_USER_IDS: z.string().optional().default(''),

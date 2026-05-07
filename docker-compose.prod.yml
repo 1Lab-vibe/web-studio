@@ -23,6 +23,7 @@ services:
       LOVABLE_CDP_URL: http://127.0.0.1:9222
     volumes:
       - web_studio_data:/app/data
+      - /root/.ssh:/root/.ssh:ro
     networks:
       - traefik-public
     labels:

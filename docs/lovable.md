@@ -57,9 +57,19 @@ GITHUB_TOKEN=github_pat_...
 GITHUB_OWNER=1Lab-vibe
 GITHUB_REPO_PREFIX=webstudio-
 GITHUB_PRIVATE=false
+GITHUB_PUBLISH_MODE=auto
 ```
 
 If `GITHUB_TOKEN` is empty, the public `/projects/<slug>` deploy still runs; GitHub is recorded as skipped.
+
+Production can also publish to an already-created GitHub repository through SSH:
+
+```text
+GITHUB_PUBLISH_MODE=ssh
+GITHUB_SSH_HOST=github-1lab-vibe
+```
+
+This requires the Docker container to have read-only access to the VPS SSH config/key. SSH mode can push, but GitHub does not create new repositories over plain SSH; if the target repo is missing, Web Studio records `repo_create_required`.
 
 Smoke endpoint:
 
