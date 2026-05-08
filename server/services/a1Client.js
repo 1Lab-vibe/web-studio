@@ -331,9 +331,27 @@ function publicLeadPayload(lead) {
     message: lead.message,
     fitScore: lead.fitScore,
     deal: lead.deal,
-    mockup: lead.mockup,
+    mockup: publicMockupPayload(lead.mockup),
     video: lead.video,
     customerBotLink: customerBotLink(lead),
+  };
+}
+
+function publicMockupPayload(mockup = {}) {
+  if (!mockup || typeof mockup !== 'object') return mockup;
+  const {
+    files,
+    raw,
+    create,
+    project,
+    content,
+    html,
+    source,
+    ...rest
+  } = mockup;
+  return {
+    ...rest,
+    filesCount: Array.isArray(files) ? files.length : Number(mockup.filesCount ?? 0) || 0,
   };
 }
 

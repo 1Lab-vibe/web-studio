@@ -122,7 +122,7 @@ export class Orchestrator {
       failed,
       skipped: [],
       durationMs: Date.now() - startedAt,
-      topActions: this.topActions(config.AUTONOMY_TOP_ACTIONS_LIMIT),
+      topActions: this.topActions(config.AUTONOMY_TOP_ACTIONS_LIMIT).map(slimTopAction),
     };
     await this.store.addOrchestratorRun(summary);
     return summary;
@@ -471,6 +471,7 @@ export class Orchestrator {
       .map((lead) => {
         const scored = enrichLeadScore({ ...lead });
         const action = actionForLead(scored, topLovableIds);
+        scored.mockup = publicMockup(scored.mockup);
         if (lead.mockup?.buildUrl) scored.mockup = { ...(scored.mockup ?? {}), buildUrl: lead.mockup.buildUrl };
         return { lead: scored, ...action };
       })
@@ -835,6 +836,46 @@ function actionForLead(lead, topLovableIds) {
   if (lead.lane === 'Проверка') return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Отправка') return { action: 'queue_pitch', label: 'Поставить в очередь отправки', score: lead.fitScore ?? 0, autoRunnable: true };
   return { action: 'none', label: 'Нет действия', score: 0, autoRunnable: false };
+}
+
+function publicMockup(mockup = {}) {
+  if (!mockup || typeof mockup !== 'object') return mockup;
+  const {
+    files,
+    raw,
+    create,
+    project,
+    content,
+    html,
+    source,
+    ...rest
+  } = mockup;
+  return {
+    ...rest,
+    filesCount: Array.isArray(files) ? files.length : Number(mockup.filesCount ?? 0) || 0,
+  };
+}
+
+function slimTopAction(action = {}) {
+  return {
+    action: action.action,
+    label: action.label,
+    reason: action.reason,
+    score: action.score,
+    autoRunnable: action.autoRunnable,
+    lead: action.lead
+      ? {
+          id: action.lead.id,
+          name: action.lead.name,
+          city: action.lead.city,
+          niche: action.lead.niche,
+          fitScore: action.lead.fitScore,
+          pipelineStage: action.lead.pipelineStage,
+          lane: action.lead.lane,
+          status: action.lead.status,
+        }
+      : undefined,
+  };
 }
 
 function jobTypeForAction(action) {

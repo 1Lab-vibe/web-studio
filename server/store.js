@@ -85,6 +85,94 @@ function legacyForPipelineStage(stage) {
   return map[stage] || {};
 }
 
+function compactMockup(value = {}) {
+  if (!value || typeof value !== 'object') return value;
+  const {
+    files,
+    raw,
+    create,
+    project,
+    content,
+    html,
+    source,
+    ...rest
+  } = value;
+  return {
+    ...rest,
+    filesCount: Array.isArray(files) ? files.length : Number(value.filesCount ?? 0) || 0,
+  };
+}
+
+function compactLead(value = {}) {
+  if (!value || typeof value !== 'object') return value;
+  return {
+    ...value,
+    mockup: compactMockup(value.mockup),
+  };
+}
+
+function compactPersistedLead(value = {}) {
+  if (!value || typeof value !== 'object') return value;
+  const status = value.mockup?.status || value.mockup?.mode || '';
+  const canDropSourceFiles = ['deployed', 'internal_fallback_preview', 'public_url_attached', 'failed'].some((item) => String(status).includes(item));
+  return canDropSourceFiles ? compactLead(value) : value;
+}
+
+function compactJobResult(value = {}) {
+  if (!value || typeof value !== 'object') return value;
+  const result = { ...value };
+  if (result.lead) {
+    result.lead = {
+      id: result.lead.id,
+      name: result.lead.name,
+      pipelineStage: result.lead.pipelineStage,
+      lane: result.lead.lane,
+      status: result.lead.status,
+      artifactStatus: result.lead.artifactStatus,
+      mockup: compactMockup(result.lead.mockup),
+      video: result.lead.video,
+      qualityGate: result.lead.qualityGate,
+      outboundStatus: result.lead.outboundStatus,
+    };
+  }
+  if (result.scout?.saved) {
+    result.scout = {
+      ...result.scout,
+      saved: result.scout.saved.map((lead) => ({ id: lead.id, name: lead.name, city: lead.city, niche: lead.niche })),
+    };
+  }
+  return result;
+}
+
+function compactTopAction(action = {}) {
+  return {
+    action: action.action,
+    label: action.label,
+    reason: action.reason,
+    score: action.score,
+    autoRunnable: action.autoRunnable,
+    lead: action.lead
+      ? {
+          id: action.lead.id,
+          name: action.lead.name,
+          city: action.lead.city,
+          niche: action.lead.niche,
+          fitScore: action.lead.fitScore,
+          pipelineStage: action.lead.pipelineStage,
+          lane: action.lead.lane,
+          status: action.lead.status,
+        }
+      : undefined,
+  };
+}
+
+function compactOrchestratorRun(input = {}) {
+  return {
+    ...input,
+    topActions: Array.isArray(input.topActions) ? input.topActions.map(compactTopAction) : input.topActions,
+  };
+}
+
 export class Store {
   constructor(dataDir) {
     this.dataDir = path.resolve(dataDir);
@@ -114,7 +202,7 @@ export class Store {
     this.state.locks ??= {};
     this.state.scheduler ??= structuredClone(initialState.scheduler);
     this.state.leads = this.state.leads.map((lead) => ({
-      ...lead,
+      ...compactPersistedLead(lead),
       lane: normalizeLane(lead.lane),
       owner: lead.owner || 'Scout',
       pipelineStage: lead.pipelineStage || pipelineStageFromLegacy(lead),
@@ -126,6 +214,11 @@ export class Store {
       priority: Number.isFinite(Number(lead.priority)) ? Number(lead.priority) : 50,
       publicLeadToken: lead.publicLeadToken || randomToken(),
     }));
+    this.state.jobs = this.state.jobs.map((job) => ({
+      ...job,
+      result: job.result ? compactJobResult(job.result) : job.result,
+    }));
+    this.state.orchestratorRuns = this.state.orchestratorRuns.map(compactOrchestratorRun);
     return this.state;
   }
 
@@ -288,7 +381,7 @@ export class Store {
     const run = {
       id: randomUUID(),
       createdAt: new Date().toISOString(),
-      ...input,
+      ...compactOrchestratorRun(input),
     };
     this.state.orchestratorRuns.unshift(run);
     this.state.orchestratorRuns = this.state.orchestratorRuns.slice(0, 200);
@@ -390,7 +483,7 @@ export class Store {
     if (!job) return null;
     const now = new Date().toISOString();
     job.status = result.status || 'succeeded';
-    job.result = result;
+    job.result = compactJobResult(result);
     job.finishedAt = now;
     job.lockedUntil = '';
     job.updatedAt = now;

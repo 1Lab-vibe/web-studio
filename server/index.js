@@ -181,8 +181,13 @@ app.post('/api/orchestrator/advance-lane', async (req, res) => {
 
 app.get('/api/events', (req, res) => res.json({ ok: true, data: store.listEvents(req.query.leadId) }));
 app.get('/api/approvals', (req, res) => res.json({ ok: true, data: store.listApprovals() }));
-app.get('/api/outreach-queue', (req, res) => res.json({ ok: true, data: store.listOutreachQueue() }));
-app.get('/api/jobs', (req, res) => res.json({ ok: true, data: store.listJobs({ status: req.query.status, type: req.query.type, leadId: req.query.leadId }) }));
+app.get('/api/outreach-queue', (req, res) => res.json({ ok: true, data: store.listOutreachQueue().map(publicOutreachItem) }));
+app.get('/api/jobs', (req, res) =>
+  res.json({
+    ok: true,
+    data: store.listJobs({ status: req.query.status, type: req.query.type, leadId: req.query.leadId }).map(publicJob),
+  }),
+);
 app.get('/api/orchestrator/runs', (req, res) => res.json({ ok: true, data: store.listOrchestratorRuns(Number(req.query.limit ?? 50)) }));
 app.get('/api/orchestrator/top-actions', (req, res) => {
   res.json({ ok: true, data: orchestrator.topActions(Number(req.query.limit ?? 12)) });
@@ -375,16 +380,111 @@ if (config.LOVABLE_TOKEN_HEARTBEAT_ENABLED) {
 
 function publicState() {
   return {
-    ...store.state,
+    metrics: store.state.metrics ?? {},
+    locks: store.state.locks ?? {},
+    integrationInbox: store.state.integrationInbox ?? [],
+    processedA1EventsCount: Object.keys(store.state.processedA1Events ?? {}).length,
+    jobsCount: store.state.jobs?.length ?? 0,
+    orchestratorRunsCount: store.state.orchestratorRuns?.length ?? 0,
     leads: publicLeads(),
   };
 }
 
 function publicLeads() {
-  return store.listLeads().map((lead) => ({
+  return store.listLeads().map(publicLead);
+}
+
+function publicLead(lead) {
+  return {
     ...lead,
+    mockup: publicMockup(lead.mockup),
+    a1Crm: lead.a1Crm ? publicA1Result(lead.a1Crm) : undefined,
+    pitch: lead.pitch ? { ...lead.pitch, a1Outbound: lead.pitch.a1Outbound ? publicA1Result(lead.pitch.a1Outbound) : undefined } : undefined,
     customerBotLink: customerBotLink(lead),
-  }));
+  };
+}
+
+function publicMockup(mockup = {}) {
+  if (!mockup || typeof mockup !== 'object') return mockup;
+  const {
+    files,
+    raw,
+    create,
+    project,
+    content,
+    html,
+    source,
+    ...rest
+  } = mockup;
+  return {
+    ...rest,
+    filesCount: Array.isArray(files) ? files.length : Number(mockup.filesCount ?? 0) || 0,
+  };
+}
+
+function publicJob(job) {
+  return {
+    id: job.id,
+    type: job.type,
+    leadId: job.leadId,
+    status: job.status,
+    priority: job.priority,
+    attempts: job.attempts,
+    maxAttempts: job.maxAttempts,
+    nextRunAt: job.nextRunAt,
+    lockedUntil: job.lockedUntil,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+    lastError: job.lastError,
+    payload: job.payload,
+    idempotencyKey: job.idempotencyKey,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    result: job.result ? publicJobResult(job.result) : undefined,
+  };
+}
+
+function publicJobResult(result = {}) {
+  return {
+    ok: result.ok,
+    skipped: result.skipped,
+    reason: result.reason,
+    error: result.error,
+    status: result.status,
+    publicUrl: result.publicUrl,
+    slug: result.slug,
+    quality: result.quality,
+    video: result.video,
+    lead: result.lead
+      ? {
+          id: result.lead.id,
+          name: result.lead.name,
+          pipelineStage: result.lead.pipelineStage,
+          status: result.lead.status,
+          mockup: publicMockup(result.lead.mockup),
+        }
+      : undefined,
+  };
+}
+
+function publicOutreachItem(item = {}) {
+  return {
+    ...item,
+    a1Outbound: item.a1Outbound ? publicA1Result(item.a1Outbound) : undefined,
+  };
+}
+
+function publicA1Result(result = {}) {
+  return {
+    ok: result.ok,
+    skipped: result.skipped,
+    reason: result.reason,
+    error: result.error,
+    status: result.status,
+    method: result.method,
+    a1LeadId: result.a1LeadId,
+    stage: result.stage,
+  };
 }
 
 app.listen(config.PORT, config.HOST, () => {

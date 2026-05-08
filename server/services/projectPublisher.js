@@ -41,6 +41,23 @@ function sourceUrlForLead(lead, overrideUrl = '') {
   return overrideUrl || lead.mockup?.publishedUrl || lead.mockup?.url || lead.mockup?.previewUrl || '';
 }
 
+function compactStoredMockup(mockup = {}) {
+  const {
+    files,
+    raw,
+    create,
+    project,
+    content,
+    html,
+    source,
+    ...rest
+  } = mockup || {};
+  return {
+    ...rest,
+    filesCount: Array.isArray(files) ? files.length : Number(mockup?.filesCount ?? 0) || 0,
+  };
+}
+
 function safeProjectPath(root, filePath) {
   const normalized = String(filePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
   if (!normalized || normalized.includes('\0') || normalized.split('/').some((part) => part === '..')) return null;
@@ -280,7 +297,7 @@ export async function deployLeadPublicUrlProject(store, leadId, options = {}) {
 
   lead = await store.updateLead(lead.id, {
     mockup: {
-      ...(lead.mockup ?? {}),
+      ...compactStoredMockup(lead.mockup),
       ok: true,
       mode: 'coder_public_url_deploy',
       status: 'deployed',
@@ -373,7 +390,7 @@ export async function deployLeadGeneratedPreview(store, leadId, options = {}) {
 
   lead = await store.updateLead(lead.id, {
     mockup: {
-      ...(lead.mockup ?? {}),
+      ...compactStoredMockup(lead.mockup),
       ok: true,
       mode: 'coder_generated_preview',
       status: 'internal_fallback_preview',
@@ -531,7 +548,7 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
 
   lead = await store.updateLead(lead.id, {
     mockup: {
-      ...(lead.mockup ?? {}),
+      ...compactStoredMockup(lead.mockup),
       ok: true,
       mode: 'lovable_official_mcp_export',
       status: 'deployed',
