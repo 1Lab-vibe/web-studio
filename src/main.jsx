@@ -587,24 +587,27 @@ function SourcePanel({ leads, metrics }) {
 }
 
 function FunnelBoard({ leads, activeLeadId, onSelect }) {
-  const [limit, setLimit] = useState(10);
+  const [laneLimits, setLaneLimits] = useState(() => Object.fromEntries(lanes.map((lane) => [lane, 10])));
   const sortedLeads = useMemo(
     () => [...leads].sort((a, b) => (b.fitScore ?? b.priority ?? 0) - (a.fitScore ?? a.priority ?? 0)),
     [leads],
   );
-  const visibleLeads = useMemo(() => {
-    const top = sortedLeads.slice(0, limit);
-    const active = sortedLeads.find((lead) => lead.id === activeLeadId);
-    if (active && !top.some((lead) => lead.id === active.id)) return [...top, active];
-    return top;
-  }, [activeLeadId, limit, sortedLeads]);
-  const hiddenCount = Math.max(0, sortedLeads.length - new Set(visibleLeads.map((lead) => lead.id)).size);
+  const hiddenCount = lanes.reduce((total, lane) => {
+    const laneTotal = sortedLeads.filter((lead) => lead.lane === lane).length;
+    return total + Math.max(0, laneTotal - (laneLimits[lane] ?? 10));
+  }, 0);
+  const setLaneLimit = (lane, next) => setLaneLimits((current) => ({ ...current, [lane]: next }));
   return (
     <>
       <section className="funnel" aria-label="Воронка лидов">
         {lanes.map((lane) => {
-          const laneLeads = visibleLeads.filter((lead) => lead.lane === lane);
-          const laneTotal = sortedLeads.filter((lead) => lead.lane === lane).length;
+          const allLaneLeads = sortedLeads.filter((lead) => lead.lane === lane);
+          const laneLimit = laneLimits[lane] ?? 10;
+          const laneTop = allLaneLeads.slice(0, laneLimit);
+          const activeInLane = allLaneLeads.find((lead) => lead.id === activeLeadId);
+          const laneLeads = activeInLane && !laneTop.some((lead) => lead.id === activeInLane.id) ? [...laneTop, activeInLane] : laneTop;
+          const laneTotal = allLaneLeads.length;
+          const laneHidden = Math.max(0, laneTotal - laneLimit);
           return (
             <div className="lane" key={lane}>
               <div className="lane-header">
@@ -638,18 +641,24 @@ function FunnelBoard({ leads, activeLeadId, onSelect }) {
                     );
                   })
                 ) : (
-                  <div className="empty-lane">Нет лидов в top {Math.min(limit, sortedLeads.length)}</div>
+                  <div className="empty-lane">Нет лидов</div>
                 )}
               </div>
+              {laneHidden > 0 && (
+                <div className="lane-controls">
+                  <button type="button" onClick={() => setLaneLimit(lane, Math.min(laneTotal, laneLimit + 10))}>Еще 10</button>
+                  <button type="button" onClick={() => setLaneLimit(lane, laneTotal)}>Все</button>
+                </div>
+              )}
             </div>
           );
         })}
       </section>
       {hiddenCount > 0 && (
         <div className="funnel-controls">
-          <span>Скрыто {hiddenCount} из {sortedLeads.length}, сортировка по FitScore. Активный лид показывается всегда.</span>
-          <button type="button" onClick={() => setLimit((current) => Math.min(sortedLeads.length, current + 10))}>Показать еще 10</button>
-          <button type="button" onClick={() => setLimit(sortedLeads.length)}>Показать все</button>
+          <span>Скрыто {hiddenCount} лидов, в каждой колонке показаны топ-10 по FitScore. Активный лид показывается всегда.</span>
+          <button type="button" onClick={() => setLaneLimits(Object.fromEntries(lanes.map((lane) => [lane, (laneLimits[lane] ?? 10) + 10])))}>Везде еще 10</button>
+          <button type="button" onClick={() => setLaneLimits(Object.fromEntries(lanes.map((lane) => [lane, sortedLeads.filter((lead) => lead.lane === lane).length])))}>Показать все</button>
         </div>
       )}
     </>

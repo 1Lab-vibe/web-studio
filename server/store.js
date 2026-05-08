@@ -118,6 +118,21 @@ function compactPersistedLead(value = {}) {
   return canDropSourceFiles ? compactLead(value) : value;
 }
 
+function normalizeTelegramInboundLead(value = {}) {
+  if (value.source !== 'telegram_inbound') return value;
+  const emailVerified = Boolean(value.customerTelegram?.emailVerified);
+  const hasPreview = Boolean(value.mockup?.publicUrl || value.mockup?.deployedUrl || value.mockup?.publishedUrl);
+  if (emailVerified && hasPreview) return value;
+  return {
+    ...value,
+    lane: 'Диагноз',
+    owner: 'Mobile',
+    pipelineStage: emailVerified && value.pipelineStage === 'lovable_building' ? 'lovable_building' : 'qualified',
+    stageStatus: value.customerTelegram?.mode || value.status || 'registration_email',
+    lastTransitionReason: value.lastTransitionReason || 'telegram_registration_not_finished',
+  };
+}
+
 function compactJobResult(value = {}) {
   if (!value || typeof value !== 'object') return value;
   const result = { ...value };
@@ -201,19 +216,22 @@ export class Store {
     this.state.metrics ??= structuredClone(initialState.metrics);
     this.state.locks ??= {};
     this.state.scheduler ??= structuredClone(initialState.scheduler);
-    this.state.leads = this.state.leads.map((lead) => ({
-      ...compactPersistedLead(lead),
-      lane: normalizeLane(lead.lane),
-      owner: lead.owner || 'Scout',
-      pipelineStage: lead.pipelineStage || pipelineStageFromLegacy(lead),
-      stageStatus: lead.stageStatus || lead.status || 'new',
-      assignedAgent: lead.assignedAgent || lead.owner || 'Scout',
-      artifactStatus: lead.artifactStatus || lead.mockup?.status || lead.video?.status || '',
-      lastTransitionAt: lead.lastTransitionAt || lead.updatedAt || lead.createdAt || '',
-      lastTransitionReason: lead.lastTransitionReason || '',
-      priority: Number.isFinite(Number(lead.priority)) ? Number(lead.priority) : 50,
-      publicLeadToken: lead.publicLeadToken || randomToken(),
-    }));
+    this.state.leads = this.state.leads.map((lead) => {
+      const normalizedLead = normalizeTelegramInboundLead(compactPersistedLead(lead));
+      return {
+        ...normalizedLead,
+        lane: normalizeLane(normalizedLead.lane),
+        owner: normalizedLead.owner || 'Scout',
+        pipelineStage: normalizedLead.pipelineStage || pipelineStageFromLegacy(normalizedLead),
+        stageStatus: normalizedLead.stageStatus || normalizedLead.status || 'new',
+        assignedAgent: normalizedLead.assignedAgent || normalizedLead.owner || 'Scout',
+        artifactStatus: normalizedLead.artifactStatus || normalizedLead.mockup?.status || normalizedLead.video?.status || '',
+        lastTransitionAt: normalizedLead.lastTransitionAt || normalizedLead.updatedAt || normalizedLead.createdAt || '',
+        lastTransitionReason: normalizedLead.lastTransitionReason || '',
+        priority: Number.isFinite(Number(normalizedLead.priority)) ? Number(normalizedLead.priority) : 50,
+        publicLeadToken: normalizedLead.publicLeadToken || randomToken(),
+      };
+    });
     this.state.jobs = this.state.jobs.map((job) => ({
       ...job,
       result: job.result ? compactJobResult(job.result) : job.result,
