@@ -11,7 +11,7 @@ import { answerCallback, getTelegramUpdates, getTelegramWebhookInfo, isAdminTele
 import { registerMcpRoutes } from './mcp.js';
 import { registerAuth } from './auth.js';
 import { handleA1Webhook } from './services/a1Webhook.js';
-import { handleCustomerTelegramMessage, isCustomerTelegramCommand } from './services/customerTelegram.js';
+import { handleCustomerTelegramCallback, handleCustomerTelegramMessage, isCustomerTelegramCommand } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
 import { listLovableTools, lovableOAuthTokenStatus, lovableOfficialConfigured, probeLovableAuth } from './services/lovableOfficialMcp.js';
@@ -242,6 +242,11 @@ async function processTelegramUpdate(update) {
     });
   }
   const data = callback?.data || '';
+  if (data.startsWith('customer:')) {
+    await handleCustomerTelegramCallback(store, callback).catch((error) => handleTelegramCustomerError(callback.message, error));
+    await answerCallback(callback.id, 'Готово');
+    return { ok: true };
+  }
   const match = data.match(/^approval:([^:]+):(approved|rejected|pause_niche)$/);
   if (match) {
     if (!isAdminTelegramUser(callback.from?.id, callback.message?.chat?.id)) {

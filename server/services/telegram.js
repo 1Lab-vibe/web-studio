@@ -82,12 +82,16 @@ export async function setTelegramCommands() {
     { command: 'brief', description: 'Показать черновик ТЗ' },
     { command: 'approve', description: 'Утвердить ТЗ' },
     { command: 'revision', description: 'Отправить правку по сайту' },
+    { command: 'resend', description: 'Отправить email-код заново' },
+    { command: 'email', description: 'Изменить email' },
   ];
   const adminCommands = [
     { command: 'help', description: 'Команды Web Studio' },
     { command: 'brief', description: 'Клиент: показать черновик ТЗ' },
     { command: 'approve', description: 'Клиент: утвердить ТЗ' },
     { command: 'revision', description: 'Клиент: отправить правку по сайту' },
+    { command: 'resend', description: 'Клиент: отправить email-код заново' },
+    { command: 'email', description: 'Клиент: изменить email' },
     { command: 'actions', description: 'Топ действий оркестратора' },
     { command: 'lead', description: 'Карточка лида: /lead <id>' },
     { command: 'handoff', description: 'Lovable handoff prompt: /handoff <id>' },

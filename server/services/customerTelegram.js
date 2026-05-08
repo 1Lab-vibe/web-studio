@@ -74,14 +74,36 @@ export async function handleCustomerTelegramMessage(store, message) {
 
   const pendingEmail = extractEmail(text);
   if (lead.customerTelegram?.mode === 'registration_email') {
+    if (isResendCodeText(text) && lead.customerTelegram?.email) {
+      return requestEmailVerification(store, lead, chatId, lead.customerTelegram.email);
+    }
+    if (isChangeEmailText(text)) {
+      await store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'registration_email', email: '', emailCode: '', emailCodeExpiresAt: '' } });
+      await sendTelegramTo(chatId, 'Хорошо, пришлите новый рабочий email. На него отправлю код подтверждения.');
+      return { ok: true, lead };
+    }
     if (!pendingEmail) {
-      await sendTelegramTo(chatId, 'Пришлите, пожалуйста, рабочий email. На него я отправлю короткий код подтверждения.');
+      await sendTelegramTo(chatId, 'Пришлите, пожалуйста, рабочий email. На него я отправлю короткий код подтверждения.', emailEntryKeyboard());
       return { ok: true, lead };
     }
     return requestEmailVerification(store, lead, chatId, pendingEmail);
   }
 
   if (lead.customerTelegram?.mode === 'email_code') {
+    if (isResendCodeText(text)) {
+      const email = lead.customerTelegram?.email;
+      if (!email) {
+        await store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'registration_email' } });
+        await sendTelegramTo(chatId, 'Email не сохранен. Пришлите его еще раз, я отправлю новый код.', emailEntryKeyboard());
+        return { ok: true, lead };
+      }
+      return requestEmailVerification(store, lead, chatId, email);
+    }
+    if (isChangeEmailText(text)) {
+      await store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'registration_email', email: '', emailCode: '', emailCodeExpiresAt: '' } });
+      await sendTelegramTo(chatId, 'Ок, пришлите правильный email. Старый код больше не используем.', emailEntryKeyboard());
+      return { ok: true, lead };
+    }
     return confirmEmailCode(store, lead, chatId, text);
   }
 
@@ -105,14 +127,43 @@ export function isCustomerTelegramCommand(store, message) {
   if (/^\/start(\s+lead_[a-f0-9]{16,64})?/i.test(text)) return true;
   if (!store.listLeads().some((item) => String(item.customerTelegram?.chatId || '') === String(chatId))) return false;
   const command = text.split(/\s+/)[0].split('@')[0];
-  return ['/help', '/brief', '/approve', '/revision'].includes(command);
+  return ['/help', '/brief', '/approve', '/revision', '/resend', '/email'].includes(command);
+}
+
+export async function handleCustomerTelegramCallback(store, callback) {
+  const chatId = callback?.message?.chat?.id;
+  const userId = callback?.from?.id;
+  const data = String(callback?.data || '');
+  if (!chatId || !data.startsWith('customer:')) return { ok: false, skipped: true };
+  const lead = store.listLeads().find((item) => String(item.customerTelegram?.chatId || '') === String(chatId));
+  if (!lead) {
+    await sendTelegramTo(chatId, 'Не нашел вашу заявку. Напишите /start, и я создам новую.');
+    return { ok: false, notFound: true };
+  }
+  if (data === 'customer:resend_email_code') {
+    const email = lead.customerTelegram?.email;
+    if (!email) {
+      await store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'registration_email' } });
+      await sendTelegramTo(chatId, 'Email не сохранен. Пришлите его еще раз, я отправлю новый код.', emailEntryKeyboard());
+      return { ok: true, lead };
+    }
+    return requestEmailVerification(store, lead, chatId, email);
+  }
+  if (data === 'customer:change_email') {
+    const updated = await store.updateLead(lead.id, {
+      customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'registration_email', email: '', emailCode: '', emailCodeExpiresAt: '' },
+      status: 'registration_email',
+    });
+    await sendTelegramTo(chatId, 'Пришлите правильный email. Я отправлю новый код подтверждения.', emailEntryKeyboard());
+    return { ok: true, lead: updated, userId };
+  }
+  return { ok: false, skipped: true };
 }
 
 async function startCustomerLead(store, chatId, from, token) {
   let lead = store.findLeadByPublicToken(token);
   if (!lead) {
-    await sendTelegramTo(chatId, 'Ссылка не найдена или устарела. Ответьте на письмо, и мы пришлем новую.');
-    return { ok: true, unmatched: true };
+    return startInboundCustomer(store, chatId, from, `/start lead_${token}`, { unmatchedStartToken: token });
   }
 
   const customerTelegram = {
@@ -127,7 +178,7 @@ async function startCustomerLead(store, chatId, from, token) {
     email: lead.customerTelegram?.email || lead.contacts?.emails?.[0] || '',
     emailVerified: Boolean(lead.customerTelegram?.emailVerified),
   };
-  lead = await store.updateLead(lead.id, { customerTelegram, status: 'customer_chat' });
+  lead = await store.updateLead(lead.id, { customerTelegram, status: customerTelegram.emailVerified ? 'customer_chat' : 'registration_email' });
   await store.addEvent(lead.id, 'customer.telegram_started', `Customer opened bot: ${from?.username || chatId}`);
   await emitCustomerA1Event(lead, 'customer.telegram_started', 'Customer started Telegram bot', { customerTelegram });
   await notifyAdminCustomerStarted(lead, customerTelegram);
@@ -138,11 +189,11 @@ async function startCustomerLead(store, chatId, from, token) {
   );
   if (customerTelegram.emailVerified) await sendTelegramTo(chatId, QUESTIONS[0].text);
   else if (customerTelegram.email) await requestEmailVerification(store, lead, chatId, customerTelegram.email);
-  else await sendTelegramTo(chatId, 'Для начала регистрации пришлите, пожалуйста, рабочий email. Я отправлю на него код подтверждения.');
+  else await sendTelegramTo(chatId, 'Для начала регистрации пришлите, пожалуйста, рабочий email. Я отправлю на него код подтверждения.', emailEntryKeyboard());
   return { ok: true, lead };
 }
 
-async function startInboundCustomer(store, chatId, from, text) {
+async function startInboundCustomer(store, chatId, from, text, options = {}) {
   const customerTelegram = {
     chatId,
     userId: from?.id || '',
@@ -161,18 +212,29 @@ async function startInboundCustomer(store, chatId, from, text) {
     niche: 'индивидуальный сайт',
     source: 'telegram_inbound',
     sourceKey: `telegram:${chatId}`,
-    lane: 'Ответы',
+    lane: 'Диагноз',
     owner: 'Mobile',
     status: 'registration_email',
+    pipelineStage: 'qualified',
+    stageStatus: 'registration_email',
     customerTelegram,
     customerBrief: text && !text.startsWith('/start') ? { initialMessage: text, updatedAt: new Date().toISOString() } : {},
+    unmatchedStartToken: options.unmatchedStartToken || '',
     contacts: { emails: [], phone: '', channels: [] },
+  });
+  lead = await store.updateLead(lead.id, {
+    lane: 'Диагноз',
+    owner: 'Mobile',
+    status: 'registration_email',
+    pipelineStage: 'qualified',
+    stageStatus: 'registration_email',
+    lastTransitionReason: options.unmatchedStartToken ? 'telegram_unmatched_start_token' : 'telegram_inbound_started',
   });
   lead = await syncLeadToA1(store, lead, 'telegram_inbound_started');
   await store.addEvent(lead.id, 'customer.telegram_started', `Inbound customer opened bot: ${from?.username || chatId}`);
   await notifyAdminCustomerStarted(lead, customerTelegram);
   await sendTelegramTo(chatId, onboardingText(lead, false));
-  await sendTelegramTo(chatId, 'Для регистрации пришлите, пожалуйста, рабочий email. Я отправлю на него код подтверждения, и после этого мы соберем ТЗ.');
+  await sendTelegramTo(chatId, 'Для регистрации пришлите, пожалуйста, рабочий email. Я отправлю на него код подтверждения, и после этого мы соберем ТЗ.', emailEntryKeyboard());
   return { ok: true, lead };
 }
 
@@ -186,6 +248,8 @@ function customerHelpText(lead) {
     '/brief — показать черновик ТЗ',
     '/approve — утвердить ТЗ и перейти к оплате/работе',
     '/revision — отправить правку по сайту',
+    '/resend — отправить email-код заново',
+    '/email — изменить email',
     '/help — показать это меню',
     '',
     `Проект: <b>${escapeHtml(lead?.name || 'ваш сайт')}</b>`,
@@ -231,6 +295,7 @@ async function requestEmailVerification(store, lead, chatId, email) {
       ],
     },
     status: 'email_verification_sent',
+    stageStatus: 'email_verification_sent',
   });
   await syncLeadToA1(store, updated, 'customer_email_verification');
   const sent = await outboundQueueMessage({
@@ -247,11 +312,11 @@ async function requestEmailVerification(store, lead, chatId, email) {
   });
   await store.addEvent(updated.id, 'customer.email_code_sent', `Verification code sent to ${email}`);
   if (!sent.ok) {
-    await sendTelegramTo(chatId, 'Не смог отправить код на почту через A1. Я сообщил администратору, попробуем вручную.');
+    await sendTelegramTo(chatId, 'Не смог отправить код на почту через A1. Я сообщил администратору. Можно попробовать еще раз или изменить email.', emailCodeKeyboard());
     await sendTelegram(`<b>Не удалось отправить email-код</b>\nЛид: ${escapeHtml(updated.name)}\nEmail: <code>${escapeHtml(email)}</code>\nОшибка: <code>${escapeHtml(sent.error || sent.reason || 'unknown')}</code>`);
     return { ok: false, lead: updated, emailSent: sent };
   }
-  await sendTelegramTo(chatId, `Отправил код подтверждения на ${escapeHtml(email)}. Введите сюда 6 цифр из письма.`);
+  await sendTelegramTo(chatId, `Отправил код подтверждения на ${escapeHtml(email)}. Введите сюда 6 цифр из письма.`, emailCodeKeyboard());
   return { ok: true, lead: updated, emailSent: sent };
 }
 
@@ -261,11 +326,11 @@ async function confirmEmailCode(store, lead, chatId, text) {
   const expires = Date.parse(lead.customerTelegram?.emailCodeExpiresAt || '');
   if (!expected || !Number.isFinite(expires) || Date.now() > expires) {
     await store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'registration_email' } });
-    await sendTelegramTo(chatId, 'Код истек. Пришлите email еще раз, я отправлю новый код.');
+    await sendTelegramTo(chatId, 'Код истек. Можно отправить код заново на тот же email или изменить email.', emailCodeKeyboard());
     return { ok: false, expired: true };
   }
   if (code !== expected) {
-    await sendTelegramTo(chatId, 'Код не совпал. Проверьте письмо и отправьте 6 цифр еще раз.');
+    await sendTelegramTo(chatId, 'Код не совпал. Проверьте письмо и отправьте 6 цифр еще раз. Если письма нет — нажмите «Отправить код заново».', emailCodeKeyboard());
     return { ok: false, invalid: true };
   }
   const email = lead.customerTelegram?.email || '';
@@ -285,6 +350,31 @@ async function confirmEmailCode(store, lead, chatId, text) {
   await syncLeadToA1(store, updated, 'customer_email_verified');
   await sendTelegramTo(chatId, `Email подтвержден. Теперь соберем короткое ТЗ.\n\n${QUESTIONS[Number(updated.customerTelegram?.step ?? 0)]?.text || QUESTIONS[0].text}`);
   return { ok: true, lead: updated };
+}
+
+function emailCodeKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: 'Отправить код заново', callback_data: 'customer:resend_email_code' }],
+      [{ text: 'Изменить email', callback_data: 'customer:change_email' }],
+    ],
+  };
+}
+
+function emailEntryKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: 'Изменить email', callback_data: 'customer:change_email' }],
+    ],
+  };
+}
+
+function isResendCodeText(text) {
+  return /^\/resend\b/i.test(text) || /отправить\s+код\s+заново|прислать\s+код\s+заново|повтор/i.test(String(text || '').toLowerCase());
+}
+
+function isChangeEmailText(text) {
+  return /^\/email\b/i.test(text) || /изменить\s+email|поменять\s+email|другая\s+почта|другой\s+email/i.test(String(text || '').toLowerCase());
 }
 
 async function notifyAdminCustomerStarted(lead, customerTelegram) {
