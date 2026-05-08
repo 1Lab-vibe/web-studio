@@ -41,6 +41,18 @@ export function lovableOfficialConfigured() {
   return (hasSecret(config.LOVABLE_API_KEY) || hasSecret(config.LOVABLE_OAUTH_TOKEN_PATH)) && hasSecret(config.LOVABLE_WORKSPACE_ID);
 }
 
+export async function lovableOAuthTokenStatus() {
+  const token = await loadOAuthToken();
+  if (!token) return { ok: false, reason: 'token_not_found' };
+  return {
+    ok: true,
+    hasRefreshToken: Boolean(token.refresh_token),
+    expiresAt: tokenExpiresAt(token) ? new Date(tokenExpiresAt(token)).toISOString() : '',
+    refreshError: token.refreshError || '',
+    source: token.source || '',
+  };
+}
+
 async function loadOAuthToken() {
   if (!hasSecret(config.LOVABLE_OAUTH_TOKEN_PATH)) return null;
   try {
@@ -63,15 +75,16 @@ function tokenExpiresAt(token) {
   return 0;
 }
 
-function shouldRefreshOAuthToken(token) {
+function shouldRefreshOAuthToken(token, { force = false } = {}) {
+  if (force) return true;
   const expiresAt = tokenExpiresAt(token);
   if (!expiresAt) return true;
   return expiresAt - Date.now() < 10 * 60 * 1000;
 }
 
-async function refreshOAuthToken(token) {
+async function refreshOAuthToken(token, options = {}) {
   if (!token?.refresh_token) return token;
-  if (!shouldRefreshOAuthToken(token)) return token;
+  if (!shouldRefreshOAuthToken(token, options)) return token;
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: token.refresh_token,
@@ -105,9 +118,9 @@ async function refreshOAuthToken(token) {
   return next;
 }
 
-export async function withLovableClient(callback) {
+export async function withLovableClient(callback, options = {}) {
   if (!lovableOfficialConfigured()) return { ok: false, skipped: true, reason: 'LOVABLE_API_KEY or LOVABLE_WORKSPACE_ID is not configured' };
-  const oauthToken = hasSecret(config.LOVABLE_API_KEY) ? null : await refreshOAuthToken(await loadOAuthToken());
+  const oauthToken = hasSecret(config.LOVABLE_API_KEY) ? null : await refreshOAuthToken(await loadOAuthToken(), { force: Boolean(options.forceRefresh) });
   if (!hasSecret(config.LOVABLE_API_KEY) && !oauthToken?.access_token) {
     return { ok: false, skipped: true, reason: 'LOVABLE_OAUTH_TOKEN_PATH does not contain an access token' };
   }
@@ -151,7 +164,7 @@ export async function probeLovableAuth() {
       email: me.email || '',
       workspaceCount: Array.isArray(me.workspaces) ? me.workspaces.length : 0,
     };
-  });
+  }, { forceRefresh: true });
 }
 
 export async function createAndMaybeDeployLovableProject({ lead, prompt }) {

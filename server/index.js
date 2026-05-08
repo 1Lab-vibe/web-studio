@@ -14,7 +14,7 @@ import { handleA1Webhook } from './services/a1Webhook.js';
 import { handleCustomerTelegramMessage, isCustomerTelegramCommand } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
-import { listLovableTools, lovableOfficialConfigured, probeLovableAuth } from './services/lovableOfficialMcp.js';
+import { listLovableTools, lovableOAuthTokenStatus, lovableOfficialConfigured, probeLovableAuth } from './services/lovableOfficialMcp.js';
 import { customerBotLink } from './services/a1Client.js';
 
 const app = express();
@@ -107,6 +107,8 @@ app.get('/api/health', (req, res) => {
       deadAfterAttempts: config.AUTONOMY_DEAD_AFTER_ATTEMPTS,
       cron: config.AUTONOMY_CRON,
       dailyMockupLimit: config.DAILY_MOCKUP_LIMIT,
+      lovableBuildIntervalHours: config.LOVABLE_BUILD_INTERVAL_HOURS,
+      lovableHeartbeatCron: config.LOVABLE_TOKEN_HEARTBEAT_CRON,
     },
   });
 });
@@ -334,6 +336,18 @@ if (config.AUTONOMY_ENABLED) {
 
 async function lovableTokenHeartbeat() {
   if (!lovableOfficialConfigured()) return;
+  const tokenStatus = await lovableOAuthTokenStatus();
+  if (tokenStatus.ok && !tokenStatus.hasRefreshToken && !config.LOVABLE_API_KEY) {
+    console.error('Lovable token heartbeat failed: OAuth token has no refresh_token', tokenStatus);
+    await sendTelegram(
+      [
+        '<b>Lovable OAuth без refresh_token</b>',
+        'Текущий токен нельзя продлить автоматически.',
+        'Нужна повторная OAuth-авторизация с offline scope, иначе Builder отвалится после истечения access token.',
+      ].join('\n'),
+    );
+    return;
+  }
   const result = await probeLovableAuth();
   if (result.ok) {
     console.log('Lovable token heartbeat ok', { email: result.email, workspaceCount: result.workspaceCount });

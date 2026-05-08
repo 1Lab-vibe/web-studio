@@ -177,6 +177,7 @@ export class Orchestrator {
       priority: options.priority,
       payload: options.payload,
       idempotencyKey: options.idempotencyKey,
+      nextRunAt: options.nextRunAt,
       maxAttempts: options.maxAttempts || config.AUTONOMY_DEAD_AFTER_ATTEMPTS,
     });
   }
@@ -243,6 +244,22 @@ export class Orchestrator {
     if (!skipQuota && !this.lovableCandidates().some((candidate) => candidate.id === lead.id)) {
       await this.store.transitionLead(lead.id, { pipelineStage: 'diagnosed', stageStatus: 'quota_wait', reason: 'lovable_daily_quota_wait' });
       return { ok: true, skipped: true, reason: 'quota_wait' };
+    }
+    if (!skipQuota) {
+      const slot = await this.store.reserveLovableBuildSlot({ intervalHours: config.LOVABLE_BUILD_INTERVAL_HOURS });
+      if (!slot.ok) {
+        await this.enqueueJob('lovable_build', lead.id, {
+          idempotencyKey: `lovable_build:${lead.id}:scheduled:${slot.nextRunAt}`,
+          priority: lead.fitScore ?? 70,
+          nextRunAt: slot.nextRunAt,
+        });
+        await this.store.transitionLead(lead.id, {
+          pipelineStage: 'lovable_queued',
+          stageStatus: 'scheduled',
+          reason: `lovable_throttled_until_${slot.nextRunAt}`,
+        });
+        return { ok: true, skipped: true, reason: 'lovable_throttled', nextRunAt: slot.nextRunAt };
+      }
     }
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'lovable_building', stageStatus: 'running', artifactStatus: 'building', reason: 'lovable_job_started' });
     const mockup = await prepareLovableMockup(lead);

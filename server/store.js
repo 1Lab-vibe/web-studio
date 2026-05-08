@@ -27,6 +27,9 @@ const initialState = {
     sendDate: '',
   },
   locks: {},
+  scheduler: {
+    nextLovableBuildAt: '',
+  },
 };
 
 const laneMap = new Map([
@@ -108,6 +111,7 @@ export class Store {
     this.state.processedA1Events ??= {};
     this.state.metrics ??= structuredClone(initialState.metrics);
     this.state.locks ??= {};
+    this.state.scheduler ??= structuredClone(initialState.scheduler);
     this.state.leads = this.state.leads.map((lead) => ({
       ...lead,
       lane: normalizeLane(lead.lane),
@@ -407,6 +411,18 @@ export class Store {
     await this.addEvent(job.leadId || null, 'job.failed', `${job.type}: ${job.lastError}`, { silent: true });
     await this.save();
     return job;
+  }
+
+  async reserveLovableBuildSlot({ intervalHours = 2, now = new Date() } = {}) {
+    this.state.scheduler ??= structuredClone(initialState.scheduler);
+    const nextAt = Date.parse(this.state.scheduler.nextLovableBuildAt || '');
+    if (Number.isFinite(nextAt) && nextAt > now.getTime()) {
+      return { ok: false, nextRunAt: new Date(nextAt).toISOString(), waitMs: nextAt - now.getTime() };
+    }
+    const nextRunAt = new Date(now.getTime() + Math.max(0, Number(intervalHours) || 2) * 60 * 60 * 1000).toISOString();
+    this.state.scheduler.nextLovableBuildAt = nextRunAt;
+    await this.save();
+    return { ok: true, nextRunAt };
   }
 
   listOutreachQueue() {
