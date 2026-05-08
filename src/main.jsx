@@ -764,7 +764,7 @@ function AutonomyMonitor({ backend }) {
         <div>
           <small>Сегодня</small>
           <strong>{today.scannedToday ?? 0} scanned</strong>
-          <span>{today.mockupsToday ?? 0} built · {today.sentToday ?? 0} sent</span>
+          <span>{today.mockupsToday ?? 0} scout built · {today.customerMockupsToday ?? 0} customer · {today.sentToday ?? 0} sent</span>
         </div>
       </div>
       {running.length > 0 && (

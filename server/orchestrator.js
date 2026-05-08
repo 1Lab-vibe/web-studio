@@ -263,7 +263,11 @@ export class Orchestrator {
     }
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'lovable_building', stageStatus: 'running', artifactStatus: 'building', reason: 'lovable_job_started' });
     const mockup = await prepareLovableMockup(lead);
-    this.store.state.metrics.mockupsToday = Number(this.store.state.metrics.mockupsToday ?? 0) + 1;
+    if (skipQuota) {
+      this.store.state.metrics.customerMockupsToday = Number(this.store.state.metrics.customerMockupsToday ?? 0) + 1;
+    } else {
+      this.store.state.metrics.mockupsToday = Number(this.store.state.metrics.mockupsToday ?? 0) + 1;
+    }
     lead = await this.store.updateLead(lead.id, { mockup, status: mockup?.status || 'in_progress' });
     if (mockup?.status === 'export_ready') {
       lead = await this.store.transitionLead(lead.id, {
