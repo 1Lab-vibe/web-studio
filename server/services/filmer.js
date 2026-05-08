@@ -40,7 +40,8 @@ async function captureScrollFrames(lead, url, dir) {
   const screenshots = [];
   try {
     const page = await browser.newPage({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 });
-    const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 90000 });
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
     const status = response?.status() ?? 0;
     const currentUrl = page.url();
     const title = await page.title().catch(() => '');

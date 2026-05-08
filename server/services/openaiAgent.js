@@ -12,7 +12,7 @@ export async function diagnoseLead(lead) {
       {
         role: 'system',
         content:
-          'Ты Diagnoser агент российской solo web-agency. Верни строго JSON без markdown: diagnosis, angle, tone, message, channel, deal, replyRate. diagnosis около 50 слов. message меньше 70 слов, персонализированное холодное сообщение на русском без AI-маркеров и buzzwords. Важно: к моменту отправки Web Studio уже подготовит превью сайта, поэтому message не должен обещать "могу прислать превью"; пиши в логике "подготовили один вариант превью, можно обсудить и поменять под ваши идеи". deal оценивай в рублях как потенциальный чек сайта. replyRate оценивай реалистично в процентах.',
+          'Ты Diagnoser агент российской solo web-agency. Верни строго JSON без markdown: diagnosis, angle, tone, message, channel, deal, replyRate. diagnosis около 50 слов. message меньше 70 слов, персонализированное холодное сообщение на русском без AI-маркеров и buzzwords. Важно: к моменту отправки Web Studio уже подготовит превью сайта, поэтому message не должен обещать "могу прислать превью"; пиши в логике "подготовили один вариант превью, можно обсудить и поменять под ваши идеи". deal оценивай в рублях как потенциальный чек сайта. replyRate оценивай реалистично в процентах. Для автоотправки приоритетный канал всегда Email; телефон, SMS, WhatsApp и звонки только как ручное решение администратора.',
       },
       {
         role: 'user',
@@ -36,25 +36,41 @@ export async function diagnoseLead(lead) {
 
 export async function evaluatePitch(lead) {
   if (!client) return fallbackEval(lead);
+  const channel = String(lead.outboundPackage?.channel || lead.channel || 'email').toLowerCase();
+  const mode = lead.checkerMode || (channel === 'email' ? 'scout_email' : 'short_message');
+  const maxWords = mode === 'scout_email' ? 320 : 70;
 
   const response = await client.responses.create({
     model: config.OPENAI_MODEL,
     input: [
       {
         role: 'system',
-        content:
-          'Ты Checker агент. Проверь холодное сообщение перед отправкой. Верни строго JSON: passed boolean, score 0-100, issues array, revisedMessage. Критерии: персонализация, нет AI-маркеров, нет buzzwords, меньше 70 слов, понятный следующий шаг, канал подходит нише.',
+        content: [
+          'Ты Checker агент Web Studio. Верни строго JSON: passed boolean, score 0-100, issues array, revisedMessage.',
+          `Режим: ${mode}. Канал: ${channel}. Лимит слов для body: ${maxWords}.`,
+          'Если channel=email, проверяй письмо, а не SMS или телефонный скрипт.',
+          'Для email ссылки на превью, видео и Telegram-бота допустимы и не считаются перегрузом, если есть один понятный следующий шаг.',
+          'Критерии email: персонализация под компанию/ситуацию, ясная польза, нет AI/шаблонных маркеров, нет buzzwords, нет давления, есть простой следующий шаг.',
+          'Критерии short_message: до 70 слов, без нескольких ссылок, один простой следующий шаг.',
+          'Не ругай email за то, что он длиннее телефонного сообщения. Не требуй лимит 70 слов для email.',
+        ].join(' '),
       },
       {
         role: 'user',
         content: JSON.stringify({
+          mode,
+          channel,
+          subject: lead.outboundPackage?.subject || lead.subject || '',
+          previewUrl: lead.outboundPackage?.previewUrl || '',
+          videoUrl: lead.outboundPackage?.videoUrl || '',
+          botLink: lead.outboundPackage?.botLink || '',
           lead: {
             name: lead.name,
             city: lead.city,
             niche: lead.niche,
             rating: lead.rating,
             reviews: lead.reviews,
-            channel: lead.channel,
+            channel,
             message: lead.message,
             diagnosis: lead.diagnosis,
           },
@@ -85,17 +101,13 @@ function normalizeDiagnosis(data, lead) {
     angle: data.angle || fallback.angle,
     tone: data.tone || fallback.tone,
     message: data.message || fallback.message,
-    channel: data.channel || chooseChannel(lead),
+    channel: chooseChannel(lead),
     deal: Number.isFinite(Number(data.deal)) ? Number(data.deal) : estimateDeal(lead),
     replyRate: Number.isFinite(Number(data.replyRate)) ? Number(data.replyRate) : 14,
   };
 }
 
-function chooseChannel(lead) {
-  const niche = String(lead.niche || '').toLowerCase();
-  if (niche.includes('салон') || niche.includes('красот') || niche.includes('beauty')) return 'Instagram DM';
-  if (niche.includes('риел') || niche.includes('недвиж')) return 'LinkedIn';
-  if (lead.phone) return 'SMS';
+function chooseChannel() {
   return 'Email';
 }
 
@@ -108,10 +120,10 @@ function estimateDeal(lead) {
 
 function fallbackDiagnosis(lead) {
   return {
-    diagnosis: `${lead.name} выглядит сильнее в карточке на картах, чем в собственной упаковке. При рейтинге ${lead.rating ?? '4+'} и ${lead.reviews ?? 'небольшом числе'} отзывах бизнесу нужна страница, где сразу видны доверие, услуги, доказательства и быстрый первый шаг. Сейчас часть теплого спроса уходит конкурентам с понятным сайтом.`,
-    angle: `${lead.niche}: быстро показать доверие, работы и заявку с первого экрана.`,
+    diagnosis: `${lead.name} уже получает доверие через карты: рейтинг ${lead.rating ?? '4+'}, отзывов ${lead.reviews ?? 'немного'}. Если сайта нет или он слабее карточки, часть людей не видит услуги, цены, примеры работ и удобный первый шаг. Лендинг может забрать этот теплый спрос и вести к заявке.`,
+    angle: `${lead.niche}: быстро показать доверие, услуги и заявку с первого экрана.`,
     tone: 'конкретный, спокойный, без давления',
-    message: `Здравствуйте. Нашел ${lead.name} в картах: отзывы хорошие, но сайта не видно или он слабее карточки. Подготовил один вариант превью страницы под заявки для ниши «${lead.niche}». Если интересно, можно обсудить и поменять под ваши идеи.`,
+    message: `Здравствуйте. Подготовили первый вариант сайта для ${lead.name}: с упором на услуги, доверие и быстрый запрос. Если направление интересно, можно посмотреть превью и сказать, что заменить под вашу компанию.`,
     channel: chooseChannel(lead),
     deal: estimateDeal(lead),
     replyRate: 14,
@@ -120,10 +132,12 @@ function fallbackDiagnosis(lead) {
 
 function fallbackEval(lead) {
   const words = String(lead.message || '').trim().split(/\s+/).filter(Boolean);
+  const channel = String(lead.outboundPackage?.channel || lead.channel || 'email').toLowerCase();
+  const maxWords = channel === 'email' ? 320 : 70;
   const issues = [];
   if (!lead.message) issues.push('Нет сообщения');
-  if (words.length > 70) issues.push('Сообщение длиннее 70 слов');
-  if (!String(lead.message || '').includes(lead.name)) issues.push('Слабая персонализация');
+  if (words.length > maxWords) issues.push(`Сообщение длиннее ${maxWords} слов`);
+  if (lead.name && !String(lead.message || '').includes(lead.name)) issues.push('Слабая персонализация');
   return {
     passed: issues.length === 0,
     score: issues.length === 0 ? 86 : 58,

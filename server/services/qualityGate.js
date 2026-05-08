@@ -31,7 +31,8 @@ export async function runPreviewQualityGate(lead, { outputDir = path.resolve(con
       }
     });
 
-    const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 45_000 });
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
     const status = response?.status() || 0;
     if (status !== 200) issues.push(`preview_status_${status || 'missing'}`);
 

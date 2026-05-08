@@ -371,8 +371,31 @@ export class Orchestrator {
     if (!lead) throw new Error('Lead not found');
     const artifactGate = await this.requireDeployedSite(lead);
     if (!artifactGate.ok) throw new Error(artifactGate.reason || 'No deployed site');
+    if (!lead.qualityGate?.ok) {
+      const quality = await runPreviewQualityGate(lead);
+      lead = await this.store.updateLead(lead.id, { qualityGate: quality });
+      if (!quality.ok) {
+        const reason = `preview_quality_not_passed: ${quality.issues?.join('; ') || 'unknown'}`;
+        await this.store.updateLead(lead.id, {
+          outboundStatus: 'blocked',
+          outboundPackage: { ok: false, issues: ['preview_quality_not_passed'], channel: 'email' },
+        });
+        await this.store.transitionLead(lead.id, {
+          pipelineStage: 'needs_review',
+          stageStatus: 'preview_quality_failed',
+          reason,
+        });
+        throw new Error(reason);
+      }
+    }
     const packageGate = outboundPackageGate(lead);
-    lead.checker = await evaluatePitch({ ...lead, message: packageGate.body || lead.message });
+    lead.checker = await evaluatePitch({
+      ...lead,
+      channel: 'email',
+      checkerMode: 'scout_email',
+      message: packageGate.body || lead.message,
+      outboundPackage: packageGate,
+    });
     if (!packageGate.ok || !lead.checker.passed) {
       lead.message = lead.checker.revisedMessage || lead.message;
       lead = await this.store.updateLead(lead.id, { checker: lead.checker, message: lead.message, outboundPackage: packageGate, status: 'needs_review' });
@@ -981,30 +1004,31 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
   const greeting = owner ? `${owner}, здравствуйте.` : 'Здравствуйте.';
   const business = lead.name || 'ваша компания';
   const niche = lead.niche || 'ваш бизнес';
-  const angle = lead.angle || `сделать сайт, который быстро объясняет ценность ${business} и ведет клиента к заявке`;
-  const diagnosis = lead.diagnosis || `Сейчас часть клиентов может уходить к тем, кого проще найти, понять и быстро забронировать онлайн.`;
+  const angle = lead.angle || `сайт, который быстро объясняет ценность ${business} и ведет клиента к заявке`;
+  const currentSituation = lead.site
+    ? 'У вас уже есть сайт, но первый экран можно сделать понятнее под заявки.'
+    : 'В открытых источниках не нашли рабочий сайт, хотя карточка в картах уже дает доверие.';
+  const proof = [lead.rating ? `рейтинг ${lead.rating}` : '', lead.reviews ? `${lead.reviews} отзывов` : '', lead.city || ''].filter(Boolean).join(', ');
   const price = formatRub(lead.deal || 30000);
   return [
     greeting,
     '',
-    `Мы посмотрели, как ${business} сейчас можно усилить в интернете, и собрали не абстрактное предложение, а готовое превью сайта под ${niche}.`,
+    `Для ${business} подготовили первый вариант сайта под направление «${niche}». ${currentSituation}${proof ? ` Взяли за основу то, что уже видно клиенту: ${proof}.` : ''}`,
     '',
     `Идея первого экрана: ${angle}`,
-    `Почему это может дать заявки: ${diagnosis}`,
     '',
-    siteUrl ? `Посмотрите превью: ${siteUrl}` : '',
+    siteUrl ? `Превью сайта: ${siteUrl}` : '',
     videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
     '',
-    `Если направление нравится, мы быстро заменим тексты, фотографии, цены, контакты и форму заявки под вас. Старт простого сайта-визитки — от ${price}, оплата после первого согласованного превью.`,
-    botLink ? `Правки и ТЗ можно дать прямо в Telegram-боте: ${botLink}` : '',
+    `Если направление подходит, заменим тексты, фото, цены, контакты и форму под вашу студию. Старт простого сайта-визитки - от ${price}, оплата после согласованного превью.`,
+    botLink ? `Правки и ТЗ можно дать в Telegram-боте: ${botLink}` : '',
     '',
-    'Если не актуально, просто ответьте “не интересно”, больше не будем отвлекать.',
+    'Если не актуально, просто ответьте «не интересно», больше не будем отвлекать.',
   ]
     .filter(Boolean)
     .join('\n')
     .trim();
 }
-
 function absolutePublicUrl(url) {
   if (!url) return '';
   if (/^https?:\/\//i.test(url)) return url;
