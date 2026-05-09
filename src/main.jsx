@@ -434,6 +434,11 @@ function LoginScreen({ onLogin }) {
           <LockKeyhole size={16} />
           {submitting ? 'Проверка' : 'Войти'}
         </button>
+        <div className="legal-links">
+          <a href="/privacy" target="_blank" rel="noreferrer">Политика ПД</a>
+          <a href="/offer" target="_blank" rel="noreferrer">Оферта</a>
+          <a href="/disclaimer" target="_blank" rel="noreferrer">Дисклеймер</a>
+        </div>
       </form>
     </main>
   );
@@ -472,6 +477,9 @@ function TopBar({ city, cities, setCity, backend, user, onLogout }) {
           <Activity size={16} />
           API {backend.status}
         </div>
+        <a className="legal-chip" href="/legal" target="_blank" rel="noreferrer">
+          Документы
+        </a>
         <button className="logout-button" type="button" onClick={onLogout} title="Выйти">
           <LogOut size={16} />
           {user || 'Выйти'}

@@ -75,6 +75,7 @@ button {
 .searchbox,
 .api-chip,
 .logout-button,
+.legal-chip,
 .notice-line {
   align-items: center;
   display: flex;
@@ -120,13 +121,25 @@ button {
 .model-chip,
 .metric-chip,
 .api-chip,
-.logout-button {
+.logout-button,
+.legal-chip {
   border: 1px solid var(--line);
   border-radius: 7px;
   color: var(--muted);
   gap: 8px;
   height: 36px;
   padding: 0 10px;
+}
+
+.legal-chip {
+  background: var(--surface);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.legal-chip:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
 }
 
 .logout-button {
@@ -238,6 +251,23 @@ button {
   font-size: 12px;
   margin: 0;
   padding: 9px;
+}
+
+.legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.legal-links a {
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.legal-links a:hover {
+  color: var(--ink);
 }
 
 .searchbox select {

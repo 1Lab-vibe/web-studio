@@ -14,6 +14,7 @@ import { handleA1Webhook } from './services/a1Webhook.js';
 import { handleCustomerTelegramCallback, handleCustomerTelegramMessage, isCustomerTelegramCommand } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
+import { registerLegalRoutes } from './services/legalDocs.js';
 import {
   listLovableTools,
   lovableOAuthTokenStatus,
@@ -58,6 +59,7 @@ registerMcpRoutes(app, store);
 registerAuth(app, store);
 app.use('/renders', express.static(path.resolve(config.DATA_DIR, 'renders')));
 app.use('/projects', express.static(path.resolve(config.DATA_DIR, 'projects')));
+registerLegalRoutes(app);
 
 app.get('/privacy', (req, res) => {
   res.type('html').send(`<!doctype html>

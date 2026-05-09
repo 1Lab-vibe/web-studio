@@ -6,6 +6,7 @@ import { emitCustomerA1Event } from './a1Webhook.js';
 import { prepareLovableMockup } from './lovableMcp.js';
 import { deployLeadExportedProject, deployLeadGeneratedPreview, deployLeadPublicUrlProject } from './projectPublisher.js';
 import { downloadTelegramFile, getTelegramFile, sendTelegram, sendTelegramTo } from './telegram.js';
+import { legalLinks } from './legalDocs.js';
 
 const QUESTIONS = [
   { key: 'businessName', text: 'Как называется бизнес или проект? Если название в превью уже верное, напишите “оставить”.' },
@@ -38,8 +39,14 @@ const BRIEF_CAPTURE_GUIDE = [
 
 const openai = hasSecret(config.OPENAI_API_KEY) ? new OpenAI({ apiKey: config.OPENAI_API_KEY }) : null;
 
-function privacyUrl() {
-  return `${process.env.PUBLIC_BASE_URL || 'https://webstudio.1true.ru'}/privacy`;
+function legalLinksText() {
+  const links = legalLinks();
+  return [
+    '🔐 Продолжая диалог, вы принимаете условия сервиса:',
+    `• Политика обработки ПД: ${links.privacy}`,
+    `• Оферта: ${links.offer}`,
+    `• Дисклеймер: ${links.disclaimer}`,
+  ].join('\n');
 }
 
 const RESETTABLE_JOB_TYPES = [
@@ -171,12 +178,17 @@ export async function handleCustomerTelegramMessage(store, message) {
   const startMatch = text.match(/^\/start\s+lead_([a-f0-9]{16,64})/i);
   if (startMatch) return startCustomerLead(store, chatId, message.from, startMatch[1]);
 
+  const command = text.split(/\s+/)[0].split('@')[0];
+  if (command === '/legal') {
+    await sendTelegramTo(chatId, legalLinksText());
+    return { ok: true };
+  }
+
   const lead = store.listLeads().find((item) => String(item.customerTelegram?.chatId || '') === String(chatId));
   if (!lead) {
     return startInboundCustomer(store, chatId, message.from, text);
   }
 
-  const command = text.split(/\s+/)[0].split('@')[0];
   if (command === '/help') {
     await sendTelegramTo(chatId, customerHelpText(lead));
     return { ok: true, lead };
@@ -394,11 +406,13 @@ function customerHelpText(lead) {
     '/revision — отправить правку по сайту',
     '/resend — отправить email-код заново',
     '/email — изменить email',
+    '/legal — юридические документы',
     '/help — показать это меню',
     '',
     `Проект: <b>${escapeHtml(lead?.name || 'ваш сайт')}</b>`,
     '🎁 На первый заказ действует скидка 50%: простой сайт-визитка начинается от 15 000 ₽ вместо 30 000 ₽. Итоговая цена зависит от объема страниц, контента и интеграций.',
-    `Политика конфиденциальности: ${privacyUrl()}`,
+    '',
+    legalLinksText(),
   ].join('\n');
 }
 
@@ -414,7 +428,7 @@ function onboardingText(lead, hasPreview) {
     '',
     '🛠 После запуска вы сможете пользоваться мной как помощником по сайту: писать обычным сообщением или голосом, какие тексты, контакты, фото или блоки нужно изменить.',
     '',
-    `🔐 Продолжая диалог, вы соглашаетесь на обработку персональных данных. Политика конфиденциальности: ${privacyUrl()}`,
+    legalLinksText(),
   ].join('\n');
 }
 

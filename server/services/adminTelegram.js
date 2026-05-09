@@ -1,4 +1,5 @@
 import { customerBotLink } from './a1Client.js';
+import { legalLinks } from './legalDocs.js';
 import { sendTelegramTo } from './telegram.js';
 
 export async function handleAdminTelegramMessage(store, orchestrator, message) {
@@ -21,6 +22,20 @@ export async function handleAdminTelegramMessage(store, orchestrator, message) {
       actions.length
         ? actions.map((item, index) => `${index + 1}. ${item.label}\n${item.lead.name}\nID: <code>${item.lead.id}</code>`).join('\n\n')
         : 'Нет рекомендуемых действий.',
+    );
+    return { ok: true };
+  }
+
+  if (normalizedCommand === '/legal') {
+    const links = legalLinks();
+    await sendTelegramTo(
+      chatId,
+      [
+        '<b>Юридические документы 1Lab Web Studio</b>',
+        `Политика ПД: ${links.privacy}`,
+        `Оферта: ${links.offer}`,
+        `Дисклеймер: ${links.disclaimer}`,
+      ].join('\n'),
     );
     return { ok: true };
   }
@@ -49,6 +64,7 @@ export function adminHelpText() {
     '/actions - топ действий оркестратора',
     '/lead &lt;id&gt; - краткая карточка лида',
     '/handoff &lt;id&gt; - prompt для Lovable, чтобы вернуть публичный URL/код без rebuild',
+    '/legal - ссылки на ПД, оферту и дисклеймер',
   ].join('\n');
 }
 
