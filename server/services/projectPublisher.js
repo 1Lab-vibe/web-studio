@@ -544,14 +544,15 @@ async function repairDuplicateRemoteImageConstants(sourceRoot, lead = {}) {
 }
 
 async function materializeRepairImage(sourceRoot, importerFile, variableName, url) {
-  const fileName = `webstudio-${variableName.replace(/[^a-z0-9_-]/gi, '-').toLowerCase()}.png`;
-  const assetPath = path.join(sourceRoot, 'src', 'assets', fileName);
+  const baseName = `webstudio-${variableName.replace(/[^a-z0-9_-]/gi, '-').toLowerCase()}`;
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(90_000) });
     const contentType = response.headers.get('content-type') || '';
     if (!response.ok || !contentType.startsWith('image/')) throw new Error(`image_fetch_failed_${response.status}`);
     const body = Buffer.from(await response.arrayBuffer());
     if (body.length < 1024) throw new Error('image_fetch_empty_body');
+    const ext = imageExtension(contentType);
+    const assetPath = path.join(sourceRoot, 'src', 'assets', `${baseName}${ext}`);
     await mkdir(path.dirname(assetPath), { recursive: true });
     await writeFile(assetPath, body);
     const relative = path.relative(path.dirname(importerFile), assetPath).replace(/\\/g, '/');
@@ -560,6 +561,13 @@ async function materializeRepairImage(sourceRoot, importerFile, variableName, ur
   } catch {
     return { ok: false, url, expression: `"${url}"` };
   }
+}
+
+function imageExtension(contentType = '') {
+  if (contentType.includes('jpeg') || contentType.includes('jpg')) return '.jpg';
+  if (contentType.includes('webp')) return '.webp';
+  if (contentType.includes('png')) return '.png';
+  return '.jpg';
 }
 
 async function listSourceCodeFiles(root) {
