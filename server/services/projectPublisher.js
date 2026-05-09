@@ -526,7 +526,10 @@ async function repairDuplicateRemoteImageConstants(sourceRoot, lead = {}) {
     if (!content.includes('images.unsplash.com') && !content.includes('image.pollinations.ai')) continue;
     let ordinal = 0;
     let next = content;
-    const matches = [...content.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*["'](?:https:\/\/images\.unsplash\.com|https:\/\/image\.pollinations\.ai)\/[^"']+["'];/g)];
+    const matches = [
+      ...content.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*["'](?:https:\/\/images\.unsplash\.com|https:\/\/image\.pollinations\.ai)\/[^"']+["'];/g),
+      ...content.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*new URL\("[^"]*webstudio-[^"]+",\s*import\.meta\.url\)\.href;/g),
+    ];
     for (const match of matches) {
       const [statement, variableName] = match;
       const url = imageRepairUrlV2(lead, `${variableName} ${path.basename(file)}`, ordinal);
