@@ -476,6 +476,8 @@ async function repairAndBuildSourceProject(sourceRoot, publicRoot, basePath = ''
   const repairs = [];
   const duplicateRepair = await repairDuplicateRemoteImageConstants(sourceRoot, lead);
   if (duplicateRepair.ok) repairs.push(duplicateRepair);
+  const externalImageRepair = await materializeExternalImageLiterals(sourceRoot, lead);
+  if (externalImageRepair.ok) repairs.push(externalImageRepair);
   let build = await buildSourceProject(sourceRoot, publicRoot, basePath);
   for (let attempt = 0; !build.ok && attempt < 10; attempt += 1) {
     const repair = await repairMissingAssetImports(sourceRoot, build.error || '', lead);
@@ -543,8 +545,42 @@ async function repairDuplicateRemoteImageConstants(sourceRoot, lead = {}) {
   return repaired.length ? { ok: true, repaired } : { ok: false, reason: 'no_duplicate_remote_image_constants' };
 }
 
-async function materializeRepairImage(sourceRoot, importerFile, variableName, url) {
+async function materializeExternalImageLiterals(sourceRoot, lead = {}) {
+  const files = (await listSourceCodeFiles(path.join(sourceRoot, 'src'))).filter((file) => /\.(tsx|ts|jsx|js)$/.test(file));
+  const repaired = [];
+  for (const file of files) {
+    const content = await readFile(file, 'utf8').catch(() => '');
+    if (!content.includes('images.unsplash.com') && !content.includes('image.pollinations.ai')) continue;
+    let ordinal = 0;
+    let next = content;
+    const matches = [...content.matchAll(/(["'])(https:\/\/(?:images\.unsplash\.com|image\.pollinations\.ai)\/[^"']+)\1/g)];
+    for (const match of matches) {
+      const [literal, , url] = match;
+      const context = `${path.basename(file)} external image ${ordinal} ${content.slice(Math.max(0, match.index - 120), match.index + 120)}`;
+      const fallbackUrl = imageRepairUrlV2(lead, context, ordinal);
+      const asset = await materializeRepairImage(sourceRoot, file, `external-${ordinal}`, url, fallbackUrl);
+      ordinal += 1;
+      repaired.push({ file: path.relative(sourceRoot, file), strategy: asset.ok ? 'materialize_external_image_url' : 'external_image_generation_fallback_url', sourceUrl: url, url: asset.url });
+      next = next.replace(literal, asset.expression);
+    }
+    if (next !== content) await writeFile(file, next, 'utf8');
+  }
+  return repaired.length ? { ok: true, repaired } : { ok: false, reason: 'no_external_image_literals' };
+}
+
+async function materializeRepairImage(sourceRoot, importerFile, variableName, url, fallbackUrl = url) {
   const baseName = `webstudio-${variableName.replace(/[^a-z0-9_-]/gi, '-').toLowerCase()}`;
+  const urls = [...new Set([url, fallbackUrl].filter(Boolean))];
+  let lastError = '';
+  for (const candidate of urls) {
+    const result = await fetchRepairImage(sourceRoot, importerFile, baseName, candidate);
+    if (result.ok) return result;
+    lastError = result.error || lastError;
+  }
+  return { ok: false, url: fallbackUrl || url, error: lastError, expression: `"${fallbackUrl || url}"` };
+}
+
+async function fetchRepairImage(sourceRoot, importerFile, baseName, url) {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(90_000) });
     const contentType = response.headers.get('content-type') || '';
@@ -558,8 +594,8 @@ async function materializeRepairImage(sourceRoot, importerFile, variableName, ur
     const relative = path.relative(path.dirname(importerFile), assetPath).replace(/\\/g, '/');
     const importPath = relative.startsWith('.') ? relative : `./${relative}`;
     return { ok: true, url, expression: `new URL("${importPath}", import.meta.url).href` };
-  } catch {
-    return { ok: false, url, expression: `"${url}"` };
+  } catch (error) {
+    return { ok: false, url, error: error.message };
   }
 }
 
