@@ -1260,7 +1260,7 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
   const currentSituation = lead.site
     ? 'У вас уже есть сайт, но первый экран можно сделать сильнее под заявки.'
     : 'В открытых источниках не нашли рабочий сайт, хотя карточка в картах уже дает доверие и может приводить больше заявок.';
-  const proof = [lead.rating ? `рейтинг ${lead.rating}` : '', lead.reviews ? `${lead.reviews} отзывов` : '', lead.city || ''].filter(Boolean).join(', ');
+  const proof = [lead.rating ? `рейтинг ${lead.rating}` : '', lead.reviews ? `${lead.reviews} ${reviewWord(lead.reviews)}` : '', lead.city || ''].filter(Boolean).join(', ');
   const price = formatRub(lead.deal || 30000);
   return [
     greeting,
@@ -1281,6 +1281,16 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
     .join('\n')
     .trim();
 }
+
+function reviewWord(value) {
+  const number = Math.abs(Number(value) || 0);
+  const mod10 = number % 10;
+  const mod100 = number % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'отзыв';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'отзыва';
+  return 'отзывов';
+}
+
 function absolutePublicUrl(url) {
   if (!url) return '';
   if (/^https?:\/\//i.test(url)) return url;

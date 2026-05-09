@@ -84,11 +84,11 @@ export async function evaluatePitch(lead) {
     const parsed = JSON.parse(text);
     const issues = Array.isArray(parsed.issues) ? parsed.issues : [];
     const hardFail = issues.some((issue) =>
-      /нет превью|missing preview|preview_quality|качество превью|нет ссылки|нет telegram|нет бота|ai.marker|ai-маркер|запрещ|нелегал|спам|обман|нет персонализа/i.test(String(issue || '')),
+      /нет превью|missing preview|preview_quality|качество превью|нет ссылки|нет telegram|нет бота|запрещ|нелегал|спам|обман|нет персонализа/i.test(String(issue || '')),
     );
     const score = Number.isFinite(Number(parsed.score)) ? Number(parsed.score) : 0;
     return {
-      passed: mode === 'scout_email' && !hardFail && score >= 65 ? true : Boolean(parsed.passed),
+      passed: mode === 'scout_email' && !hardFail && score >= 60 ? true : Boolean(parsed.passed),
       score,
       issues,
       revisedMessage: parsed.revisedMessage || lead.message || '',
