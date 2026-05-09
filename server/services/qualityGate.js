@@ -62,10 +62,10 @@ export async function runPreviewQualityGate(lead, { outputDir = path.resolve(con
       .catch(() => []);
     if (brokenImages.length) issues.push('broken_visible_images');
 
-    const firstScreen = bodyText.slice(0, 1500).toLowerCase();
-    const businessToken = String(lead.name || '').split(/\s+/).find((part) => part.length >= 4)?.toLowerCase();
-    const nicheToken = String(lead.niche || '').split(/\s+/).find((part) => part.length >= 4)?.toLowerCase();
-    if (businessToken && nicheToken && !firstScreen.includes(businessToken) && !firstScreen.includes(nicheToken)) {
+    const firstScreen = normalizeTextToken(bodyText.slice(0, 1500));
+    const businessToken = significantToken(lead.name);
+    const nicheToken = significantToken(lead.niche);
+    if (businessToken && nicheToken && !includesTokenOrStem(firstScreen, businessToken) && !includesTokenOrStem(firstScreen, nicheToken)) {
       issues.push('first_screen_missing_business_or_offer');
     }
     if (badAssets.length) issues.push('broken_or_wrong_mime_assets');
@@ -98,6 +98,24 @@ function absolutePublicUrl(url) {
   if (/^https?:\/\//i.test(url)) return url;
   const base = String(config.PUBLIC_BASE_URL || '').replace(/\/$/, '');
   return base ? `${base}${url.startsWith('/') ? '' : '/'}${url}` : url;
+}
+
+function significantToken(value) {
+  return String(value || '')
+    .split(/\s+/)
+    .map(normalizeTextToken)
+    .find((part) => part.length >= 4 && !['ооо', 'ао', 'ип'].includes(part));
+}
+
+function normalizeTextToken(value) {
+  return String(value || '').toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '');
+}
+
+function includesTokenOrStem(text, token) {
+  if (!token) return false;
+  if (text.includes(token)) return true;
+  const stem = token.length >= 7 ? token.slice(0, 5) : token;
+  return stem.length >= 4 && text.includes(stem);
 }
 
 function isBuildFailurePage(text) {
