@@ -7,6 +7,7 @@ import { prepareLovableMockup } from './services/lovableMcp.js';
 import { renderLeadVideo } from './services/filmer.js';
 import { enrichContacts } from './services/contactEnrichment.js';
 import { approvalKeyboard, sendTelegram, sendTelegramTo } from './services/telegram.js';
+import { customerBriefSafetyIssues } from './services/customerTelegram.js';
 import { enrichLeadScore, isLovableEligible, topLovableCandidates } from './services/scoring.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
 import { runPreviewQualityGate } from './services/qualityGate.js';
@@ -285,6 +286,24 @@ export class Orchestrator {
   async runLovableBuildJob(leadId, { skipQuota = false, customerChatId = '', rebuild = false } = {}) {
     let lead = this.store.getLead(leadId);
     if (!lead) throw new Error('Lead not found');
+    if (lead.source === 'telegram_inbound' || customerChatId) {
+      const issues = customerBriefSafetyIssues(lead);
+      if (issues.length) {
+        await this.store.cancelLeadJobs(lead.id, ['customer_preview_build', 'lovable_build', 'coder_deploy', 'filmer_render', 'checker_eval', 'outbound_queue'], 'Customer brief safety gate failed');
+        await this.store.transitionLead(lead.id, {
+          pipelineStage: 'needs_review',
+          stageStatus: 'content_review_required',
+          artifactStatus: 'blocked',
+          reason: 'customer_brief_safety_gate_failed',
+        });
+        await this.store.addEvent(lead.id, 'customer.brief_safety_blocked', issues.join('; '));
+        if (customerChatId) {
+          await sendTelegramTo(customerChatId, 'Пока не запускаю сборку: в ТЗ есть рискованная тематика или некорректные поля. Можно собрать ТЗ заново через /reset.');
+        }
+        await sendTelegram(`<b>Customer preview blocked by safety gate</b>\nЛид: ${lead.name}\nID: <code>${lead.id}</code>\nПричины: <code>${issues.join('; ').slice(0, 700)}</code>`);
+        return { ok: true, skipped: true, reason: 'customer_brief_safety_gate_failed', issues };
+      }
+    }
     enrichLeadScore(lead);
     if (rebuild) {
       const attempts = Number(lead.mockup?.rebuildAttempts ?? 0) + 1;

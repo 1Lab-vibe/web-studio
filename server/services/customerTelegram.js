@@ -69,11 +69,18 @@ function looksLikeKeyboardGibberish(text, key = '') {
 }
 
 function hasProhibitedBriefContent(text) {
-  return /(\bставк[аи]\b|наркот|заклад|казино|букмекер|эскорт|проститу|порн|pornhub|18\+|секс[- ]?услуг|обнажен|обнажён|нюд|оружи|взлом|фишинг|скам|кардинг|поддельн|паспорт|экстрем|террор|ненавист|убить|насили|malware|phishing|scam|casino|escort|weapon|drug)/i.test(normalizeText(text));
+  const value = normalizeText(text).toLowerCase();
+  return /(\bставк[аи]\b|наркот|заклад|казино|букмекер|эскорт|проститу|интим[- ]?услуг|порн|porn|pornhub|18\+|секс|sex|эротик|обнажен|обнажён|голы[еймхая]|нюд|онанист|ананист|оружи|взлом|фишинг|скам|кардинг|поддельн|паспорт|экстрем|террор|ненавист|убить|насили|malware|phishing|scam|casino|escort|weapon|drug)/i.test(value);
 }
 
 function isGenericTelegramLeadName(lead) {
-  return lead?.source === 'telegram_inbound' && /^Новая заявка Telegram\b/i.test(String(lead?.name || ''));
+  const name = String(lead?.name || '').trim();
+  return lead?.source === 'telegram_inbound' && (/^Новая заявка Telegram\b/i.test(name) || /^\/start\b/i.test(name));
+}
+
+function isInvalidBusinessName(value) {
+  const text = normalizeText(value);
+  return !text || text === '-' || /^\/[a-z]/i.test(text) || /^(нет|не знаю|любой|как хочешь|как тебе|test|тест)$/i.test(text);
 }
 
 function validateBriefAnswer(key, text) {
@@ -98,7 +105,8 @@ function briefValidationIssues(lead) {
     ['contacts', brief.contacts, 'контакты или поля формы'],
   ];
   for (const [key, value, label] of required) {
-    if (!normalizeText(value) || normalizeText(value) === '-') issues.push(`Не заполнено: ${label}.`);
+    if (key === 'businessName' && isInvalidBusinessName(value)) issues.push(`Не заполнено: ${label}.`);
+    else if (!normalizeText(value) || normalizeText(value) === '-') issues.push(`Не заполнено: ${label}.`);
     else if (looksLikeKeyboardGibberish(value, key)) issues.push(`Похоже на случайный текст в поле “${label}”.`);
     else if (hasProhibitedBriefContent(value)) issues.push(`Поле “${label}” требует проверки: запрещенная или рискованная тематика.`);
   }
@@ -108,6 +116,10 @@ function briefValidationIssues(lead) {
     if (hasProhibitedBriefContent(value)) issues.push(`Рискованный контент: ${key}.`);
   }
   return Array.from(new Set(issues));
+}
+
+export function customerBriefSafetyIssues(lead) {
+  return briefValidationIssues(lead);
 }
 
 export async function handleCustomerTelegramMessage(store, message) {
@@ -618,8 +630,8 @@ async function collectBriefAnswer(store, lead, chatId, text) {
     question.key === 'businessName' && /^оставить$/i.test(validation.normalizedText || '')
       ? (!isGenericTelegramLeadName(lead) ? lead.name : '')
       : validation.normalizedText || text;
-  if (question.key === 'businessName' && !answerText) {
-    await sendTelegramTo(chatId, 'У этой заявки пока нет названия бизнеса. Напишите название или коротко опишите проект.');
+  if (question.key === 'businessName' && isInvalidBusinessName(answerText)) {
+    await sendTelegramTo(chatId, 'Нужно нормальное название бизнеса или короткое описание проекта. Команды вроде /start в ТЗ не записываю.');
     return { ok: false, lead, reason: 'missing_business_name' };
   }
   const brief = {
