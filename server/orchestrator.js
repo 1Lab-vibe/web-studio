@@ -1073,7 +1073,7 @@ export class Orchestrator {
 }
 
 function actionForLead(lead, topLovableIds) {
-  if (lead.source === 'telegram_inbound') {
+  if (shouldReviewCustomerBriefBeforeAction(lead)) {
     const issues = customerBriefSafetyIssues(lead);
     if (issues.length) return { action: 'review_customer_brief', label: 'Проверить клиентское ТЗ', score: 100, autoRunnable: false };
   }
@@ -1130,6 +1130,14 @@ function actionForLead(lead, topLovableIds) {
   if (lead.lane === 'Проверка') return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Отправка') return { action: 'queue_pitch', label: 'Поставить в очередь отправки', score: lead.fitScore ?? 0, autoRunnable: true };
   return { action: 'none', label: 'Нет действия', score: 0, autoRunnable: false };
+}
+
+function shouldReviewCustomerBriefBeforeAction(lead = {}) {
+  if (lead.source !== 'telegram_inbound') return false;
+  if (lead.customerBrief?.approvedAt) return true;
+  if (lead.customerTelegram?.mode === 'brief_review') return true;
+  if (['Lovable', 'Видео', 'Проверка', 'Отправка'].includes(lead.lane)) return true;
+  return /lovable|deployed|media_ready|checked|outbound/i.test(String(lead.pipelineStage || ''));
 }
 
 function isBuildFailedWithSource(lead = {}) {
