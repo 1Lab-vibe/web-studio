@@ -418,6 +418,22 @@ export class Store {
         Number(job.attempts ?? 0) < Number(job.maxAttempts ?? 3),
     );
     if (existing) return { job: existing, deduped: true };
+    if (input.supersedeSameLeadType && input.leadId) {
+      for (const job of this.state.jobs) {
+        if (
+          job.type === input.type &&
+          job.leadId === input.leadId &&
+          ['queued', 'failed'].includes(job.status) &&
+          Number(job.attempts ?? 0) < Number(job.maxAttempts ?? 3)
+        ) {
+          job.status = 'skipped';
+          job.lastError = `Superseded by newer ${input.type} job`;
+          job.finishedAt = now;
+          job.lockedUntil = '';
+          job.updatedAt = now;
+        }
+      }
+    }
     const job = {
       id: randomUUID(),
       type: input.type,

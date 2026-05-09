@@ -172,6 +172,7 @@ export class Orchestrator {
   }
 
   async enqueueJob(type, leadId, options = {}) {
+    const supersedeSameLeadType = ['lovable_build', 'coder_deploy', 'filmer_render', 'checker_eval', 'outbound_queue'].includes(type);
     return this.store.enqueueJob({
       type,
       leadId,
@@ -180,6 +181,7 @@ export class Orchestrator {
       idempotencyKey: options.idempotencyKey,
       nextRunAt: options.nextRunAt,
       maxAttempts: options.maxAttempts || config.AUTONOMY_DEAD_AFTER_ATTEMPTS,
+      supersedeSameLeadType,
     });
   }
 
@@ -324,7 +326,9 @@ export class Orchestrator {
     let lead = this.store.getLead(leadId);
     if (!lead) throw new Error('Lead not found');
     let deployed;
-    if (lead.mockup?.status === 'build_failed' && lead.mockup?.sourceRoot && lead.mockup?.projectSlug) {
+    if (lead.mockup?.status === 'deployed' && (lead.mockup?.publicUrl || lead.mockup?.publishedUrl || lead.mockup?.deployedUrl)) {
+      deployed = { ok: true, skipped: true, reason: 'already_deployed' };
+    } else if (lead.mockup?.status === 'build_failed' && lead.mockup?.sourceRoot && lead.mockup?.projectSlug) {
       deployed = await repairLeadSourceProject(this.store, lead.id, { renderVideo: false });
     } else if (lead.mockup?.status === 'public_url_attached' || lead.status === 'public_url_attached') {
       deployed = await deployLeadPublicUrlProject(this.store, lead.id, { renderVideo: false });
@@ -401,6 +405,12 @@ export class Orchestrator {
       });
       await sendTelegram(`<b>Filmer blocked by quality gate</b>\n${lead.name}\n${quality.issues?.join('; ') || 'preview_quality_failed'}`);
       throw new Error(`Preview quality failed before filming: ${quality.issues?.join('; ') || 'unknown'}`);
+    }
+    if (lead.video?.ok && lead.video?.videoUrl) {
+      if (!lead.checker?.passed && lead.lane !== 'Отправка') {
+        await this.enqueueJob('checker_eval', lead.id, { idempotencyKey: `checker:${lead.id}:${lead.video.videoUrl}`, priority: lead.fitScore ?? 55 });
+      }
+      return { ok: true, skipped: true, reason: 'video_already_ready', lead, video: lead.video };
     }
     const video = await renderLeadVideo(lead);
     lead = await this.store.updateLead(lead.id, { video });
@@ -977,6 +987,12 @@ function actionForLead(lead, topLovableIds) {
   }
   if (lead.outboundStatus === 'scheduled_working_hours' && !isOutboundScheduleDue(lead)) {
     return { action: 'wait_working_hours', label: 'Ждет рабочее время для письма', score: lead.fitScore ?? 0, autoRunnable: false };
+  }
+  if (lead.mockup?.status === 'deployed' && (lead.mockup?.publicUrl || lead.mockup?.publishedUrl || lead.mockup?.deployedUrl) && lead.qualityGate?.ok && !lead.video?.ok) {
+    return { action: 'make_video', label: 'Подготовить видео', score: lead.fitScore ?? 0, autoRunnable: true };
+  }
+  if (lead.mockup?.status === 'deployed' && lead.video?.ok && !lead.checker?.passed && lead.stageStatus !== 'checker_failed' && lead.status !== 'checker_failed') {
+    return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   }
   if (lead.stageStatus === 'checker_failed' || lead.status === 'checker_failed') {
     return { action: 'review_message', label: 'Нужна правка письма', score: 90, autoRunnable: false };
