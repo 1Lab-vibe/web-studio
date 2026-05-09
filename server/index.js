@@ -258,7 +258,8 @@ async function processTelegramUpdate(update) {
   }
   const data = callback?.data || '';
   if (data.startsWith('customer:')) {
-    await handleCustomerTelegramCallback(store, callback).catch((error) => handleTelegramCustomerError(callback.message, error));
+    const handled = await handleCustomerTelegramCallback(store, callback).catch((error) => handleTelegramCustomerError(callback.message, error));
+    triggerCustomerPipelineIfNeeded(handled);
     await answerCallback(callback.id, 'Готово');
     return { ok: true };
   }
@@ -278,16 +279,27 @@ async function processTelegramUpdate(update) {
   if (update?.message) {
     const message = update.message;
     if (isCustomerTelegramCommand(store, message)) {
-      await handleCustomerTelegramMessage(store, message).catch((error) => handleTelegramCustomerError(message, error));
+      const handled = await handleCustomerTelegramMessage(store, message).catch((error) => handleTelegramCustomerError(message, error));
+      triggerCustomerPipelineIfNeeded(handled);
       return { ok: true };
     }
     if (isAdminTelegramUser(message.from?.id, message.chat?.id)) {
       const handled = await handleAdminTelegramMessage(store, orchestrator, message);
       if (!handled.skipped) return { ok: true };
     }
-    await handleCustomerTelegramMessage(store, message).catch((error) => handleTelegramCustomerError(message, error));
+    const handled = await handleCustomerTelegramMessage(store, message).catch((error) => handleTelegramCustomerError(message, error));
+    triggerCustomerPipelineIfNeeded(handled);
   }
   return { ok: true };
+}
+
+function triggerCustomerPipelineIfNeeded(result) {
+  if (!result?.startCustomerPreviewNow) return;
+  setImmediate(() => {
+    orchestrator.tick().catch((error) => {
+      console.error('Immediate customer preview tick failed', error);
+    });
+  });
 }
 
 async function handleTelegramCustomerError(message, error) {

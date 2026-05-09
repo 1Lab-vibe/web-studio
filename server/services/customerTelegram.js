@@ -1113,12 +1113,13 @@ async function approveBrief(store, lead, chatId) {
       idempotencyKey: `customer_preview_build:${updated.id}:${updated.customerBrief?.approvedAt || approvedAt}`,
     });
     updated = await store.transitionLead(updated.id, {
-      pipelineStage: 'lovable_queued',
-      stageStatus: 'customer_preview_queued',
+      pipelineStage: 'lovable_building',
+      stageStatus: 'customer_preview_starting',
+      artifactStatus: 'building',
       reason: 'customer_brief_approved',
     });
-    await sendTelegramTo(chatId, 'ТЗ утверждено. Я поставил сборку превью в очередь и пришлю ссылку после проверки качества.');
-    return { ok: true, lead: updated, queued: queued.job };
+    await sendTelegramTo(chatId, 'ТЗ утверждено. Запускаю сборку превью сейчас и пришлю ссылку после проверки качества.');
+    return { ok: true, lead: updated, queued: queued.job, startCustomerPreviewNow: true };
   }
 
   const a1LeadId = updated.a1LeadId || updated.a1?.leadId || '';
