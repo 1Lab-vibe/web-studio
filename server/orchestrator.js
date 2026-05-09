@@ -336,7 +336,19 @@ export class Orchestrator {
     } else {
       throw new Error('No deployable Lovable artifact');
     }
-    if (!deployed.ok) throw new Error(deployed.error || 'Coder deploy failed');
+    if (!deployed.ok) {
+      const reason = deployed.error || 'Coder deploy failed';
+      await this.store.transitionLead(lead.id, {
+        pipelineStage: 'needs_review',
+        stageStatus: 'deploy_failed',
+        artifactStatus: 'build_failed',
+        lane: 'Lovable',
+        owner: 'Builder',
+        reason,
+      });
+      await sendTelegram(`<b>Coder deploy failed</b>\n${lead.name}\n${reason}`);
+      throw new Error(reason);
+    }
     lead = this.store.getLead(lead.id);
     const quality = await runPreviewQualityGate(lead);
     lead = await this.store.updateLead(lead.id, { qualityGate: quality });
@@ -370,6 +382,24 @@ export class Orchestrator {
     if (!lead) throw new Error('Lead not found');
     const artifactGate = await this.requireDeployedSite(lead);
     if (!artifactGate.ok) throw new Error(artifactGate.reason || 'No deployed site');
+    const quality = await runPreviewQualityGate(lead);
+    lead = await this.store.updateLead(lead.id, { qualityGate: quality });
+    if (!quality.ok) {
+      await this.store.updateLead(lead.id, {
+        video: { ok: false, reason: 'preview_quality_not_passed_before_filmer', invalidatedAt: new Date().toISOString() },
+        outboundStatus: 'blocked_quality_failed',
+      });
+      await this.store.transitionLead(lead.id, {
+        pipelineStage: 'needs_review',
+        stageStatus: 'preview_quality_failed',
+        artifactStatus: 'quality_failed',
+        lane: 'Lovable',
+        owner: 'Builder',
+        reason: quality.issues?.join('; ') || 'preview_quality_failed',
+      });
+      await sendTelegram(`<b>Filmer blocked by quality gate</b>\n${lead.name}\n${quality.issues?.join('; ') || 'preview_quality_failed'}`);
+      throw new Error(`Preview quality failed before filming: ${quality.issues?.join('; ') || 'unknown'}`);
+    }
     const video = await renderLeadVideo(lead);
     lead = await this.store.updateLead(lead.id, { video });
     if (!video.ok) {
@@ -474,7 +504,20 @@ export class Orchestrator {
       });
       throw new Error(`Outbound package blocked: ${packageGate.issues.join('; ')}`);
     }
-    if (!lead.qualityGate?.ok) throw new Error('Preview quality gate is not passed');
+    const freshQuality = await runPreviewQualityGate(lead);
+    lead = await this.store.updateLead(lead.id, { qualityGate: freshQuality });
+    if (!freshQuality.ok) {
+      await this.store.updateLead(lead.id, { outboundStatus: 'blocked_quality_failed' });
+      await this.store.transitionLead(lead.id, {
+        pipelineStage: 'needs_review',
+        stageStatus: 'preview_quality_failed',
+        artifactStatus: 'quality_failed',
+        lane: 'Lovable',
+        owner: 'Builder',
+        reason: freshQuality.issues?.join('; ') || 'preview_quality_failed',
+      });
+      throw new Error(`Preview quality gate is not passed: ${freshQuality.issues?.join('; ') || 'unknown'}`);
+    }
     if (!lead.checker?.passed) throw new Error('Checker is not passed');
     const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
     if (reserved.reserved < 1) throw new Error('Daily send limit reached');
@@ -887,6 +930,18 @@ export class Orchestrator {
   }
 
   async requireDeployedSite(lead) {
+    if (isFailedBuildPreview(lead)) {
+      const updated = await this.store.transitionLead(lead.id, {
+        pipelineStage: 'needs_review',
+        stageStatus: 'deploy_failed',
+        artifactStatus: 'build_failed',
+        lane: 'Lovable',
+        owner: 'Builder',
+        reason: lead.mockup?.deploymentWarning || 'build_failed_preview',
+      });
+      await this.store.updateLead(lead.id, { outboundStatus: 'blocked_build_failed' });
+      return { ok: false, held: true, reason: 'Preview build failed; client pipeline blocked', lead: updated };
+    }
     const hasSite = Boolean((lead.mockup?.publicUrl || lead.mockup?.deployedUrl || lead.mockup?.publishedUrl) && lead.mockup?.status === 'deployed');
     if (hasSite) return { ok: true };
     const updated = await this.store.updateLead(lead.id, {
@@ -1101,6 +1156,7 @@ function outboundPackageGate(lead) {
   const body = outboundEmailBody(lead, { botLink, siteUrl, videoUrl });
   const issues = [];
   if (isCoderFallbackPreview(lead)) issues.push('coder_fallback_preview_not_client_sendable');
+  if (isFailedBuildPreview(lead)) issues.push('build_failed_preview_not_client_sendable');
   if (!siteUrl) issues.push('missing_preview_link');
   if (!botLink) issues.push('missing_telegram_bot_link');
   if (!lead.name) issues.push('missing_company_name');
@@ -1118,6 +1174,16 @@ function outboundPackageGate(lead) {
     botLink,
     channel: 'email',
   };
+}
+
+function isFailedBuildPreview(lead) {
+  const mockup = lead.mockup || {};
+  return (
+    mockup.status === 'build_failed' ||
+    mockup.deploymentStrategy === 'build_failed' ||
+    mockup.deploymentStrategy === 'no_package_json' ||
+    lead.artifactStatus === 'build_failed'
+  );
 }
 
 function isCoderFallbackPreview(lead) {

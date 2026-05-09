@@ -8,8 +8,16 @@ export async function runPreviewQualityGate(lead, { outputDir = path.resolve(con
   const checkedAt = new Date().toISOString();
   const issues = [];
   const warnings = [];
+  const mockup = lead.mockup || {};
+  if (mockup.clientSendAllowed === false) issues.push('preview_not_client_sendable');
+  if (['build_failed', 'no_package_json'].includes(String(mockup.deploymentStrategy || ''))) {
+    issues.push(`deployment_${mockup.deploymentStrategy}`);
+  }
+  if (['build_failed', 'internal_fallback_preview'].includes(String(mockup.status || ''))) {
+    issues.push(`mockup_${mockup.status}`);
+  }
   if (!url) {
-    return { ok: false, checkedAt, url: '', issues: ['missing_preview_url'], warnings };
+    return { ok: false, checkedAt, url: '', issues: [...issues, 'missing_preview_url'], warnings };
   }
 
   await mkdir(outputDir, { recursive: true });
@@ -39,6 +47,7 @@ export async function runPreviewQualityGate(lead, { outputDir = path.resolve(con
     const bodyText = (await page.locator('body').innerText({ timeout: 10_000 }).catch(() => '')).trim();
     if (bodyText.length < 80) issues.push('empty_or_too_short_body');
     if (/404|not found|page not found|react router/i.test(bodyText.slice(0, 1500))) issues.push('possible_router_404');
+    if (isBuildFailurePage(bodyText)) issues.push('build_failed_stub_page');
 
     const firstScreen = bodyText.slice(0, 1500).toLowerCase();
     const businessToken = String(lead.name || '').split(/\s+/).find((part) => part.length >= 4)?.toLowerCase();
@@ -75,4 +84,9 @@ function absolutePublicUrl(url) {
   if (/^https?:\/\//i.test(url)) return url;
   const base = String(config.PUBLIC_BASE_URL || '').replace(/\/$/, '');
   return base ? `${base}${url.startsWith('/') ? '' : '/'}${url}` : url;
+}
+
+function isBuildFailurePage(text) {
+  const sample = String(text || '').slice(0, 5000);
+  return /Экспорт Lovable получен|локальная сборка проекта не прошла|Build failed|error during build|Command failed|Could not load|ENOENT|vite:asset|diagnostic page/i.test(sample);
 }

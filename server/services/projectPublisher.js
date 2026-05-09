@@ -546,6 +546,51 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
     'utf8',
   );
 
+  if (!build.ok) {
+    lead = await store.updateLead(lead.id, {
+      mockup: {
+        ...compactStoredMockup(lead.mockup),
+        ok: false,
+        mode: 'lovable_official_mcp_export',
+        status: 'build_failed',
+        diagnosticUrl: publicUrl,
+        projectSlug: slug,
+        sourceRoot,
+        sourceFiles: written.length,
+        deploymentStrategy: build.strategy,
+        deploymentWarning: build.error,
+        routerPatch,
+        github,
+        lovable,
+        clientSendAllowed: false,
+        buildFailedAt: new Date().toISOString(),
+      },
+      qualityGate: {
+        ok: false,
+        checkedAt: new Date().toISOString(),
+        url: publicUrl,
+        issues: [`deployment_${build.strategy}`, 'build_failed_stub_page'],
+        warnings: [],
+      },
+      video: { ok: false, reason: 'build_failed_before_filmer', invalidatedAt: new Date().toISOString() },
+      outboundStatus: 'blocked_build_failed',
+      lane: 'Lovable',
+      owner: 'Builder',
+      status: 'needs_review',
+    });
+    await store.addEvent(lead.id, 'project.build_failed', `Lovable export build failed: ${build.error || build.strategy}`);
+    await crmAddEvent({
+      entityType: lead.a1DealId ? 'deal' : 'lead',
+      entityId: lead.a1DealId || lead.a1LeadId || lead.id,
+      eventType: 'project.build_failed',
+      text: `Lovable export build failed: ${build.error || build.strategy}`,
+      payload: { webstudioLeadId: lead.id, diagnosticUrl: publicUrl, slug, github, lovable, build, routerPatch },
+      idempotencyKey: `webstudio:${lead.id}:project.build_failed:${slug}`,
+    });
+    await syncA1CrmLead(lead, 'project_build_failed');
+    return { ok: false, error: build.error || build.strategy || 'Build failed', publicUrl, diagnosticUrl: publicUrl, slug, github, build, lead };
+  }
+
   lead = await store.updateLead(lead.id, {
     mockup: {
       ...compactStoredMockup(lead.mockup),
