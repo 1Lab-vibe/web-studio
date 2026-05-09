@@ -8,6 +8,7 @@ import { deployLeadExportedProject, deployLeadGeneratedPreview, deployLeadPublic
 import { downloadTelegramFile, getTelegramFile, sendTelegram, sendTelegramTo } from './telegram.js';
 
 const QUESTIONS = [
+  { key: 'businessName', text: 'Как называется бизнес или проект? Если название в превью уже верное, напишите “оставить”.' },
   { key: 'previewDirection', text: 'Первый вопрос: оставить направление из превью сайта или сделать другой вариант? Если другой — опишите, каким он должен быть.' },
   { key: 'goal', text: 'Какая главная задача сайта: заявки, запись, доверие, каталог услуг или другое?' },
   { key: 'services', text: 'Какие услуги или товары обязательно показать на первом экране и в разделах?' },
@@ -21,6 +22,92 @@ const openai = hasSecret(config.OPENAI_API_KEY) ? new OpenAI({ apiKey: config.OP
 
 function privacyUrl() {
   return `${process.env.PUBLIC_BASE_URL || 'https://webstudio.1true.ru'}/privacy`;
+}
+
+const RESETTABLE_JOB_TYPES = [
+  'customer_preview_build',
+  'customer_revision_triage',
+  'customer_revision_apply',
+  'lovable_build',
+  'coder_deploy',
+  'filmer_render',
+  'checker_eval',
+  'outbound_queue',
+];
+
+function normalizeText(text) {
+  return String(text || '').trim();
+}
+
+function isResetBriefText(text) {
+  const value = normalizeText(text).toLowerCase();
+  return (
+    /^\/(reset|restart|startover|newbrief)\b/i.test(value) ||
+    /(начать|начнем|давай|собрать|собери|заполнить|заполни)\s+(тз\s+)?(заново|сначала|по новой)/i.test(value) ||
+    /(сбрось|сбросить|очисти|очистить|удали|удалить)\s+(черновик|тз|бриф|ввод)/i.test(value) ||
+    /(все|всё)\s+(заново|сначала|по новой)/i.test(value)
+  );
+}
+
+function isComplaintWithoutBrief(text) {
+  const value = normalizeText(text).toLowerCase();
+  return /(не тяни|хватит|не то|ерунда|чушь|бред|не понял|не понимаешь|начал.*не с того|что за)/i.test(value);
+}
+
+function looksLikeKeyboardGibberish(text, key = '') {
+  const value = normalizeText(text);
+  if (value.length < 5) return false;
+  if (key === 'style' && /(https?:\/\/|www\.|\.com|\.ru|apple|behance|dribbble|tilda|readymag|figma)/i.test(value)) return false;
+  const letters = value.replace(/[^a-zа-яё]/gi, '');
+  if (letters.length < 5) return false;
+  const latin = (letters.match(/[a-z]/gi) || []).length;
+  const russian = (letters.match(/[а-яё]/gi) || []).length;
+  const latinRatio = latin / Math.max(1, latin + russian);
+  const keyboardNoise = /(ghj|lkz|yf|dct|xnj|rfr|vfr|cnf|jxtym|gj|ght|ntcn|pf|ljk|bpf|rjnj|vfhr|gec|djd|fdw|ktq|xtuj|pfr)/i.test(value);
+  const hasUsefulLatin = /\b(ai|it|crm|api|seo|ui|ux|b2b|saas|apple|google|meta|openai)\b/i.test(value);
+  return keyboardNoise && latinRatio > 0.45 && !(hasUsefulLatin && latinRatio < 0.75);
+}
+
+function hasProhibitedBriefContent(text) {
+  return /(наркот|заклад|казино|букмекер|ставк[аи]|эскорт|проститу|порно|18\+|оружи|взлом|фишинг|скам|кардинг|поддельн|паспорт|экстрем|террор|ненавист|убить|насили|malware|phishing|scam|casino|escort|weapon|drug)/i.test(normalizeText(text));
+}
+
+function isGenericTelegramLeadName(lead) {
+  return lead?.source === 'telegram_inbound' && /^Новая заявка Telegram\b/i.test(String(lead?.name || ''));
+}
+
+function validateBriefAnswer(key, text) {
+  const value = normalizeText(text);
+  if (!value) return { ok: false, reason: 'empty' };
+  if (hasProhibitedBriefContent(value)) return { ok: false, reason: 'prohibited' };
+  if (looksLikeKeyboardGibberish(value, key)) return { ok: false, reason: 'gibberish' };
+  if (key === 'deadline' && /^(вчера|срочно|как можно быстрее|asap)$/i.test(value)) {
+    return { ok: true, normalizedText: 'как можно скорее', notice: 'Понял: срок срочный. Записал как “как можно скорее”.' };
+  }
+  return { ok: true, normalizedText: value };
+}
+
+function briefValidationIssues(lead) {
+  const brief = lead?.customerBrief ?? {};
+  const issues = [];
+  const businessName = brief.businessName || (!isGenericTelegramLeadName(lead) ? lead?.name : '');
+  const required = [
+    ['businessName', businessName, 'название или описание бизнеса'],
+    ['goal', brief.goal, 'цель сайта'],
+    ['services', brief.services, 'услуги/продукты'],
+    ['contacts', brief.contacts, 'контакты или поля формы'],
+  ];
+  for (const [key, value, label] of required) {
+    if (!normalizeText(value) || normalizeText(value) === '-') issues.push(`Не заполнено: ${label}.`);
+    else if (looksLikeKeyboardGibberish(value, key)) issues.push(`Похоже на случайный текст в поле “${label}”.`);
+    else if (hasProhibitedBriefContent(value)) issues.push(`Поле “${label}” требует проверки: запрещенная или рискованная тематика.`);
+  }
+  for (const [key, value] of Object.entries(brief)) {
+    if (typeof value !== 'string') continue;
+    if (looksLikeKeyboardGibberish(value, key)) issues.push(`Похоже на случайный текст: ${key}.`);
+    if (hasProhibitedBriefContent(value)) issues.push(`Рискованный контент: ${key}.`);
+  }
+  return Array.from(new Set(issues));
 }
 
 export async function handleCustomerTelegramMessage(store, message) {
@@ -50,6 +137,7 @@ export async function handleCustomerTelegramMessage(store, message) {
     await sendTelegramTo(chatId, customerHelpText(lead));
     return { ok: true, lead };
   }
+  if (command === '/reset' || isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
   if (command === '/brief') return sendBriefSummary(store, lead, chatId);
   if (command === '/approve') return approveBrief(store, lead, chatId);
   if (text === '/revision') {
@@ -127,7 +215,7 @@ export function isCustomerTelegramCommand(store, message) {
   if (/^\/start(\s+lead_[a-f0-9]{16,64})?/i.test(text)) return true;
   if (!store.listLeads().some((item) => String(item.customerTelegram?.chatId || '') === String(chatId))) return false;
   const command = text.split(/\s+/)[0].split('@')[0];
-  return ['/help', '/brief', '/approve', '/revision', '/resend', '/email'].includes(command);
+  return ['/help', '/brief', '/approve', '/reset', '/restart', '/startover', '/newbrief', '/revision', '/resend', '/email'].includes(command);
 }
 
 export async function handleCustomerTelegramCallback(store, callback) {
@@ -156,6 +244,12 @@ export async function handleCustomerTelegramCallback(store, callback) {
     });
     await sendTelegramTo(chatId, 'Пришлите правильный email. Я отправлю новый код подтверждения.', emailEntryKeyboard());
     return { ok: true, lead: updated, userId };
+  }
+  if (data === 'customer:reset_brief') {
+    return resetCustomerBrief(store, lead, chatId, 'customer_pressed_reset_button');
+  }
+  if (data === 'customer:approve_brief') {
+    return approveBrief(store, lead, chatId);
   }
   return { ok: false, skipped: true };
 }
@@ -247,6 +341,7 @@ function customerHelpText(lead) {
     '<b>Команды</b>',
     '/brief — показать черновик ТЗ',
     '/approve — утвердить ТЗ и перейти к оплате/работе',
+    '/reset — сбросить черновик и собрать ТЗ заново',
     '/revision — отправить правку по сайту',
     '/resend — отправить email-код заново',
     '/email — изменить email',
@@ -369,6 +464,65 @@ function emailEntryKeyboard() {
   };
 }
 
+function briefSummaryKeyboard({ canApprove = true } = {}) {
+  const rows = [];
+  if (canApprove) rows.push([{ text: 'Утвердить ТЗ', callback_data: 'customer:approve_brief' }]);
+  rows.push([{ text: 'Собрать заново', callback_data: 'customer:reset_brief' }]);
+  return { inline_keyboard: rows };
+}
+
+async function resetCustomerBrief(store, lead, chatId, reason = 'customer_requested_reset') {
+  const now = new Date().toISOString();
+  const cancelled = await store.cancelLeadJobs?.(lead.id, RESETTABLE_JOB_TYPES, 'Customer reset the brief');
+  const nextMode = lead.customerTelegram?.emailVerified ? 'brief' : 'registration_email';
+  const updated = await store.updateLead(lead.id, {
+    customerBrief: {
+      resetAt: now,
+      resetReason: reason,
+    },
+    customerTelegram: {
+      ...(lead.customerTelegram ?? {}),
+      mode: nextMode,
+      step: 0,
+    },
+    status: 'brief_reset',
+    pipelineStage: 'qualified',
+    stageStatus: nextMode === 'brief' ? 'brief_collecting' : 'registration_email',
+    lane: 'Диагноз',
+    owner: 'Mobile',
+    artifactStatus: 'brief_reset',
+    lastTransitionReason: reason,
+    nextAction: {
+      type: 'customer_brief_collecting',
+      title: 'Клиент собирает ТЗ заново',
+      reason,
+      createdAt: now,
+    },
+  });
+  await store.addEvent(updated.id, 'customer.brief_reset', `Customer reset brief; cancelled jobs: ${cancelled?.length || 0}`);
+  await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer reset brief and starts over', { reason, cancelledJobs: cancelled?.length || 0 });
+  await sendTelegramTo(chatId, 'Ок, сбросил черновик. Начинаем заново, без старых ответов.');
+  if (nextMode === 'brief') {
+    await sendTelegramTo(chatId, QUESTIONS[0].text);
+  } else {
+    await sendTelegramTo(chatId, 'Сначала подтвердим рабочий email. Пришлите почту, и я отправлю код подтверждения.', emailEntryKeyboard());
+  }
+  return { ok: true, lead: updated, reset: true, cancelledJobs: cancelled?.length || 0 };
+}
+
+async function handleRejectedBriefInput(store, lead, chatId, reason, key, text) {
+  const messages = {
+    empty: 'Ответ пустой. Напишите коротко по смыслу, можно одним предложением.',
+    gibberish: 'Похоже, текст введен случайно или в неправильной раскладке. Напишите этот пункт еще раз понятным текстом.',
+    prohibited: 'Не могу собирать ТЗ для запрещенной или рискованной тематики. Если я неверно понял контекст, переформулируйте задачу без спорных формулировок.',
+  };
+  await store.addEvent(lead.id, 'customer.brief_input_rejected', `${reason}: ${key}`, { text: String(text || '').slice(0, 500) });
+  if (reason === 'prohibited') {
+    await sendTelegram(`<b>Клиентский бриф остановлен проверкой контента</b>\nЛид: ${escapeHtml(lead.name)}\nID: <code>${escapeHtml(lead.id)}</code>\nПоле: <code>${escapeHtml(key)}</code>\nТекст: <code>${escapeHtml(String(text || '').slice(0, 500))}</code>`);
+  }
+  await sendTelegramTo(chatId, messages[reason] || messages.empty);
+}
+
 function isResendCodeText(text) {
   return /^\/resend\b/i.test(text) || /отправить\s+код\s+заново|прислать\s+код\s+заново|повтор/i.test(String(text || '').toLowerCase());
 }
@@ -394,23 +548,43 @@ async function notifyAdminCustomerStarted(lead, customerTelegram) {
 }
 
 async function collectBriefAnswer(store, lead, chatId, text) {
+  if (isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
   const step = Number(lead.customerTelegram?.step ?? 0);
   if (step >= QUESTIONS.length || lead.customerTelegram?.mode === 'brief_review') {
     return refineBriefFromMessage(store, lead, chatId, text);
   }
   const question = QUESTIONS[step] || QUESTIONS[QUESTIONS.length - 1];
+  const validation = validateBriefAnswer(question.key, text);
+  if (!validation.ok) {
+    await handleRejectedBriefInput(store, lead, chatId, validation.reason, question.key, text);
+    return { ok: false, lead, reason: validation.reason };
+  }
+  if (validation.notice) await sendTelegramTo(chatId, validation.notice);
+  const answerText =
+    question.key === 'businessName' && /^оставить$/i.test(validation.normalizedText || '')
+      ? (!isGenericTelegramLeadName(lead) ? lead.name : '')
+      : validation.normalizedText || text;
+  if (question.key === 'businessName' && !answerText) {
+    await sendTelegramTo(chatId, 'У этой заявки пока нет названия бизнеса. Напишите название или коротко опишите проект.');
+    return { ok: false, lead, reason: 'missing_business_name' };
+  }
   const brief = {
     ...(lead.customerBrief ?? {}),
-    [question.key]: text,
+    [question.key]: answerText,
     updatedAt: new Date().toISOString(),
   };
+  const leadPatch = question.key === 'businessName' && answerText && lead.name !== answerText
+    ? { name: answerText }
+    : {};
   const nextStep = step + 1;
-  const updated = await store.updateLead(lead.id, {
+  let updated = await store.updateLead(lead.id, {
+    ...leadPatch,
     customerBrief: brief,
     customerTelegram: { ...(lead.customerTelegram ?? {}), step: nextStep, mode: nextStep >= QUESTIONS.length ? 'brief_review' : 'brief' },
     status: 'briefing',
   });
-  await emitCustomerA1Event(updated, 'customer.brief_updated', `Brief answer: ${question.key}`, { brief, key: question.key, answer: text });
+  if (Object.keys(leadPatch).length) updated = await syncLeadToA1(store, updated, 'customer_brief_business_name');
+  await emitCustomerA1Event(updated, 'customer.brief_updated', `Brief answer: ${question.key}`, { brief, key: question.key, answer: answerText });
 
   if (nextStep < QUESTIONS.length) {
     await sendTelegramTo(chatId, QUESTIONS[nextStep].text);
@@ -421,6 +595,20 @@ async function collectBriefAnswer(store, lead, chatId, text) {
 }
 
 async function refineBriefFromMessage(store, lead, chatId, text) {
+  if (isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
+  if (hasProhibitedBriefContent(text)) {
+    await handleRejectedBriefInput(store, lead, chatId, 'prohibited', 'refinement', text);
+    return { ok: false, lead, reason: 'prohibited' };
+  }
+  if (looksLikeKeyboardGibberish(text, 'refinement')) {
+    await handleRejectedBriefInput(store, lead, chatId, 'gibberish', 'refinement', text);
+    return { ok: false, lead, reason: 'gibberish' };
+  }
+  if (isComplaintWithoutBrief(text)) {
+    await sendTelegramTo(chatId, 'Понял, без лишних кругов. Напишите одним сообщением: бизнес, цель сайта, услуги, стиль и контакты. Я обновлю ТЗ по делу.');
+    await store.addEvent(lead.id, 'customer.brief_complaint', text);
+    return { ok: true, lead, complaint: true };
+  }
   const currentBrief = lead.customerBrief ?? {};
   const refined = await briefDialogAgent(lead, currentBrief, text);
   const inferred = inferBusinessPatch(text);
@@ -474,6 +662,9 @@ async function briefDialogAgent(lead, currentBrief, text) {
             'Верни строго JSON без markdown: patch object и reply string.',
             'patch может содержать только: businessName, niche, previewDirection, goal, services, style, contacts, materials, deadline, notes.',
             'Если клиент явно говорит, что бизнес/проект другой, добавь patch.businessName и/или patch.niche.',
+            'Если клиент просит начать заново, сбросить ТЗ или очистить ввод, не обновляй поля: верни patch {} и короткий reply с просьбой использовать /reset.',
+            'Если клиент ругается на тон или просит не тянуть время, не добавляй это в notes и не меняй ТЗ без фактов о бизнесе.',
+            'Если в сообщении случайный текст, раскладка клавиатуры или запрещенная тематика, верни patch {}.',
             'reply: 1-2 короткие фразы, живо, без канцелярита. Если ТЗ стало понятнее, предложи /brief или /approve.',
           ].join('\n'),
         },
@@ -573,24 +764,45 @@ async function transcribeTelegramVoice(fileId) {
 
 async function sendBriefSummary(store, lead, chatId) {
   const brief = lead.customerBrief ?? {};
+  const businessName = brief.businessName || (!isGenericTelegramLeadName(lead) ? lead.name : '');
+  const issues = briefValidationIssues(lead);
   const summary = [
     '<b>Черновик ТЗ</b>',
-    `Бизнес: ${lead.name}`,
-    `Цель: ${brief.goal || '-'}`,
-    `Услуги: ${brief.services || '-'}`,
-    `Стиль: ${brief.style || '-'}`,
-    `Контакты/форма: ${brief.contacts || '-'}`,
-    `Материалы: ${brief.materials || '-'}`,
-    `Срок: ${brief.deadline || '-'}`,
-    brief.notes ? `Уточнения: ${brief.notes}` : '',
+    `Бизнес: ${escapeHtml(businessName || 'нужно уточнить')}`,
+    `Цель: ${escapeHtml(brief.goal || '-')}`,
+    `Услуги: ${escapeHtml(brief.services || '-')}`,
+    `Стиль: ${escapeHtml(brief.style || '-')}`,
+    `Контакты/форма: ${escapeHtml(brief.contacts || '-')}`,
+    `Материалы: ${escapeHtml(brief.materials || '-')}`,
+    `Срок: ${escapeHtml(brief.deadline || '-')}`,
+    brief.notes ? `Уточнения: ${escapeHtml(brief.notes)}` : '',
+    issues.length ? `\n<b>Что нужно поправить перед запуском</b>\n${issues.map((issue) => `• ${escapeHtml(issue)}`).join('\n')}` : '',
     '',
-    'Если все верно, отправьте /approve. Если нужно поправить, просто напишите уточнение.',
+    issues.length
+      ? 'Можно написать уточнение одним сообщением или нажать “Собрать заново”.'
+      : 'Если все верно, нажмите “Утвердить ТЗ” или отправьте /approve. Если нужно поправить, просто напишите уточнение.',
   ].filter(Boolean).join('\n');
-  await sendTelegramTo(chatId, summary);
+  await sendTelegramTo(chatId, summary, briefSummaryKeyboard({ canApprove: !issues.length }));
   return { ok: true, lead };
 }
 
 async function approveBrief(store, lead, chatId) {
+  const issues = briefValidationIssues(lead);
+  if (issues.length) {
+    await sendTelegramTo(
+      chatId,
+      [
+        '<b>Пока не запускаю сборку.</b>',
+        'В ТЗ есть ошибки или недостающие данные:',
+        ...issues.map((issue) => `• ${escapeHtml(issue)}`),
+        '',
+        'Напишите недостающие данные одним сообщением или нажмите “Собрать заново”.',
+      ].join('\n'),
+      briefSummaryKeyboard({ canApprove: false }),
+    );
+    await store.addEvent(lead.id, 'customer.brief_validation_failed', issues.join('; '));
+    return { ok: false, lead, reason: 'brief_validation_failed', issues };
+  }
   const approvedAt = new Date().toISOString();
   let updated = await store.updateLead(lead.id, {
     status: 'brief_approved',

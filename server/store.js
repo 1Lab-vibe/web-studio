@@ -589,6 +589,29 @@ export class Store {
     return job;
   }
 
+  async cancelLeadJobs(leadId, types = [], reason = 'Cancelled') {
+    this.state.jobs ??= [];
+    const now = new Date().toISOString();
+    const typeSet = new Set(types.filter(Boolean));
+    const cancelled = [];
+    for (const job of this.state.jobs) {
+      if (job.leadId !== leadId) continue;
+      if (typeSet.size && !typeSet.has(job.type)) continue;
+      if (!['queued', 'failed', 'running'].includes(job.status)) continue;
+      job.status = 'skipped';
+      job.lastError = reason;
+      job.finishedAt = now;
+      job.lockedUntil = '';
+      job.updatedAt = now;
+      cancelled.push(job);
+    }
+    if (cancelled.length) {
+      await this.addEvent(leadId || null, 'job.cancelled', `${reason}: ${cancelled.map((job) => job.type).join(', ')}`, { silent: true });
+      await this.save();
+    }
+    return cancelled;
+  }
+
   async reserveLovableBuildSlot({ intervalHours = 2, now = new Date() } = {}) {
     this.state.scheduler ??= structuredClone(initialState.scheduler);
     const nextAt = Date.parse(this.state.scheduler.nextLovableBuildAt || '');
