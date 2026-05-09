@@ -1,4 +1,5 @@
 import { config, csv, hasSecret } from '../config.js';
+import { plannedScoutQueries, scoutAreas } from './scoutAreas.js';
 import { scoreLead } from './yandexMaps.js';
 
 function safeNumber(value, fallback = 0) {
@@ -27,13 +28,14 @@ function estimateYearsOnMap() {
   return config.MIN_YEARS_ON_MAP;
 }
 
-function normalizePlace(place, city, niche) {
+function normalizePlace(place, city, niche, area = '') {
   const name = place.displayName?.text || 'Без названия';
   const lead = {
     source: 'google_places',
     sourceKey: place.id || `${city}:${niche}:${name}`,
     name,
     city,
+    area,
     niche,
     rating: safeNumber(place.rating, 0),
     reviews: safeNumber(place.userRatingCount, 0),
@@ -47,7 +49,15 @@ function normalizePlace(place, city, niche) {
   return { ...lead, priority: scoreLead(lead) };
 }
 
-async function searchText(query, city, niche) {
+async function searchText(query, city, niche, area = '', pageToken = '') {
+  const body = {
+    textQuery: query,
+    languageCode: 'ru',
+    regionCode: 'RU',
+    maxResultCount: Math.max(1, Math.min(20, Number(config.GOOGLE_MAPS_RESULTS) || 20)),
+  };
+  if (pageToken) body.pageToken = pageToken;
+
   const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
     headers: {
@@ -63,14 +73,10 @@ async function searchText(query, city, niche) {
         'places.nationalPhoneNumber',
         'places.internationalPhoneNumber',
         'places.types',
+        'nextPageToken',
       ].join(','),
     },
-    body: JSON.stringify({
-      textQuery: query,
-      languageCode: 'ru',
-      regionCode: 'RU',
-      maxResultCount: config.GOOGLE_MAPS_RESULTS,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -78,10 +84,14 @@ async function searchText(query, city, niche) {
   }
 
   const data = await response.json();
-  return (data.places ?? []).map((place) => normalizePlace(place, city, niche)).filter(qualifies);
+  return {
+    leads: (data.places ?? []).map((place) => normalizePlace(place, city, niche, area)).filter(qualifies),
+    resultCount: Array.isArray(data.places) ? data.places.length : 0,
+    nextPageToken: data.nextPageToken || '',
+  };
 }
 
-export async function scoutGooglePlaces(searchLimit) {
+export async function scoutGooglePlaces(searchLimit, options = {}) {
   if (!hasSecret(config.GOOGLE_MAPS_API_KEY)) {
     return { ok: false, skipped: true, reason: 'GOOGLE_MAPS_API_KEY is not configured', leads: [], searchesUsed: 0 };
   }
@@ -91,19 +101,35 @@ export async function scoutGooglePlaces(searchLimit) {
   }
 
   const leads = [];
+  const skippedQueries = [];
   let searchesUsed = 0;
-  for (const city of csv(config.SCOUT_CITIES)) {
+  const pageLimit = Math.max(1, Math.min(3, Number(config.SCOUT_GOOGLE_PAGES) || 1));
+
+  for (const scoutArea of scoutAreas()) {
     for (const niche of csv(config.SCOUT_NICHES)) {
-      if (searchesUsed >= searchLimit) return { ok: true, leads, searchesUsed, limited: true };
-      const found = await searchText(`${niche} ${city}`, city, niche);
-      searchesUsed += 1;
-      leads.push(...found);
+      let nextPageToken = '';
+      for (let page = 0; page < pageLimit; page += 1) {
+        if (searchesUsed >= searchLimit) return { ok: true, leads, searchesUsed, skippedQueries, limited: true };
+        const query = `${niche} ${scoutArea.queryLocation}`;
+        const queryInput = { provider: 'google_places', city: scoutArea.city, area: scoutArea.area, niche, page, query, cooldownDays: config.SCOUT_QUERY_COOLDOWN_DAYS };
+        const gate = options.shouldRunQuery?.(queryInput) ?? { ok: true };
+        if (!gate.ok) {
+          skippedQueries.push({ ...queryInput, reason: 'cooldown', nextRunAt: gate.nextRunAt });
+          break;
+        }
+        const found = await searchText(query, scoutArea.city, niche, scoutArea.area, nextPageToken);
+        searchesUsed += 1;
+        leads.push(...found.leads);
+        await options.recordQuery?.(queryInput, { key: gate.key, status: 'done', resultCount: found.resultCount, newResultCount: found.leads.length });
+        if (!found.nextPageToken) break;
+        nextPageToken = found.nextPageToken;
+      }
     }
   }
 
-  return { ok: true, leads, searchesUsed, limited: false };
+  return { ok: true, leads, searchesUsed, skippedQueries, limited: false };
 }
 
 export function plannedGoogleSearches() {
-  return csv(config.SCOUT_CITIES).length * csv(config.SCOUT_NICHES).length;
+  return plannedScoutQueries({ provider: 'google', pageLimit: config.SCOUT_GOOGLE_PAGES });
 }

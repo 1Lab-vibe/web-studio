@@ -7,6 +7,7 @@ const initialState = {
   events: [],
   approvals: [],
   jobs: [],
+  scoutQueries: {},
   orchestratorRuns: [],
   outreachQueue: [],
   integrationInbox: [],
@@ -209,6 +210,7 @@ export class Store {
     this.state.leads ??= [];
     this.state.approvals ??= [];
     this.state.jobs ??= [];
+    this.state.scoutQueries ??= {};
     this.state.orchestratorRuns ??= [];
     this.state.outreachQueue ??= [];
     this.state.integrationInbox ??= [];
@@ -300,6 +302,52 @@ export class Store {
     await this.addEvent(lead.id, 'lead.created', `Создан лид ${lead.name}`, { silent: true });
     await this.save();
     return lead;
+  }
+
+  scoutQueryKey({ provider, city, area, niche, page = 0 } = {}) {
+    return [provider, city, area || city, niche, `p${page}`]
+      .map((part) =>
+        String(part || '')
+          .toLowerCase()
+          .replace(/\s+/g, ' ')
+          .trim(),
+      )
+      .join('|');
+  }
+
+  shouldRunScoutQuery(input = {}) {
+    this.state.scoutQueries ??= {};
+    const key = this.scoutQueryKey(input);
+    const existing = this.state.scoutQueries[key];
+    const nextRunAt = Date.parse(existing?.nextRunAt || '');
+    if (Number.isFinite(nextRunAt) && nextRunAt > Date.now()) {
+      return { ok: false, key, nextRunAt: existing.nextRunAt, lastRunAt: existing.lastRunAt };
+    }
+    return { ok: true, key, lastRunAt: existing?.lastRunAt || '' };
+  }
+
+  async recordScoutQuery(input = {}, result = {}) {
+    this.state.scoutQueries ??= {};
+    const key = result.key || this.scoutQueryKey(input);
+    const now = new Date();
+    const cooldownDays = Math.max(1, Number(input.cooldownDays ?? 7) || 7);
+    this.state.scoutQueries[key] = {
+      key,
+      provider: input.provider || '',
+      city: input.city || '',
+      area: input.area || input.city || '',
+      niche: input.niche || '',
+      page: Number(input.page ?? 0),
+      query: input.query || '',
+      status: result.status || 'done',
+      resultCount: Number(result.resultCount ?? 0),
+      newResultCount: Number(result.newResultCount ?? result.resultCount ?? 0),
+      error: result.error || '',
+      lastRunAt: now.toISOString(),
+      nextRunAt: new Date(now.getTime() + cooldownDays * 24 * 60 * 60 * 1000).toISOString(),
+    };
+    await this.save();
+    return this.state.scoutQueries[key];
   }
 
   async transitionLead(id, input = {}) {
@@ -655,6 +703,27 @@ export class Store {
     await this.save();
     return {
       reserved,
+      used: this.state.metrics.googleSearchesToday,
+      remaining: Math.max(0, Number(limit) - this.state.metrics.googleSearchesToday),
+    };
+  }
+
+  async googleSearchBudget(limit) {
+    await this.resetDailyUsageIfNeeded();
+    const used = Number(this.state.metrics.googleSearchesToday ?? 0);
+    return {
+      used,
+      remaining: Math.max(0, Number(limit) - used),
+      limit: Number(limit),
+    };
+  }
+
+  async recordGoogleSearches(count, limit = Infinity) {
+    await this.resetDailyUsageIfNeeded();
+    const used = Number(this.state.metrics.googleSearchesToday ?? 0);
+    this.state.metrics.googleSearchesToday = used + Math.max(0, Number(count) || 0);
+    await this.save();
+    return {
       used: this.state.metrics.googleSearchesToday,
       remaining: Math.max(0, Number(limit) - this.state.metrics.googleSearchesToday),
     };

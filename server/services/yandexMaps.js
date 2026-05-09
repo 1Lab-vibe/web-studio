@@ -1,4 +1,5 @@
 import { config, csv, hasSecret } from '../config.js';
+import { scoutAreas } from './scoutAreas.js';
 
 function safeNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -40,50 +41,73 @@ function qualifies(lead) {
   );
 }
 
-export async function scoutYandexMaps() {
+export async function scoutYandexMaps(options = {}) {
   if (!hasSecret(config.YANDEX_MAPS_API_KEY)) {
     return { ok: false, skipped: true, reason: 'YANDEX_MAPS_API_KEY is not configured', leads: [] };
   }
 
   const leads = [];
-  for (const city of csv(config.SCOUT_CITIES)) {
-    for (const niche of csv(config.SCOUT_NICHES)) {
-      const url = new URL('https://search-maps.yandex.ru/v1/');
-      const authHeaders = yandexAuthHeaders();
-      url.searchParams.set('apikey', yandexApiKeyValue());
-      url.searchParams.set('text', `${niche} ${city}`);
-      url.searchParams.set('lang', config.YANDEX_MAPS_LANG);
-      url.searchParams.set('type', 'biz');
-      url.searchParams.set('results', String(config.YANDEX_MAPS_RESULTS));
+  const skippedQueries = [];
+  const pageLimit = Math.max(1, Math.min(20, Number(config.SCOUT_YANDEX_PAGES) || 1));
+  const results = Math.max(1, Math.min(50, Number(config.YANDEX_MAPS_RESULTS) || 25));
 
-      const response = await fetch(url, { headers: authHeaders });
-      if (!response.ok) {
-        throw new Error(`Yandex Maps API failed: ${response.status} ${await response.text()}`);
-      }
-      const data = await response.json();
-      for (const feature of data.features ?? []) {
-        const meta = parseCompanyMeta(feature);
-        const lead = {
-          source: 'yandex_maps',
-          sourceKey: feature.properties?.CompanyMetaData?.id || feature.uri || `${city}:${niche}:${feature.properties?.name}`,
-          name: feature.properties?.name || meta.company.name || 'Без названия',
-          city,
-          niche,
-          rating: meta.rating,
-          reviews: meta.reviews,
-          years: estimateYearsOnMap(feature),
-          site: siteLabel(meta.url),
-          url: meta.url,
-          address: meta.company.address || feature.properties?.description || '',
-          phone: meta.company.Phones?.[0]?.formatted || '',
-          categories: meta.categories,
-        };
-        if (qualifies(lead)) leads.push({ ...lead, priority: scoreLead(lead) });
+  for (const scoutArea of scoutAreas()) {
+    for (const niche of csv(config.SCOUT_NICHES)) {
+      for (let page = 0; page < pageLimit; page += 1) {
+        const query = `${niche} ${scoutArea.queryLocation}`;
+        const queryInput = { provider: 'yandex_maps', city: scoutArea.city, area: scoutArea.area, niche, page, query, cooldownDays: config.SCOUT_QUERY_COOLDOWN_DAYS };
+        const gate = options.shouldRunQuery?.(queryInput) ?? { ok: true };
+        if (!gate.ok) {
+          skippedQueries.push({ ...queryInput, reason: 'cooldown', nextRunAt: gate.nextRunAt });
+          break;
+        }
+
+        const url = new URL('https://search-maps.yandex.ru/v1/');
+        const authHeaders = yandexAuthHeaders();
+        url.searchParams.set('apikey', yandexApiKeyValue());
+        url.searchParams.set('text', query);
+        url.searchParams.set('lang', config.YANDEX_MAPS_LANG);
+        url.searchParams.set('type', 'biz');
+        url.searchParams.set('results', String(results));
+        url.searchParams.set('skip', String(page * results));
+
+        const response = await fetch(url, { headers: authHeaders });
+        if (!response.ok) {
+          const error = `Yandex Maps API failed: ${response.status} ${await response.text()}`;
+          await options.recordQuery?.(queryInput, { key: gate.key, status: 'failed', error });
+          throw new Error(error);
+        }
+
+        const data = await response.json();
+        const pageLeads = [];
+        for (const feature of data.features ?? []) {
+          const meta = parseCompanyMeta(feature);
+          const lead = {
+            source: 'yandex_maps',
+            sourceKey: feature.properties?.CompanyMetaData?.id || feature.uri || `${scoutArea.city}:${niche}:${feature.properties?.name}`,
+            name: feature.properties?.name || meta.company.name || 'Без названия',
+            city: scoutArea.city,
+            area: scoutArea.area,
+            niche,
+            rating: meta.rating,
+            reviews: meta.reviews,
+            years: estimateYearsOnMap(feature),
+            site: siteLabel(meta.url),
+            url: meta.url,
+            address: meta.company.address || feature.properties?.description || '',
+            phone: meta.company.Phones?.[0]?.formatted || '',
+            categories: meta.categories,
+          };
+          if (qualifies(lead)) pageLeads.push({ ...lead, priority: scoreLead(lead) });
+        }
+        leads.push(...pageLeads);
+        await options.recordQuery?.(queryInput, { key: gate.key, status: 'done', resultCount: data.features?.length || 0, newResultCount: pageLeads.length });
+        if (!Array.isArray(data.features) || data.features.length < results) break;
       }
     }
   }
 
-  return { ok: true, leads };
+  return { ok: true, leads, skippedQueries };
 }
 
 function yandexAuthHeaders() {

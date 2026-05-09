@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { scoutYandexMaps } from './services/yandexMaps.js';
-import { plannedGoogleSearches, scoutGooglePlaces } from './services/googlePlaces.js';
+import { scoutGooglePlaces } from './services/googlePlaces.js';
 import { diagnoseLead, evaluatePitch } from './services/openaiAgent.js';
 import { crmAddEvent, customerBotLink, outboundQueueMessage, parsedToolData, syncA1CrmLead } from './services/a1Client.js';
 import { prepareLovableMockup } from './services/lovableMcp.js';
@@ -31,7 +31,8 @@ export class Orchestrator {
     const result = await this.scoutSources();
     if (!result.ok) return result;
     const saved = [];
-    for (const lead of result.leads ?? []) {
+    const filtered = this.filterNewScoutLeads(result.leads ?? []);
+    for (const lead of filtered.newLeads) {
       let savedLead = await this.store.upsertLead(lead);
       const contacts = await enrichContacts(savedLead);
       savedLead = await this.store.updateLead(savedLead.id, enrichLeadScore({ ...savedLead, contacts }));
@@ -43,7 +44,7 @@ export class Orchestrator {
     }
     this.store.state.metrics.scannedToday += saved.length;
     await this.store.save();
-    return { ok: true, saved, sources: result.sources ?? [] };
+    return { ok: true, saved, duplicatesSkipped: filtered.duplicatesSkipped, sources: result.sources ?? [] };
   }
 
   async scoutSources() {
@@ -53,8 +54,8 @@ export class Orchestrator {
 
     if (provider === 'yandex' || provider === 'both') {
       try {
-        const yandex = await scoutYandexMaps();
-        sources.push({ name: 'yandex_maps', ok: yandex.ok, skipped: yandex.skipped, reason: yandex.reason });
+        const yandex = await scoutYandexMaps(this.scoutQueryOptions());
+        sources.push({ name: 'yandex_maps', ok: yandex.ok, skipped: yandex.skipped, reason: yandex.reason, skippedQueries: yandex.skippedQueries?.length || 0 });
         if (yandex.ok) leads.push(...yandex.leads);
         if (provider === 'yandex' && yandex.ok) return { ok: true, leads, sources };
       } catch (error) {
@@ -69,16 +70,18 @@ export class Orchestrator {
         const ok = sources.some((source) => source.ok);
         return { ok, skipped: !ok, leads, sources, reason: ok ? undefined : 'No lead source returned data' };
       }
-      const usage = await this.store.reserveGoogleSearches(config.GOOGLE_DAILY_SEARCH_LIMIT, plannedGoogleSearches());
-      const google = await scoutGooglePlaces(usage.reserved);
+      const budget = await this.store.googleSearchBudget(config.GOOGLE_DAILY_SEARCH_LIMIT);
+      const google = await scoutGooglePlaces(budget.remaining, this.scoutQueryOptions());
+      const usage = await this.store.recordGoogleSearches(google.searchesUsed || 0, config.GOOGLE_DAILY_SEARCH_LIMIT);
       sources.push({
         name: 'google_places',
         ok: google.ok,
         skipped: google.skipped,
         reason: google.reason,
-        searchesReserved: usage.reserved,
+        searchesReserved: budget.remaining,
         searchesUsed: google.searchesUsed,
         searchesRemaining: usage.remaining,
+        skippedQueries: google.skippedQueries?.length || 0,
         limited: google.limited,
       });
       if (google.ok) leads.push(...google.leads);
@@ -86,6 +89,45 @@ export class Orchestrator {
 
     const ok = sources.some((source) => source.ok);
     return { ok, skipped: !ok, leads, sources, reason: ok ? undefined : 'No lead source returned data' };
+  }
+
+  scoutQueryOptions() {
+    return {
+      shouldRunQuery: (input) => this.store.shouldRunScoutQuery(input),
+      recordQuery: (input, result) => this.store.recordScoutQuery(input, result),
+    };
+  }
+
+  filterNewScoutLeads(leads = []) {
+    const seen = new Set();
+    const existing = this.store.listLeads();
+    const knownSourceKeys = new Set(existing.map((lead) => lead.sourceKey).filter(Boolean));
+    const knownNameCity = new Set(existing.map((lead) => `${normalizeDedupeText(lead.name)}|${normalizeDedupeText(lead.city)}`).filter((key) => key !== '|'));
+    const knownPhones = new Set(existing.map((lead) => normalizePhone(lead.phone || lead.contacts?.phone)).filter(Boolean));
+    const knownAddresses = new Set(existing.map((lead) => `${normalizeDedupeText(lead.address)}|${normalizeDedupeText(lead.city)}`).filter((key) => key !== '|'));
+    const newLeads = [];
+    let duplicatesSkipped = 0;
+    for (const lead of leads) {
+      const signature = [
+        lead.sourceKey ? `source:${lead.sourceKey}` : '',
+        `name:${normalizeDedupeText(lead.name)}|${normalizeDedupeText(lead.city)}`,
+        normalizePhone(lead.phone) ? `phone:${normalizePhone(lead.phone)}` : '',
+        lead.address ? `addr:${normalizeDedupeText(lead.address)}|${normalizeDedupeText(lead.city)}` : '',
+      ].filter(Boolean);
+      const duplicate =
+        signature.some((item) => seen.has(item)) ||
+        (lead.sourceKey && knownSourceKeys.has(lead.sourceKey)) ||
+        knownNameCity.has(`${normalizeDedupeText(lead.name)}|${normalizeDedupeText(lead.city)}`) ||
+        (normalizePhone(lead.phone) && knownPhones.has(normalizePhone(lead.phone))) ||
+        (lead.address && knownAddresses.has(`${normalizeDedupeText(lead.address)}|${normalizeDedupeText(lead.city)}`));
+      if (duplicate) {
+        duplicatesSkipped += 1;
+        continue;
+      }
+      signature.forEach((item) => seen.add(item));
+      newLeads.push(lead);
+    }
+    return { newLeads, duplicatesSkipped };
   }
 
   async tick() {
@@ -1149,6 +1191,18 @@ function jobRevisionForAction(lead, action) {
 
 function stableOutboundKey(lead = {}) {
   return `webstudio:${lead.id}:outbound:sales-email-v1`;
+}
+
+function normalizeDedupeText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[«»"'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizePhone(value) {
+  return String(value || '').replace(/\D/g, '');
 }
 
 function isOutboundScheduleDue(lead = {}) {
