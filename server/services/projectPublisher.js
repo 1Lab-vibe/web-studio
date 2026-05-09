@@ -548,6 +548,7 @@ async function materializeRepairImage(sourceRoot, importerFile, variableName, ur
     const contentType = response.headers.get('content-type') || '';
     if (!response.ok || !contentType.startsWith('image/')) throw new Error(`image_fetch_failed_${response.status}`);
     const body = Buffer.from(await response.arrayBuffer());
+    if (body.length < 1024) throw new Error('image_fetch_empty_body');
     await mkdir(path.dirname(assetPath), { recursive: true });
     await writeFile(assetPath, body);
     const relative = path.relative(path.dirname(importerFile), assetPath).replace(/\\/g, '/');

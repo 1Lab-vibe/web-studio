@@ -48,6 +48,16 @@ export async function runPreviewQualityGate(lead, { outputDir = path.resolve(con
     if (bodyText.length < 80) issues.push('empty_or_too_short_body');
     if (/404|not found|page not found|react router/i.test(bodyText.slice(0, 1500))) issues.push('possible_router_404');
     if (isBuildFailurePage(bodyText)) issues.push('build_failed_stub_page');
+    const brokenImages = await page
+      .$$eval('img', (images) =>
+        images
+          .filter((image) => image.getBoundingClientRect().width > 1 && image.getBoundingClientRect().height > 1)
+          .filter((image) => !image.complete || image.naturalWidth < 10 || image.naturalHeight < 10)
+          .map((image) => image.getAttribute('src') || '')
+          .slice(0, 10),
+      )
+      .catch(() => []);
+    if (brokenImages.length) issues.push('broken_visible_images');
 
     const firstScreen = bodyText.slice(0, 1500).toLowerCase();
     const businessToken = String(lead.name || '').split(/\s+/).find((part) => part.length >= 4)?.toLowerCase();
@@ -69,6 +79,7 @@ export async function runPreviewQualityGate(lead, { outputDir = path.resolve(con
       issues,
       warnings,
       badAssets: badAssets.slice(0, 10),
+      brokenImages,
       consoleErrors: consoleErrors.slice(0, 5),
       screenshotUrl: `/renders/${screenshotName}`,
     };
