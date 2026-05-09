@@ -51,7 +51,10 @@ export async function runPreviewQualityGate(lead, { outputDir = path.resolve(con
     const brokenImages = await page
       .$$eval('img', (images) =>
         images
-          .filter((image) => image.getBoundingClientRect().width > 1 && image.getBoundingClientRect().height > 1)
+          .filter((image) => {
+            const rect = image.getBoundingClientRect();
+            return rect.width > 1 && rect.height > 1 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+          })
           .filter((image) => !image.complete || image.naturalWidth < 10 || image.naturalHeight < 10)
           .map((image) => image.getAttribute('src') || '')
           .slice(0, 10),
