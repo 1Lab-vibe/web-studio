@@ -69,7 +69,7 @@ function looksLikeKeyboardGibberish(text, key = '') {
 }
 
 function hasProhibitedBriefContent(text) {
-  return /(наркот|заклад|казино|букмекер|ставк[аи]|эскорт|проститу|порно|18\+|оружи|взлом|фишинг|скам|кардинг|поддельн|паспорт|экстрем|террор|ненавист|убить|насили|malware|phishing|scam|casino|escort|weapon|drug)/i.test(normalizeText(text));
+  return /(\bставк[аи]\b|наркот|заклад|казино|букмекер|эскорт|проститу|порн|pornhub|18\+|секс[- ]?услуг|обнажен|обнажён|нюд|оружи|взлом|фишинг|скам|кардинг|поддельн|паспорт|экстрем|террор|ненавист|убить|насили|malware|phishing|scam|casino|escort|weapon|drug)/i.test(normalizeText(text));
 }
 
 function isGenericTelegramLeadName(lead) {
@@ -137,6 +137,7 @@ export async function handleCustomerTelegramMessage(store, message) {
     await sendTelegramTo(chatId, customerHelpText(lead));
     return { ok: true, lead };
   }
+  if (command === '/start') return resumeExistingCustomer(store, lead, chatId);
   if (command === '/reset' || isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
   if (command === '/cancel') return cancelCustomerBrief(store, lead, chatId, 'customer_requested_cancel');
   if (command === '/brief') return sendBriefSummary(store, lead, chatId);
@@ -554,7 +555,20 @@ async function handleRejectedBriefInput(store, lead, chatId, reason, key, text) 
   };
   await store.addEvent(lead.id, 'customer.brief_input_rejected', `${reason}: ${key}`, { text: String(text || '').slice(0, 500) });
   if (reason === 'prohibited') {
-    await sendTelegram(`<b>Клиентский бриф остановлен проверкой контента</b>\nЛид: ${escapeHtml(lead.name)}\nID: <code>${escapeHtml(lead.id)}</code>\nПоле: <code>${escapeHtml(key)}</code>\nТекст: <code>${escapeHtml(String(text || '').slice(0, 500))}</code>`);
+    const tg = lead.customerTelegram || {};
+    const displayName = [tg.firstName, tg.lastName].filter(Boolean).join(' ').trim();
+    const username = tg.username ? `@${tg.username}` : '';
+    await sendTelegram(
+      [
+        '<b>Клиентский бриф остановлен проверкой контента</b>',
+        `Лид: <b>${escapeHtml(lead.name || 'без названия')}</b>`,
+        `Клиент: ${escapeHtml([displayName, username].filter(Boolean).join(' ') || String(tg.chatId || 'неизвестно'))}`,
+        `Chat ID: <code>${escapeHtml(String(tg.chatId || ''))}</code>`,
+        `Lead ID: <code>${escapeHtml(lead.id)}</code>`,
+        `Поле: <code>${escapeHtml(key)}</code>`,
+        `Текст: <code>${escapeHtml(String(text || '').slice(0, 500))}</code>`,
+      ].join('\n'),
+    );
   }
   await sendTelegramTo(chatId, messages[reason] || messages.empty);
 }
@@ -585,6 +599,10 @@ async function notifyAdminCustomerStarted(lead, customerTelegram) {
 
 async function collectBriefAnswer(store, lead, chatId, text) {
   if (isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
+  if (String(text || '').trim().startsWith('/')) {
+    await sendTelegramTo(chatId, 'Не знаю такую команду. Используйте /help, /brief, /reset или просто напишите ответ обычным текстом.');
+    return { ok: false, lead, reason: 'unknown_command' };
+  }
   const step = Number(lead.customerTelegram?.step ?? 0);
   if (step >= QUESTIONS.length || lead.customerTelegram?.mode === 'brief_review') {
     return refineBriefFromMessage(store, lead, chatId, text);
@@ -628,6 +646,18 @@ async function collectBriefAnswer(store, lead, chatId, text) {
   }
 
   return sendBriefSummary(store, updated, chatId);
+}
+
+async function resumeExistingCustomer(store, lead, chatId) {
+  await sendTelegramTo(chatId, onboardingText(lead, hasReadyPreview(lead)));
+  if (!lead.customerTelegram?.emailVerified) {
+    await sendTelegramTo(chatId, 'Для продолжения пришлите рабочий email. Я отправлю код подтверждения.', emailEntryKeyboard());
+    return { ok: true, lead };
+  }
+  if (lead.customerTelegram?.mode === 'brief_review') return sendBriefSummary(store, lead, chatId);
+  const step = Math.max(0, Math.min(QUESTIONS.length - 1, Number(lead.customerTelegram?.step ?? 0)));
+  await sendTelegramTo(chatId, QUESTIONS[step].text);
+  return { ok: true, lead };
 }
 
 async function refineBriefFromMessage(store, lead, chatId, text) {
