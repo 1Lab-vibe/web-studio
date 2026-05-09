@@ -18,6 +18,24 @@ const QUESTIONS = [
   { key: 'deadline', text: 'К какому сроку хотите получить первый рабочий вариант?' },
 ];
 
+const BRIEF_CAPTURE_GUIDE = [
+  '<b>Соберем ТЗ одним потоком</b>',
+  '',
+  'Пришлите одним или несколькими сообщениями все, что важно для сайта. Можно текстом, голосом, ссылками и файлами.',
+  '',
+  '<b>Что желательно указать:</b>',
+  '1. Название бизнеса или проекта.',
+  '2. Что продаете: услуги, товары, направления.',
+  '3. Главная цель сайта: заявки, запись, доверие, каталог, оплата, другое.',
+  '4. Кому продаете и чем отличаетесь.',
+  '5. Стиль: примеры сайтов, цвета, настроение, что точно не нравится.',
+  '6. Контакты и форма: какие поля нужны, куда должны приходить заявки.',
+  '7. Материалы: логотип, фото, видео, отзывы, лицензии, ссылки.',
+  '8. Сроки, ограничения и важные пожелания.',
+  '',
+  'Когда закончите, напишите <b>Все</b> или отправьте команду <b>/finish</b>. Я соберу аккуратное ТЗ, проверю его и пришлю на утверждение.',
+].join('\n');
+
 const openai = hasSecret(config.OPENAI_API_KEY) ? new OpenAI({ apiKey: config.OPENAI_API_KEY }) : null;
 
 function privacyUrl() {
@@ -47,6 +65,15 @@ function isResetBriefText(text) {
     /(сбрось|сбросить|очисти|очистить|удали|удалить)\s+(черновик|тз|бриф|ввод)/i.test(value) ||
     /(все|всё)\s+(заново|сначала|по новой)/i.test(value)
   );
+}
+
+function isFinishBriefText(text) {
+  const value = normalizeText(text).toLowerCase();
+  return /^\/(finish|done|end|ready)\b/i.test(value) || /^(все|всё|готово|конец|закончил|закончила|end|done|finish)$/i.test(value);
+}
+
+function isBriefCaptureMode(lead) {
+  return ['brief_capture', 'brief'].includes(String(lead?.customerTelegram?.mode || ''));
 }
 
 function isComplaintWithoutBrief(text) {
@@ -83,6 +110,10 @@ function isInvalidBusinessName(value) {
   return !text || text === '-' || /^\/[a-z]/i.test(text) || /^(нет|не знаю|любой|как хочешь|как тебе|test|тест)$/i.test(text);
 }
 
+function isMissingBriefValue(value) {
+  return !normalizeText(value) || normalizeText(value) === '-' || /^(нужно уточнить|уточнить|не указано|нет данных)$/i.test(normalizeText(value));
+}
+
 function validateBriefAnswer(key, text) {
   const value = normalizeText(text);
   if (!value) return { ok: false, reason: 'empty' };
@@ -105,8 +136,8 @@ function briefValidationIssues(lead) {
     ['contacts', brief.contacts, 'контакты или поля формы'],
   ];
   for (const [key, value, label] of required) {
-    if (key === 'businessName' && isInvalidBusinessName(value)) issues.push(`Не заполнено: ${label}.`);
-    else if (!normalizeText(value) || normalizeText(value) === '-') issues.push(`Не заполнено: ${label}.`);
+    if (key === 'businessName' && (isInvalidBusinessName(value) || isMissingBriefValue(value))) issues.push(`Не заполнено: ${label}.`);
+    else if (isMissingBriefValue(value)) issues.push(`Не заполнено: ${label}.`);
     else if (looksLikeKeyboardGibberish(value, key)) issues.push(`Похоже на случайный текст в поле “${label}”.`);
     else if (hasProhibitedBriefContent(value)) issues.push(`Поле “${label}” требует проверки: запрещенная или рискованная тематика.`);
   }
@@ -134,6 +165,7 @@ export async function handleCustomerTelegramMessage(store, message) {
     }
     text = voice.text;
   }
+  if (!text) text = describeTelegramAttachment(message);
   if (!text) return { ok: true, skipped: true };
 
   const startMatch = text.match(/^\/start\s+lead_([a-f0-9]{16,64})/i);
@@ -152,6 +184,7 @@ export async function handleCustomerTelegramMessage(store, message) {
   if (command === '/start') return resumeExistingCustomer(store, lead, chatId);
   if (command === '/reset' || isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
   if (command === '/cancel') return cancelCustomerBrief(store, lead, chatId, 'customer_requested_cancel');
+  if (lead.customerTelegram?.emailVerified && (command === '/finish' || isFinishBriefText(text))) return finishBriefCapture(store, lead, chatId);
   if (command === '/brief') return sendBriefSummary(store, lead, chatId);
   if (command === '/approve') return approveBrief(store, lead, chatId);
   if (text === '/revision') {
@@ -219,7 +252,7 @@ export async function handleCustomerTelegramMessage(store, message) {
     return { ok: true, lead: updated };
   }
 
-  return collectBriefAnswer(store, lead, chatId, text);
+  return collectBriefAnswer(store, lead, chatId, text, message);
 }
 
 export function isCustomerTelegramCommand(store, message) {
@@ -229,7 +262,7 @@ export function isCustomerTelegramCommand(store, message) {
   if (/^\/start(\s+lead_[a-f0-9]{16,64})?/i.test(text)) return true;
   if (!store.listLeads().some((item) => String(item.customerTelegram?.chatId || '') === String(chatId))) return false;
   const command = text.split(/\s+/)[0].split('@')[0];
-  return ['/help', '/brief', '/approve', '/reset', '/restart', '/startover', '/newbrief', '/cancel', '/revision', '/resend', '/email'].includes(command);
+  return ['/help', '/brief', '/approve', '/finish', '/done', '/end', '/reset', '/restart', '/startover', '/newbrief', '/cancel', '/revision', '/resend', '/email'].includes(command);
 }
 
 export async function handleCustomerTelegramCallback(store, callback) {
@@ -295,7 +328,7 @@ async function startCustomerLead(store, chatId, from, token) {
     chatId,
     onboardingText(lead, true),
   );
-  if (customerTelegram.emailVerified) await sendTelegramTo(chatId, QUESTIONS[0].text);
+  if (customerTelegram.emailVerified) await startBriefCapture(store, lead, chatId);
   else if (customerTelegram.email) await requestEmailVerification(store, lead, chatId, customerTelegram.email);
   else await sendTelegramTo(chatId, 'Для начала регистрации пришлите, пожалуйста, рабочий email. Я отправлю на него код подтверждения.', emailEntryKeyboard());
   return { ok: true, lead };
@@ -354,6 +387,7 @@ function customerHelpText(lead) {
     '',
     '<b>Команды</b>',
     '/brief — показать черновик ТЗ',
+    '/finish — закончить сбор материалов и собрать ТЗ',
     '/approve — утвердить ТЗ и перейти к оплате/работе',
     '/reset — сбросить черновик и собрать ТЗ заново',
     '/cancel — остановить текущую заявку',
@@ -458,7 +492,7 @@ async function confirmEmailCode(store, lead, chatId, text) {
   });
   await emitCustomerA1Event(updated, 'customer.email_verified', 'Customer verified email', { customerEmail: email });
   await syncLeadToA1(store, updated, 'customer_email_verified');
-  await sendTelegramTo(chatId, `Email подтвержден. Теперь соберем короткое ТЗ.\n\n${QUESTIONS[Number(updated.customerTelegram?.step ?? 0)]?.text || QUESTIONS[0].text}`);
+  await startBriefCapture(store, updated, chatId);
   return { ok: true, lead: updated };
 }
 
@@ -518,7 +552,7 @@ async function resetCustomerBrief(store, lead, chatId, reason = 'customer_reques
   await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer reset brief and starts over', { reason, cancelledJobs: cancelled?.length || 0 });
   await sendTelegramTo(chatId, 'Ок, сбросил черновик. Начинаем заново, без старых ответов.');
   if (nextMode === 'brief') {
-    await sendTelegramTo(chatId, QUESTIONS[0].text);
+    await startBriefCapture(store, updated, chatId);
   } else {
     await sendTelegramTo(chatId, 'Сначала подтвердим рабочий email. Пришлите почту, и я отправлю код подтверждения.', emailEntryKeyboard());
   }
@@ -609,12 +643,38 @@ async function notifyAdminCustomerStarted(lead, customerTelegram) {
   );
 }
 
-async function collectBriefAnswer(store, lead, chatId, text) {
+async function startBriefCapture(store, lead, chatId) {
+  const updated = await store.updateLead(lead.id, {
+    customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'brief_capture', step: 0 },
+    customerBrief: {
+      ...(lead.customerBrief ?? {}),
+      captureStartedAt: lead.customerBrief?.captureStartedAt || new Date().toISOString(),
+      capturedMessages: Array.isArray(lead.customerBrief?.capturedMessages) ? lead.customerBrief.capturedMessages : [],
+      updatedAt: new Date().toISOString(),
+    },
+    status: 'brief_capture',
+    stageStatus: 'brief_capture',
+  });
+  await sendTelegramTo(chatId, BRIEF_CAPTURE_GUIDE);
+  return { ok: true, lead: updated };
+}
+
+function describeTelegramAttachment(message = {}) {
+  if (message.photo?.length) return `[Фото: ${message.caption || 'без подписи'}]`;
+  if (message.document?.file_id) return `[Файл: ${message.document.file_name || message.document.mime_type || 'document'}${message.caption ? `; подпись: ${message.caption}` : ''}]`;
+  if (message.video?.file_id) return `[Видео: ${message.caption || 'без подписи'}]`;
+  if (message.audio?.file_id) return `[Аудио: ${message.caption || 'без подписи'}]`;
+  return '';
+}
+
+async function collectBriefAnswer(store, lead, chatId, text, message = {}) {
   if (isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
+  if (isFinishBriefText(text)) return finishBriefCapture(store, lead, chatId);
   if (String(text || '').trim().startsWith('/')) {
     await sendTelegramTo(chatId, 'Не знаю такую команду. Используйте /help, /brief, /reset или просто напишите ответ обычным текстом.');
     return { ok: false, lead, reason: 'unknown_command' };
   }
+  if (isBriefCaptureMode(lead)) return appendBriefCapture(store, lead, chatId, text, message);
   const step = Number(lead.customerTelegram?.step ?? 0);
   if (step >= QUESTIONS.length || lead.customerTelegram?.mode === 'brief_review') {
     return refineBriefFromMessage(store, lead, chatId, text);
@@ -667,9 +727,83 @@ async function resumeExistingCustomer(store, lead, chatId) {
     return { ok: true, lead };
   }
   if (lead.customerTelegram?.mode === 'brief_review') return sendBriefSummary(store, lead, chatId);
-  const step = Math.max(0, Math.min(QUESTIONS.length - 1, Number(lead.customerTelegram?.step ?? 0)));
-  await sendTelegramTo(chatId, QUESTIONS[step].text);
-  return { ok: true, lead };
+  return startBriefCapture(store, lead, chatId);
+}
+
+async function appendBriefCapture(store, lead, chatId, text, message = {}) {
+  const currentBrief = lead.customerBrief ?? {};
+  const captured = Array.isArray(currentBrief.capturedMessages) ? currentBrief.capturedMessages.slice(-60) : [];
+  const entry = {
+    text: normalizeText(text),
+    kind: message.voice ? 'voice' : message.photo?.length ? 'photo' : message.document ? 'document' : message.video ? 'video' : 'text',
+    at: new Date().toISOString(),
+  };
+  captured.push(entry);
+  const updated = await store.updateLead(lead.id, {
+    customerBrief: {
+      ...currentBrief,
+      capturedMessages: captured,
+      updatedAt: new Date().toISOString(),
+    },
+    customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'brief_capture', step: 0 },
+    status: 'brief_capture',
+    stageStatus: 'brief_capture',
+  });
+  await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer added brief material', { text: entry.text, kind: entry.kind });
+  await sendTelegramTo(chatId, `Принял. Сейчас в черновике ${captured.length} ${captureWord(captured.length)}. Когда закончите, напишите “Все” или /finish.`);
+  return { ok: true, lead: updated };
+}
+
+function captureWord(value) {
+  const number = Math.abs(Number(value) || 0);
+  const mod10 = number % 10;
+  const mod100 = number % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'сообщение';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'сообщения';
+  return 'сообщений';
+}
+
+async function finishBriefCapture(store, lead, chatId) {
+  const currentBrief = lead.customerBrief ?? {};
+  const captured = Array.isArray(currentBrief.capturedMessages) ? currentBrief.capturedMessages : [];
+  if (!captured.length) {
+    await sendTelegramTo(chatId, `Пока нет материалов для ТЗ.\n\n${BRIEF_CAPTURE_GUIDE}`);
+    return { ok: false, lead, reason: 'empty_capture' };
+  }
+  const rawText = captured.map((item, index) => `${index + 1}. [${item.kind || 'text'}] ${item.text}`).join('\n');
+  if (hasProhibitedBriefContent(rawText)) {
+    const updated = await store.transitionLead(lead.id, {
+      pipelineStage: 'needs_review',
+      stageStatus: 'content_review_required',
+      artifactStatus: 'blocked',
+      lane: 'Диагноз',
+      owner: 'Mobile',
+      reason: 'customer_brief_capture_safety_failed',
+    });
+    await store.addEvent(lead.id, 'customer.brief_safety_blocked', 'Captured brief contains prohibited or risky content');
+    await sendTelegramTo(chatId, 'Не могу собрать ТЗ: в материалах есть запрещенная или рискованная тематика. Можно начать заново через /reset и описать легальную задачу.');
+    await sendTelegram(`<b>Клиентский capture-бриф заблокирован</b>\nЛид: ${escapeHtml(lead.name)}\nLead ID: <code>${escapeHtml(lead.id)}</code>\nФрагмент: <code>${escapeHtml(rawText.slice(0, 700))}</code>`);
+    return { ok: false, lead: updated || lead, reason: 'prohibited_capture' };
+  }
+  const structured = await briefFromCapturedContent(lead, rawText);
+  const brief = {
+    ...currentBrief,
+    ...structured,
+    rawCaptureText: rawText.slice(0, 10000),
+    captureFinishedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  let updated = await store.updateLead(lead.id, {
+    ...(structured.businessName && lead.name !== structured.businessName ? { name: structured.businessName } : {}),
+    ...(structured.niche ? { niche: structured.niche } : {}),
+    customerBrief: brief,
+    customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'brief_review', step: QUESTIONS.length },
+    status: 'brief_review',
+    stageStatus: 'brief_review',
+  });
+  if (structured.businessName || structured.niche) updated = await syncLeadToA1(store, updated, 'customer_capture_brief_structured');
+  await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer capture brief structured', { brief });
+  return sendBriefSummary(store, updated, chatId);
 }
 
 async function refineBriefFromMessage(store, lead, chatId, text) {
@@ -768,6 +902,64 @@ async function briefDialogAgent(lead, currentBrief, text) {
   } catch {
     return fallbackBriefPatch(text);
   }
+}
+
+async function briefFromCapturedContent(lead, rawText) {
+  if (!openai) return fallbackCapturedBrief(rawText);
+  try {
+    const response = await openai.responses.create({
+      model: config.OPENAI_MODEL,
+      input: [
+        {
+          role: 'system',
+          content: [
+            'Ты менеджер 1Lab, который собирает ТЗ на сайт из разрозненных сообщений клиента.',
+            'Нужно сгруппировать факты по разделам, не выдумывать то, чего клиент не сказал.',
+            'Если данных не хватает, оставь поле пустым или кратко напиши "нужно уточнить".',
+            'Не включай жалобы, ругань, команды боту и технический шум как требования к сайту.',
+            'Верни строго JSON без markdown.',
+            'Поля JSON: businessName, niche, previewDirection, goal, services, style, contacts, materials, deadline, notes.',
+            'notes - только полезные ограничения/пожелания, не пересказ диалога.',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            currentLead: {
+              name: lead.name,
+              niche: lead.niche,
+              source: lead.source,
+            },
+            capturedMessages: rawText,
+          }),
+        },
+      ],
+    });
+    return sanitizeBriefPatch(JSON.parse(response.output_text?.trim() || '{}'));
+  } catch {
+    return fallbackCapturedBrief(rawText);
+  }
+}
+
+function fallbackCapturedBrief(rawText) {
+  const text = normalizeText(rawText);
+  const lines = text.split('\n').map((line) => line.replace(/^\d+\.\s*\[[^\]]+\]\s*/, '').trim()).filter(Boolean);
+  const joined = lines.join('\n');
+  return sanitizeBriefPatch({
+    businessName: extractAfter(joined, /(название|бизнес|проект|компания)\s*[:\-]\s*([^\n]+)/i) || '',
+    goal: extractAfter(joined, /(цель|задача)\s*[:\-]\s*([^\n]+)/i) || '',
+    services: extractAfter(joined, /(услуги|товары|направления)\s*[:\-]\s*([^\n]+)/i) || '',
+    style: extractAfter(joined, /(стиль|дизайн|пример)\s*[:\-]\s*([^\n]+)/i) || '',
+    contacts: extractAfter(joined, /(контакты|форма|поля)\s*[:\-]\s*([^\n]+)/i) || '',
+    materials: extractAfter(joined, /(материалы|логотип|фото|видео)\s*[:\-]\s*([^\n]+)/i) || '',
+    deadline: extractAfter(joined, /(срок|дедлайн)\s*[:\-]\s*([^\n]+)/i) || '',
+    notes: joined.slice(0, 1200),
+  });
+}
+
+function extractAfter(text, regex) {
+  const match = String(text || '').match(regex);
+  return match?.[2]?.trim() || '';
 }
 
 function sanitizeBriefPatch(patch = {}) {

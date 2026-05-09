@@ -80,6 +80,7 @@ export async function setTelegramCommands() {
   const customerCommands = [
     { command: 'help', description: 'Как работает разработка сайта' },
     { command: 'brief', description: 'Показать черновик ТЗ' },
+    { command: 'finish', description: 'Закончить сбор ТЗ' },
     { command: 'approve', description: 'Утвердить ТЗ' },
     { command: 'reset', description: 'Собрать ТЗ заново' },
     { command: 'cancel', description: 'Остановить текущую заявку' },
@@ -90,6 +91,7 @@ export async function setTelegramCommands() {
   const adminCommands = [
     { command: 'help', description: 'Команды Web Studio' },
     { command: 'brief', description: 'Клиент: показать черновик ТЗ' },
+    { command: 'finish', description: 'Клиент: закончить сбор ТЗ' },
     { command: 'approve', description: 'Клиент: утвердить ТЗ' },
     { command: 'reset', description: 'Клиент: собрать ТЗ заново' },
     { command: 'cancel', description: 'Клиент: остановить заявку' },
