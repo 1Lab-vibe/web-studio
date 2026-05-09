@@ -422,6 +422,9 @@ export class Orchestrator {
     if (lead.pitch?.queued || ['queued', 'sent', 'succeeded'].includes(String(lead.outboundStatus || ''))) {
       return { ok: true, skipped: true, reason: 'outbound_already_queued_or_sent' };
     }
+    if (String(lead.outboundStatus || '').startsWith('blocked')) {
+      return { ok: true, skipped: true, reason: lead.outboundStatus };
+    }
     const workingWindow = outboundWorkingWindow();
     if (!workingWindow.open) {
       await this.store.updateLead(lead.id, {
@@ -895,6 +898,9 @@ function actionForLead(lead, topLovableIds) {
   }
   if (lead.pitch?.queued || ['queued', 'sent', 'succeeded'].includes(String(lead.outboundStatus || ''))) {
     return { action: 'wait_outbound_status', label: 'Письмо уже в очереди A1', score: lead.fitScore ?? 0, autoRunnable: false };
+  }
+  if (String(lead.outboundStatus || '').startsWith('blocked') && (lead.lane === 'Отправка' || lead.pipelineStage === 'outbound_ready')) {
+    return { action: 'review_outbound', label: 'Проверить отправку вручную', score: lead.fitScore ?? 0, autoRunnable: false };
   }
   if (lead.status === 'waiting_approval') return { action: 'approve_or_reject', label: 'Ждет approval', score: 100, autoRunnable: false };
   if (lead.mockup?.status === 'export_ready' || lead.status === 'export_ready') {
