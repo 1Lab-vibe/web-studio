@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -474,6 +474,8 @@ async function buildSourceProject(sourceRoot, publicRoot, basePath = '') {
 
 async function repairAndBuildSourceProject(sourceRoot, publicRoot, basePath = '', lead = {}) {
   const repairs = [];
+  const duplicateRepair = await repairDuplicateRemoteImageConstants(sourceRoot, lead);
+  if (duplicateRepair.ok) repairs.push(duplicateRepair);
   let build = await buildSourceProject(sourceRoot, publicRoot, basePath);
   for (let attempt = 0; !build.ok && attempt < 10; attempt += 1) {
     const repair = await repairMissingAssetImports(sourceRoot, build.error || '', lead);
@@ -499,7 +501,7 @@ async function repairMissingAssetImports(sourceRoot, buildError, lead = {}) {
     }
     const escapedMissing = escapeRegExp(missingPath.replaceAll('\\', '/').split('/').pop() || '');
     if (!escapedMissing) continue;
-    const replacementUrl = imageRepairUrl(lead);
+    const replacementUrl = imageRepairUrlV2(lead, `${path.basename(missingPath)} ${path.basename(importer)} ${content.slice(0, 300)}`);
     const next = content.replace(
       new RegExp(`import\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+["'][^"']*${escapedMissing}["'];?`, 'g'),
       `const $1 = "${replacementUrl}";`,
@@ -514,6 +516,42 @@ async function repairMissingAssetImports(sourceRoot, buildError, lead = {}) {
     if (created.ok) repaired.push({ importer: path.relative(sourceRoot, importer), missing: path.relative(sourceRoot, missingPath), strategy: created.strategy });
   }
   return repaired.length ? { ok: true, repaired } : { ok: false, reason: 'no_repairable_missing_asset_imports' };
+}
+
+async function repairDuplicateRemoteImageConstants(sourceRoot, lead = {}) {
+  const files = await listSourceCodeFiles(path.join(sourceRoot, 'src'));
+  const repaired = [];
+  for (const file of files) {
+    const content = await readFile(file, 'utf8').catch(() => '');
+    if (!content.includes('images.unsplash.com')) continue;
+    let ordinal = 0;
+    const next = content.replace(
+      /const\s+([A-Za-z_$][\w$]*)\s*=\s*["']https:\/\/images\.unsplash\.com\/[^"']+["'];/g,
+      (match, variableName) => {
+        const url = imageRepairUrlV2(lead, `${variableName} ${path.basename(file)}`, ordinal);
+        ordinal += 1;
+        repaired.push({ file: path.relative(sourceRoot, file), variableName, strategy: 'dedupe_remote_image_constant', url });
+        return `const ${variableName} = "${url}";`;
+      },
+    );
+    if (next !== content) await writeFile(file, next, 'utf8');
+  }
+  return repaired.length ? { ok: true, repaired } : { ok: false, reason: 'no_duplicate_remote_image_constants' };
+}
+
+async function listSourceCodeFiles(root) {
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const files = [];
+  for (const entry of entries) {
+    const fullPath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      if (['node_modules', 'dist', 'build', '.git'].includes(entry.name)) continue;
+      files.push(...(await listSourceCodeFiles(fullPath)));
+    } else if (/\.(tsx|ts|jsx|js|css)$/.test(entry.name)) {
+      files.push(fullPath);
+    }
+  }
+  return files;
 }
 
 async function createPlaceholderAsset(filePath) {
@@ -537,6 +575,43 @@ function imageRepairUrl(lead = {}) {
   if (/beauty|salon|крас|салон/.test(niche)) return 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1800&q=80';
   if (/ремонт|стро|кров|дом/.test(niche)) return 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=1800&q=80';
   return 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1800&q=80';
+}
+
+function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
+  const niche = `${lead.niche || ''} ${lead.name || ''}`.toLowerCase();
+  const key = String(context || '').toLowerCase();
+  const photoStudio = [
+    ['hero|studio|main', 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=1800&q=80'],
+    ['loft|brick|industrial', 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1800&q=80'],
+    ['cyc|cyclorama|white|light', 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1800&q=80'],
+    ['cozy|warm|family', 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1800&q=80'],
+    ['dark|black|contrast', 'https://images.unsplash.com/photo-1500051638674-ff996a0ec29e?auto=format&fit=crop&w=1800&q=80'],
+    ['detail|camera|equipment', 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=1800&q=80'],
+  ];
+  const beauty = [
+    ['hero|main', 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1800&q=80'],
+    ['interior|room', 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=1800&q=80'],
+    ['detail|service', 'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?auto=format&fit=crop&w=1800&q=80'],
+  ];
+  const construction = [
+    ['hero|main', 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=1800&q=80'],
+    ['detail|tool', 'https://images.unsplash.com/photo-1581094794329-c8112a89af12?auto=format&fit=crop&w=1800&q=80'],
+    ['interior|finish', 'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=1800&q=80'],
+  ];
+  const generic = [
+    ['hero|main', 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1800&q=80'],
+    ['detail|team', 'https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1800&q=80'],
+    ['interior|office', 'https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=1800&q=80'],
+  ];
+  const set = /фото|photo|studio|студи/.test(niche)
+    ? photoStudio
+    : /beauty|salon|крас|салон/.test(niche)
+      ? beauty
+      : /ремонт|стро|кров|дом/.test(niche)
+        ? construction
+        : generic;
+  const matched = set.find(([pattern]) => new RegExp(pattern, 'i').test(key));
+  return (matched || set[Math.abs(Number(ordinal) || 0) % set.length])[1];
 }
 
 function escapeRegExp(value) {
