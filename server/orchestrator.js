@@ -8,7 +8,7 @@ import { renderLeadVideo } from './services/filmer.js';
 import { enrichContacts } from './services/contactEnrichment.js';
 import { approvalKeyboard, sendTelegram, sendTelegramTo } from './services/telegram.js';
 import { enrichLeadScore, topLovableCandidates } from './services/scoring.js';
-import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
+import { deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
 import { runPreviewQualityGate } from './services/qualityGate.js';
 
 const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
@@ -324,7 +324,9 @@ export class Orchestrator {
     let lead = this.store.getLead(leadId);
     if (!lead) throw new Error('Lead not found');
     let deployed;
-    if (lead.mockup?.status === 'public_url_attached' || lead.status === 'public_url_attached') {
+    if (lead.mockup?.status === 'build_failed' && lead.mockup?.sourceRoot && lead.mockup?.projectSlug) {
+      deployed = await repairLeadSourceProject(this.store, lead.id, { renderVideo: false });
+    } else if (lead.mockup?.status === 'public_url_attached' || lead.status === 'public_url_attached') {
       deployed = await deployLeadPublicUrlProject(this.store, lead.id, { renderVideo: false });
     } else if (lead.mockup?.status === 'export_ready' || lead.status === 'export_ready') {
       deployed = await deployLeadExportedProject(this.store, lead.id, {
@@ -963,6 +965,11 @@ export class Orchestrator {
 }
 
 function actionForLead(lead, topLovableIds) {
+  if (isBuildFailedWithSource(lead)) {
+    const attempts = Number(lead.mockup?.repairAttempts ?? 0);
+    if (attempts < 2) return { action: 'repair_deploy', label: 'Починить деплой кодером', score: 98 - attempts, autoRunnable: true };
+    return { action: 'rebuild_lovable', label: 'Пересобрать превью в Lovable', score: 96 - Number(lead.mockup?.rebuildAttempts ?? 0), autoRunnable: true };
+  }
   if (isPreviewBlocked(lead)) {
     const attempts = Number(lead.mockup?.rebuildAttempts ?? 0);
     if (attempts < 2) return { action: 'rebuild_lovable', label: 'Пересобрать превью в Lovable', score: 96 - attempts, autoRunnable: true };
@@ -1005,6 +1012,14 @@ function actionForLead(lead, topLovableIds) {
   if (lead.lane === 'Проверка') return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Отправка') return { action: 'queue_pitch', label: 'Поставить в очередь отправки', score: lead.fitScore ?? 0, autoRunnable: true };
   return { action: 'none', label: 'Нет действия', score: 0, autoRunnable: false };
+}
+
+function isBuildFailedWithSource(lead = {}) {
+  const mockup = lead.mockup || {};
+  return (
+    (mockup.status === 'build_failed' || mockup.deploymentStrategy === 'build_failed') &&
+    Boolean(mockup.sourceRoot && mockup.projectSlug)
+  );
 }
 
 function isPreviewBlocked(lead = {}) {
@@ -1064,6 +1079,7 @@ function slimTopAction(action = {}) {
 function jobTypeForAction(action) {
   return {
     diagnose_lead: 'diagnose_lead',
+    repair_deploy: 'coder_deploy',
     build_lovable: 'lovable_build',
     deploy_lovable_export: 'coder_deploy',
     deploy_public_url: 'coder_deploy',
@@ -1076,6 +1092,7 @@ function jobTypeForAction(action) {
 
 function jobIdempotencyKey(lead, action, jobType) {
   if (action === 'queue_pitch') return stableOutboundKey(lead);
+  if (action === 'repair_deploy') return `coder_repair:${lead.id}:${Number(lead.mockup?.repairAttempts ?? 0) + 1}`;
   if (action === 'rebuild_lovable') return `lovable_rebuild:${lead.id}:${Number(lead.mockup?.rebuildAttempts ?? 0) + 1}`;
   if (action === 'check_pitch') return `checker_eval:${lead.id}:${lead.video?.videoUrl || lead.mockup?.publicUrl || lead.mockup?.deployedUrl || 'preview'}`;
   return `${jobType}:${lead.id}:${jobRevisionForAction(lead, action)}`;
@@ -1083,6 +1100,7 @@ function jobIdempotencyKey(lead, action, jobType) {
 
 function jobRevisionForAction(lead, action) {
   if (action === 'build_lovable') return lead.mockup?.projectId || lead.pipelineStage || 'diagnosed';
+  if (action === 'repair_deploy') return Number(lead.mockup?.repairAttempts ?? 0) + 1;
   if (action === 'rebuild_lovable') return Number(lead.mockup?.rebuildAttempts ?? 0) + 1;
   if (action === 'deploy_lovable_export') return lead.mockup?.latestRef || lead.mockup?.updatedAt || lead.updatedAt || 'export';
   if (action === 'deploy_public_url') return lead.mockup?.publishedUrl || lead.mockup?.url || lead.updatedAt || 'url';

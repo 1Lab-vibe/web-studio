@@ -472,6 +472,77 @@ async function buildSourceProject(sourceRoot, publicRoot, basePath = '') {
   }
 }
 
+async function repairAndBuildSourceProject(sourceRoot, publicRoot, basePath = '', lead = {}) {
+  const repairs = [];
+  let build = await buildSourceProject(sourceRoot, publicRoot, basePath);
+  for (let attempt = 0; !build.ok && attempt < 3; attempt += 1) {
+    const repair = await repairMissingAssetImports(sourceRoot, build.error || '', lead);
+    if (!repair.ok) break;
+    repairs.push(repair);
+    build = await buildSourceProject(sourceRoot, publicRoot, basePath);
+  }
+  return { ...build, repairs };
+}
+
+async function repairMissingAssetImports(sourceRoot, buildError, lead = {}) {
+  const matches = [...String(buildError || '').matchAll(/Could not load\s+(.+?)\s+\(imported by\s+([^)]+)\)/g)];
+  const repaired = [];
+  for (const match of matches) {
+    const missingPath = path.resolve(match[1].trim());
+    const importer = safeProjectPath(sourceRoot, match[2].trim());
+    if (!importer) continue;
+    let content = '';
+    try {
+      content = await readFile(importer, 'utf8');
+    } catch {
+      continue;
+    }
+    const escapedMissing = escapeRegExp(missingPath.replaceAll('\\', '/').split('/').pop() || '');
+    if (!escapedMissing) continue;
+    const replacementUrl = imageRepairUrl(lead);
+    const next = content.replace(
+      new RegExp(`import\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+["'][^"']*${escapedMissing}["'];?`, 'g'),
+      `const $1 = "${replacementUrl}";`,
+    );
+    if (next !== content) {
+      await writeFile(importer, next, 'utf8');
+      repaired.push({ importer: path.relative(sourceRoot, importer), missing: path.relative(sourceRoot, missingPath), strategy: 'replace_import_with_remote_image' });
+      continue;
+    }
+
+    const created = await createPlaceholderAsset(missingPath);
+    if (created.ok) repaired.push({ importer: path.relative(sourceRoot, importer), missing: path.relative(sourceRoot, missingPath), strategy: created.strategy });
+  }
+  return repaired.length ? { ok: true, repaired } : { ok: false, reason: 'no_repairable_missing_asset_imports' };
+}
+
+async function createPlaceholderAsset(filePath) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.svg') {
+    await writeFile(filePath, `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><rect width="1600" height="1000" fill="#111827"/><circle cx="1220" cy="260" r="260" fill="#334155"/><rect x="120" y="620" width="980" height="90" rx="24" fill="#e5e7eb" opacity=".18"/></svg>`, 'utf8');
+    return { ok: true, strategy: 'created_svg_placeholder' };
+  }
+  if (['.jpg', '.jpeg'].includes(ext)) {
+    await writeFile(filePath, Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Ap//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QE//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QE//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QE//Z', 'base64'));
+    return { ok: true, strategy: 'created_jpeg_placeholder' };
+  }
+  await writeFile(filePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lK3ScwAAAABJRU5ErkJggg==', 'base64'));
+  return { ok: true, strategy: 'created_png_placeholder' };
+}
+
+function imageRepairUrl(lead = {}) {
+  const niche = `${lead.niche || ''} ${lead.name || ''}`.toLowerCase();
+  if (/фото|photo|studio|студи/.test(niche)) return 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=1800&q=80';
+  if (/beauty|salon|крас|салон/.test(niche)) return 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1800&q=80';
+  if (/ремонт|стро|кров|дом/.test(niche)) return 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=1800&q=80';
+  return 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1800&q=80';
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function patchBrowserRouterBasename(sourceRoot) {
   const candidates = ['src/App.tsx', 'src/App.jsx', 'src/App.ts', 'src/App.js'];
   for (const relative of candidates) {
@@ -507,7 +578,7 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
   const written = await writeSourceFiles(sourceRoot, files);
   const publicUrl = projectUrl(slug);
   const routerPatch = await patchBrowserRouterBasename(sourceRoot);
-  const build = await buildSourceProject(sourceRoot, publicRoot, `/projects/${slug}/`);
+  const build = await repairAndBuildSourceProject(sourceRoot, publicRoot, `/projects/${slug}/`, lead);
   const repoName = `${config.GITHUB_REPO_PREFIX}${slug}`.slice(0, 100).replace(/-+$/g, '');
   const github = await publishFilesToGitHub({
     repoName,
@@ -641,4 +712,110 @@ export async function deployLeadExportedProject(store, leadId, { files = [], lov
   await store.addEvent(lead.id, 'video.created', `Filmer rendered exported project: ${video.videoUrl}`);
   await syncA1CrmLead(lead, 'project_deployed');
   return { ok: true, publicUrl, slug, github, build, lead };
+}
+
+export async function repairLeadSourceProject(store, leadId, { renderVideo = false } = {}) {
+  let lead = store.getLead(leadId);
+  if (!lead) return { ok: false, error: 'Lead not found' };
+  const sourceRoot = lead.mockup?.sourceRoot;
+  const slug = lead.mockup?.projectSlug;
+  if (!sourceRoot || !slug) return { ok: false, error: 'Lead has no saved source project to repair' };
+
+  const publicRoot = path.resolve(config.DATA_DIR, 'projects', slug);
+  const publicUrl = projectUrl(slug);
+  const routerPatch = await patchBrowserRouterBasename(sourceRoot);
+  const build = await repairAndBuildSourceProject(sourceRoot, publicRoot, `/projects/${slug}/`, lead);
+
+  await writeFile(
+    path.join(publicRoot, 'webstudio-project.json'),
+    JSON.stringify(
+      {
+        leadId: lead.id,
+        businessName: lead.name,
+        city: lead.city,
+        niche: lead.niche,
+        publicUrl,
+        slug,
+        build,
+        routerPatch,
+        repairedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  if (!build.ok) {
+    await writeFile(path.join(publicRoot, 'index.html'), buildFailedHtml({ title: lead.name || 'Web Studio project', build }), 'utf8');
+    lead = await store.updateLead(lead.id, {
+      mockup: {
+        ...compactStoredMockup(lead.mockup),
+        ok: false,
+        status: 'build_failed',
+        diagnosticUrl: publicUrl,
+        publicUrl: '',
+        publishedUrl: '',
+        deployedUrl: '',
+        deploymentStrategy: build.strategy,
+        deploymentWarning: build.error,
+        clientSendAllowed: false,
+        repairAttempts: Number(lead.mockup?.repairAttempts ?? 0) + 1,
+        lastRepair: build.repairs || [],
+        buildFailedAt: new Date().toISOString(),
+      },
+      qualityGate: {
+        ok: false,
+        checkedAt: new Date().toISOString(),
+        url: publicUrl,
+        issues: [`deployment_${build.strategy}`, 'build_failed_stub_page'],
+        warnings: [],
+      },
+      video: { ok: false, reason: 'build_failed_after_coder_repair', invalidatedAt: new Date().toISOString() },
+      outboundStatus: 'blocked_build_failed',
+      lane: 'Lovable',
+      owner: 'Builder',
+      status: 'needs_review',
+    });
+    await store.addEvent(lead.id, 'project.repair_failed', `Coder repair failed: ${build.error || build.strategy}`);
+    await syncA1CrmLead(lead, 'project_repair_failed');
+    return { ok: false, error: build.error || build.strategy || 'Repair build failed', publicUrl, diagnosticUrl: publicUrl, slug, build, lead };
+  }
+
+  lead = await store.updateLead(lead.id, {
+    mockup: {
+      ...compactStoredMockup(lead.mockup),
+      ok: true,
+      mode: 'lovable_official_mcp_export',
+      status: 'deployed',
+      diagnosticUrl: '',
+      publishedUrl: publicUrl,
+      deployedUrl: publicUrl,
+      publicUrl,
+      projectSlug: slug,
+      sourceRoot,
+      deploymentStrategy: build.strategy,
+      deploymentWarning: '',
+      clientSendAllowed: true,
+      routerPatch,
+      repairAttempts: Number(lead.mockup?.repairAttempts ?? 0) + 1,
+      lastRepair: build.repairs || [],
+      deployedAt: new Date().toISOString(),
+    },
+    outboundStatus: String(lead.outboundStatus || '').startsWith('blocked_quality_regression') ? 'blocked_previous_queue_needs_review' : '',
+    lane: 'Видео',
+    owner: 'Filmer',
+    status: 'in_progress',
+  });
+  await store.addEvent(lead.id, 'project.repaired_deployed', `Coder repaired and deployed Lovable export: ${publicUrl}`);
+  await crmAddEvent({
+    entityType: lead.a1DealId ? 'deal' : 'lead',
+    entityId: lead.a1DealId || lead.a1LeadId || lead.id,
+    eventType: 'project.repaired_deployed',
+    text: `Coder repaired and deployed Lovable export: ${publicUrl}`,
+    payload: { webstudioLeadId: lead.id, publicUrl, slug, build, routerPatch },
+    idempotencyKey: `webstudio:${lead.id}:project.repaired_deployed:${slug}`,
+  });
+  await syncA1CrmLead(lead, 'project_repaired_deployed');
+  return { ok: true, publicUrl, slug, build, lead, videoQueued: renderVideo === false };
 }
