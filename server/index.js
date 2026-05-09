@@ -14,7 +14,13 @@ import { handleA1Webhook } from './services/a1Webhook.js';
 import { handleCustomerTelegramCallback, handleCustomerTelegramMessage, isCustomerTelegramCommand } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
-import { listLovableTools, lovableOAuthTokenStatus, lovableOfficialConfigured, probeLovableAuth } from './services/lovableOfficialMcp.js';
+import {
+  listLovableTools,
+  lovableOAuthTokenStatus,
+  lovableOfficialConfigured,
+  probeLovableAuth,
+  refreshLovableOAuthToken,
+} from './services/lovableOfficialMcp.js';
 import { customerBotLink } from './services/a1Client.js';
 
 const app = express();
@@ -357,6 +363,27 @@ async function lovableTokenHeartbeat() {
       ].join('\n'),
     );
     return;
+  }
+  if (tokenStatus.ok && !config.LOVABLE_API_KEY) {
+    const expiresAt = Date.parse(tokenStatus.expiresAt || '');
+    const expiresSoon = Number.isFinite(expiresAt) && expiresAt - Date.now() < 2 * 60 * 60 * 1000;
+    if (tokenStatus.refreshDue || expiresSoon) {
+      const refresh = await refreshLovableOAuthToken({ force: true });
+      if (refresh.ok) {
+        console.log('Lovable token forced refresh ok', { refreshedAt: refresh.refreshedAt, expiresAt: refresh.expiresAt });
+      } else {
+        console.error('Lovable token forced refresh failed', refresh.reason || refresh);
+        await sendTelegram(
+          [
+            '<b>Lovable OAuth refresh failed</b>',
+            'Не удалось принудительно обновить OAuth token Lovable.',
+            `Причина: <code>${String(refresh.reason || 'unknown').slice(0, 500)}</code>`,
+            refresh.expiresAt ? `Текущий access token до: <code>${refresh.expiresAt}</code>` : '',
+            'Нужна повторная OAuth-авторизация.',
+          ].filter(Boolean).join('\n'),
+        );
+      }
+    }
   }
   const result = await probeLovableAuth();
   if (result.ok) {

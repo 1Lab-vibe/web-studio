@@ -152,7 +152,7 @@ async function main() {
     ...token,
     savedAt: savedAt.toISOString(),
     expiresAt: token.expires_in ? new Date(savedAt.getTime() + Number(token.expires_in) * 1000).toISOString() : undefined,
-    mcpUrl: 'https://mcp.lovable.dev',
+    mcpUrl,
     source: 'cursor-oauth-capture',
   };
   await writeFile(tokenPath, JSON.stringify(saved, null, 2), 'utf8');
@@ -187,7 +187,7 @@ async function manualFinish(callbackUrl) {
     ...token,
     savedAt: savedAt.toISOString(),
     expiresAt: token.expires_in ? new Date(savedAt.getTime() + Number(token.expires_in) * 1000).toISOString() : undefined,
-    mcpUrl: 'https://mcp.lovable.dev',
+    mcpUrl,
     source: 'cursor-oauth-manual',
   };
   await writeFile(tokenPath, JSON.stringify(saved, null, 2), 'utf8');

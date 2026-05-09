@@ -5,6 +5,8 @@ import { config, hasSecret } from '../config.js';
 
 const LOVABLE_LONG_REQUEST = { timeout: 15 * 60 * 1000, maxTotalTimeout: 20 * 60 * 1000, resetTimeoutOnProgress: true };
 const LOVABLE_SHORT_REQUEST = { timeout: 2 * 60 * 1000 };
+const LOVABLE_OAUTH_RESOURCE = 'https://mcp.lovable.dev/';
+const LOVABLE_REFRESH_EVERY_MS = 6 * 60 * 60 * 1000;
 
 export function parseToolContent(result) {
   const content = Array.isArray(result?.content) ? result.content : [];
@@ -48,6 +50,10 @@ export async function lovableOAuthTokenStatus() {
     ok: true,
     hasRefreshToken: Boolean(token.refresh_token),
     expiresAt: tokenExpiresAt(token) ? new Date(tokenExpiresAt(token)).toISOString() : '',
+    refreshedAt: token.refreshedAt || '',
+    savedAt: token.savedAt || '',
+    createdAt: token.createdAt || '',
+    refreshDue: shouldForceLovableOAuthRefresh(token),
     refreshError: token.refreshError || '',
     source: token.source || '',
   };
@@ -82,6 +88,18 @@ function shouldRefreshOAuthToken(token, { force = false } = {}) {
   return expiresAt - Date.now() < 10 * 60 * 1000;
 }
 
+function lastOAuthRefreshAt(token) {
+  const parsed = Date.parse(token?.refreshedAt || token?.savedAt || token?.createdAt || '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function shouldForceLovableOAuthRefresh(token) {
+  if (!token?.refresh_token) return false;
+  const lastRefreshAt = lastOAuthRefreshAt(token);
+  if (!lastRefreshAt) return true;
+  return Date.now() - lastRefreshAt >= LOVABLE_REFRESH_EVERY_MS;
+}
+
 async function refreshOAuthToken(token, options = {}) {
   if (!token?.refresh_token) return token;
   if (!shouldRefreshOAuthToken(token, options)) return token;
@@ -89,7 +107,7 @@ async function refreshOAuthToken(token, options = {}) {
     grant_type: 'refresh_token',
     refresh_token: token.refresh_token,
     client_id: token.client?.client_id || '6d465f583e1e4ce5801b1616f735670c',
-    resource: token.mcpUrl || 'https://mcp.lovable.dev',
+    resource: token.mcpUrl || LOVABLE_OAUTH_RESOURCE,
   });
   const response = await fetch('https://lovable.dev/oauth/token', {
     method: 'POST',
@@ -113,9 +131,31 @@ async function refreshOAuthToken(token, options = {}) {
     refreshedAt: refreshedAt.toISOString(),
     expiresAt: refreshed.expires_in ? new Date(refreshedAt.getTime() + Number(refreshed.expires_in) * 1000).toISOString() : token.expiresAt,
     refreshError: '',
+    mcpUrl: token.mcpUrl || LOVABLE_OAUTH_RESOURCE,
   };
   await writeFile(config.LOVABLE_OAUTH_TOKEN_PATH, JSON.stringify(next, null, 2), 'utf8').catch(() => {});
   return next;
+}
+
+export async function refreshLovableOAuthToken({ force = false } = {}) {
+  const token = await loadOAuthToken();
+  if (!token) return { ok: false, reason: 'token_not_found' };
+  if (!token.refresh_token) return { ok: false, reason: 'refresh_token_not_found' };
+  const refreshed = await refreshOAuthToken(token, { force });
+  if (refreshed.refreshError) {
+    return {
+      ok: false,
+      reason: refreshed.refreshError,
+      expiresAt: tokenExpiresAt(refreshed) ? new Date(tokenExpiresAt(refreshed)).toISOString() : '',
+      refreshFailedAt: refreshed.refreshFailedAt || '',
+    };
+  }
+  return {
+    ok: true,
+    expiresAt: tokenExpiresAt(refreshed) ? new Date(tokenExpiresAt(refreshed)).toISOString() : '',
+    refreshedAt: refreshed.refreshedAt || '',
+    hasRefreshToken: Boolean(refreshed.refresh_token),
+  };
 }
 
 export async function withLovableClient(callback, options = {}) {
@@ -164,7 +204,7 @@ export async function probeLovableAuth() {
       email: me.email || '',
       workspaceCount: Array.isArray(me.workspaces) ? me.workspaces.length : 0,
     };
-  }, { forceRefresh: true });
+  });
 }
 
 export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
