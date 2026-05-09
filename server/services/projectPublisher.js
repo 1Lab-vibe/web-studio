@@ -608,7 +608,7 @@ function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
     ['loft|brick|industrial', generatedImageUrl('loft photography studio hall, exposed brick wall, large industrial windows, seamless paper backdrops, softbox lighting, wooden floor, realistic interior photo, no mountains, no road, no landscape, no office desk', 1102)],
     ['cyc|cyclorama|white|light', generatedImageUrl('white cyclorama photography studio hall, clean curved wall, bright daylight, professional studio lights, minimal rental studio interior, realistic photo, no bedroom, no mountains, no road, no office desk', 1103)],
     ['cozy|warm|family', generatedImageUrl('cozy warm photography studio hall for family portraits, neutral sofa, textured wall, soft curtains, warm studio lights, realistic interior photo, no wedding couple, no mountains, no road, no office desk', 1104)],
-    ['dark|black|contrast', generatedImageUrl('dark black photography studio hall, matte black backdrop, dramatic portrait lighting, grid softbox, professional photo studio equipment, realistic interior photo, no office desk, no computer, no mountains, no road', 1105)],
+    ['dark|black|contrast', generatedImageUrl('dark gray photography studio rental hall, charcoal backdrop, dramatic portrait lighting, two softbox lights, empty studio interior, realistic architectural photo, no office desk, no computer, no people, no mountains, no road', 1115)],
     ['detail|camera|equipment', generatedImageUrl('close detail of professional photography studio equipment, camera on tripod, softbox lights, backdrops, premium studio rental mood, realistic photo, no office desk, no mountains, no road', 1106)],
   ];
   const beauty = [
