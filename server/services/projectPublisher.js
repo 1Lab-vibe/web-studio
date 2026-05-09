@@ -523,7 +523,7 @@ async function repairDuplicateRemoteImageConstants(sourceRoot, lead = {}) {
   const repaired = [];
   for (const file of files) {
     const content = await readFile(file, 'utf8').catch(() => '');
-    if (!content.includes('images.unsplash.com') && !content.includes('image.pollinations.ai')) continue;
+    if (!content.includes('images.unsplash.com') && !content.includes('image.pollinations.ai') && !content.includes('webstudio-')) continue;
     let ordinal = 0;
     let next = content;
     const matches = [
