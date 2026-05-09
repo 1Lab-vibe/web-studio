@@ -80,7 +80,7 @@ function legacyForPipelineStage(stage) {
     payment_pending: { lane: 'Ответы', owner: 'Mobile' },
     paid: { lane: 'Ответы', owner: 'Mobile' },
     production: { lane: 'Ответы', owner: 'Coder' },
-    needs_review: { lane: null, owner: 'Orchestrator' },
+    needs_review: { lane: 'Lovable', owner: 'Orchestrator' },
   };
   return map[stage] || {};
 }
@@ -544,7 +544,7 @@ export class Store {
 
   async addOutreachQueueItem(input) {
     this.state.outreachQueue ??= [];
-    const existing = this.state.outreachQueue.find((item) => item.leadId === input.leadId && item.status === 'queued');
+    const existing = this.state.outreachQueue.find((item) => item.leadId === input.leadId && ['queued', 'sent', 'succeeded'].includes(item.status));
     if (existing) return existing;
     const item = {
       id: randomUUID(),

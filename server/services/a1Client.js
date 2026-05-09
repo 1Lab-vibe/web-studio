@@ -266,6 +266,8 @@ export async function outboundQueueMessage(input) {
       attachments: input.attachments || [],
       requiresApproval: input.requiresApproval ?? false,
       purpose: input.purpose || input.messageType || '',
+      deliveryPolicy: input.deliveryPolicy || undefined,
+      idempotencyKey: input.idempotencyKey || input.dedupeKey || '',
     },
   });
 }

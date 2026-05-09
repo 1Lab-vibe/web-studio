@@ -154,9 +154,10 @@ export class Orchestrator {
       const lead = action.lead;
       const jobType = jobTypeForAction(action.action);
       if (!jobType) continue;
+      const idempotencyKey = jobIdempotencyKey(lead, action.action, jobType);
       planned.push(
         await this.enqueueJob(jobType, lead.id, {
-          idempotencyKey: `${jobType}:${lead.id}:${jobRevisionForAction(lead, action.action)}`,
+          idempotencyKey,
           priority: action.score ?? lead.fitScore ?? 50,
           payload: { action: action.action },
         }),
@@ -294,7 +295,7 @@ export class Orchestrator {
       return { ok: true, lead };
     }
     if (mockup?.status === 'failed') {
-      await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'lovable_failed', artifactStatus: 'failed', reason: mockup.reason || 'lovable_failed' });
+      await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'lovable_failed', artifactStatus: 'failed', lane: 'Lovable', owner: 'Builder', reason: mockup.reason || 'lovable_failed' });
       await sendTelegram(`<b>Lovable build failed</b>\n${lead.name}\n${mockup.reason || 'unknown error'}`);
       throw new Error(mockup.reason || 'Lovable build failed');
     }
@@ -323,7 +324,7 @@ export class Orchestrator {
     const quality = await runPreviewQualityGate(lead);
     lead = await this.store.updateLead(lead.id, { qualityGate: quality });
     if (!quality.ok) {
-      await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'quality_failed', artifactStatus: 'quality_failed', reason: quality.issues.join('; ') });
+      await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'quality_failed', artifactStatus: 'quality_failed', lane: 'Lovable', owner: 'Builder', reason: quality.issues.join('; ') });
       await sendTelegram(`<b>Preview quality gate failed</b>\n${lead.name}\n${quality.issues.join('; ')}`);
       throw new Error(`Preview quality failed: ${quality.issues.join('; ')}`);
     }
@@ -383,6 +384,9 @@ export class Orchestrator {
         await this.store.transitionLead(lead.id, {
           pipelineStage: 'needs_review',
           stageStatus: 'preview_quality_failed',
+          artifactStatus: 'quality_failed',
+          lane: 'Lovable',
+          owner: 'Builder',
           reason,
         });
         throw new Error(reason);
@@ -399,7 +403,7 @@ export class Orchestrator {
     if (!packageGate.ok || !lead.checker.passed) {
       lead.message = lead.checker.revisedMessage || lead.message;
       lead = await this.store.updateLead(lead.id, { checker: lead.checker, message: lead.message, outboundPackage: packageGate, status: 'needs_review' });
-      await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'checker_failed', artifactStatus: lead.artifactStatus, reason: [...packageGate.issues, ...(lead.checker.issues || [])].join('; ') });
+      await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'checker_failed', artifactStatus: lead.artifactStatus, lane: packageGate.issues.includes('preview_quality_not_passed') ? 'Lovable' : 'Проверка', reason: [...packageGate.issues, ...(lead.checker.issues || [])].join('; ') });
       throw new Error(`Checker failed: ${[...packageGate.issues, ...(lead.checker.issues || [])].join('; ')}`);
     }
     lead.message = lead.checker.revisedMessage || lead.message;
@@ -407,18 +411,34 @@ export class Orchestrator {
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'outbound_ready', stageStatus: 'ready', reason: 'checker_passed' });
     await this.store.addEvent(lead.id, 'checker.passed', `Checker passed: ${lead.checker.score}`);
     await this.addA1Event(lead, 'checker.passed', `Checker passed: ${lead.checker.score}`, { checker: lead.checker, outboundPackage: packageGate });
-    await this.enqueueJob('outbound_queue', lead.id, { idempotencyKey: `outbound:${lead.id}:${lead.updatedAt}`, priority: lead.fitScore ?? 50 });
+    await this.enqueueJob('outbound_queue', lead.id, { idempotencyKey: stableOutboundKey(lead), priority: lead.fitScore ?? 50 });
     return { ok: true, lead };
   }
 
   async runOutboundJob(leadId) {
     let lead = this.store.getLead(leadId);
     if (!lead) throw new Error('Lead not found');
+    if (lead.pitch?.queued || ['queued', 'sent', 'succeeded'].includes(String(lead.outboundStatus || ''))) {
+      return { ok: true, skipped: true, reason: 'outbound_already_queued_or_sent' };
+    }
+    const workingWindow = outboundWorkingWindow();
+    if (!workingWindow.open) {
+      await this.store.updateLead(lead.id, {
+        outboundStatus: 'scheduled_working_hours',
+        outboundScheduledAt: workingWindow.nextRunAt,
+      });
+      await this.enqueueJob('outbound_queue', lead.id, {
+        idempotencyKey: `${stableOutboundKey(lead)}:${workingWindow.nextRunAt.slice(0, 10)}`,
+        priority: lead.fitScore ?? 50,
+        nextRunAt: workingWindow.nextRunAt,
+      });
+      return { ok: true, skipped: true, reason: 'outside_working_hours', nextRunAt: workingWindow.nextRunAt };
+    }
     lead.contacts = await enrichContacts(lead);
     const emailChannel = lead.contacts.channels?.find((channel) => channel.type === 'email') || null;
     if (!emailChannel?.value) {
       await this.store.updateLead(lead.id, { contacts: lead.contacts, outboundStatus: 'needs_channel_decision' });
-      await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'needs_channel_decision', reason: 'no_verified_email' });
+      await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'needs_channel_decision', lane: 'Отправка', owner: 'Pitcher', reason: 'no_verified_email' });
       await sendTelegram(`<b>Нужен канал отправки</b>\n${lead.name}\nEmail не найден. Автоотправка остановлена.`);
       throw new Error('No verified email');
     }
@@ -428,6 +448,8 @@ export class Orchestrator {
       await this.store.transitionLead(lead.id, {
         pipelineStage: 'needs_review',
         stageStatus: 'outbound_blocked',
+        lane: 'Отправка',
+        owner: 'Pitcher',
         reason: packageGate.issues.join('; '),
       });
       throw new Error(`Outbound package blocked: ${packageGate.issues.join('; ')}`);
@@ -456,7 +478,13 @@ export class Orchestrator {
         videoUrl ? { type: 'link', url: videoUrl, title: 'Видео-превью' } : null,
         botLink ? { type: 'link', url: botLink, title: 'Бот для правок и ТЗ' } : null,
       ].filter(Boolean),
-      idempotencyKey: `webstudio:${lead.id}:outbound:${lead.updatedAt || Date.now()}`,
+      deliveryPolicy: {
+        workingHoursOnly: true,
+        timezone: config.OUTBOUND_TIMEZONE,
+        startHour: config.OUTBOUND_WORKING_HOURS_START,
+        endHour: config.OUTBOUND_WORKING_HOURS_END,
+      },
+      idempotencyKey: stableOutboundKey(lead),
     });
     const item = await this.store.addOutreachQueueItem({
       leadId: lead.id,
@@ -471,6 +499,7 @@ export class Orchestrator {
       contacts: lead.contacts,
       pitch: { ok: outbound.ok, queued: true, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound },
       outboundStatus: outbound.ok ? 'queued' : 'failed',
+      outboundScheduledAt: '',
     });
     if (!outbound.ok) throw new Error(outbound.error || outbound.reason || 'A1 outbound queue failed');
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'outbound_sent', stageStatus: 'queued', reason: 'outbound_queued_in_a1' });
@@ -656,6 +685,22 @@ export class Orchestrator {
       }
 
       if (lead.lane === 'Отправка') {
+        if (lead.pitch?.queued || ['queued', 'sent', 'succeeded'].includes(String(lead.outboundStatus || ''))) {
+          return { ok: true, held: true, reason: 'Outbound already queued or sent', lead };
+        }
+        const workingWindow = outboundWorkingWindow();
+        if (!workingWindow.open) {
+          await this.store.updateLead(lead.id, {
+            outboundStatus: 'scheduled_working_hours',
+            outboundScheduledAt: workingWindow.nextRunAt,
+          });
+          await this.enqueueJob('outbound_queue', lead.id, {
+            idempotencyKey: `${stableOutboundKey(lead)}:${workingWindow.nextRunAt.slice(0, 10)}`,
+            priority: lead.fitScore ?? 50,
+            nextRunAt: workingWindow.nextRunAt,
+          });
+          return { ok: true, held: true, reason: 'Outside working hours; outbound scheduled', lead };
+        }
         lead.contacts = await enrichContacts(lead);
         if (!lead.contacts.channels.some((channel) => channel.type === 'email')) {
           lead.status = 'needs_review';
@@ -694,7 +739,13 @@ export class Orchestrator {
             siteUrl ? { type: 'link', url: siteUrl, title: 'Превью сайта' } : null,
             videoUrl ? { type: 'link', url: videoUrl, title: 'Видео-превью' } : null,
           ].filter(Boolean),
-          idempotencyKey: `webstudio:${lead.id}:outbound:${lead.updatedAt || Date.now()}`,
+          deliveryPolicy: {
+            workingHoursOnly: true,
+            timezone: config.OUTBOUND_TIMEZONE,
+            startHour: config.OUTBOUND_WORKING_HOURS_START,
+            endHour: config.OUTBOUND_WORKING_HOURS_END,
+          },
+          idempotencyKey: stableOutboundKey(lead),
         });
         const item = await this.store.addOutreachQueueItem({
           leadId: lead.id,
@@ -837,6 +888,13 @@ export class Orchestrator {
 }
 
 function actionForLead(lead, topLovableIds) {
+  if (isPreviewBlocked(lead)) return { action: 'review_preview', label: 'Проверить превью', score: 95, autoRunnable: false };
+  if (lead.outboundStatus === 'scheduled_working_hours' && !isOutboundScheduleDue(lead)) {
+    return { action: 'wait_working_hours', label: 'Ждет рабочее время для письма', score: lead.fitScore ?? 0, autoRunnable: false };
+  }
+  if (lead.pitch?.queued || ['queued', 'sent', 'succeeded'].includes(String(lead.outboundStatus || ''))) {
+    return { action: 'wait_outbound_status', label: 'Письмо уже в очереди A1', score: lead.fitScore ?? 0, autoRunnable: false };
+  }
   if (lead.status === 'waiting_approval') return { action: 'approve_or_reject', label: 'Ждет approval', score: 100, autoRunnable: false };
   if (lead.mockup?.status === 'export_ready' || lead.status === 'export_ready') {
     return { action: 'deploy_lovable_export', label: 'Деплой Lovable export', score: lead.fitScore ?? 0, autoRunnable: true };
@@ -859,6 +917,20 @@ function actionForLead(lead, topLovableIds) {
   if (lead.lane === 'Проверка') return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Отправка') return { action: 'queue_pitch', label: 'Поставить в очередь отправки', score: lead.fitScore ?? 0, autoRunnable: true };
   return { action: 'none', label: 'Нет действия', score: 0, autoRunnable: false };
+}
+
+function isPreviewBlocked(lead = {}) {
+  const status = String(lead.stageStatus || lead.status || '');
+  const reason = String(lead.lastTransitionReason || '');
+  return (
+    lead.qualityGate?.ok === false ||
+    lead.artifactStatus === 'quality_failed' ||
+    status.includes('quality_failed') ||
+    status.includes('preview_quality_failed') ||
+    reason.includes('preview_quality_not_passed') ||
+    reason.includes('empty_or_too_short_body') ||
+    isCoderFallbackPreview(lead)
+  );
 }
 
 function publicMockup(mockup = {}) {
@@ -913,6 +985,12 @@ function jobTypeForAction(action) {
   }[action];
 }
 
+function jobIdempotencyKey(lead, action, jobType) {
+  if (action === 'queue_pitch') return stableOutboundKey(lead);
+  if (action === 'check_pitch') return `checker_eval:${lead.id}:${lead.video?.videoUrl || lead.mockup?.publicUrl || lead.mockup?.deployedUrl || 'preview'}`;
+  return `${jobType}:${lead.id}:${jobRevisionForAction(lead, action)}`;
+}
+
 function jobRevisionForAction(lead, action) {
   if (action === 'build_lovable') return lead.mockup?.projectId || lead.pipelineStage || 'diagnosed';
   if (action === 'deploy_lovable_export') return lead.mockup?.latestRef || lead.mockup?.updatedAt || lead.updatedAt || 'export';
@@ -921,6 +999,44 @@ function jobRevisionForAction(lead, action) {
   if (action === 'check_pitch') return lead.video?.videoUrl || lead.updatedAt || 'checker';
   if (action === 'queue_pitch') return lead.checker?.checkedAt || lead.updatedAt || 'outbound';
   return lead.updatedAt || lead.createdAt || 'v1';
+}
+
+function stableOutboundKey(lead = {}) {
+  return `webstudio:${lead.id}:outbound:sales-email-v1`;
+}
+
+function isOutboundScheduleDue(lead = {}) {
+  const scheduledAt = Date.parse(lead.outboundScheduledAt || '');
+  return Number.isFinite(scheduledAt) && scheduledAt <= Date.now();
+}
+
+function outboundWorkingWindow(now = new Date()) {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: config.OUTBOUND_TIMEZONE || 'Europe/Moscow',
+      hour: 'numeric',
+      hour12: false,
+    }).format(now),
+  );
+  const start = Number(config.OUTBOUND_WORKING_HOURS_START ?? 9);
+  const end = Number(config.OUTBOUND_WORKING_HOURS_END ?? 18);
+  if (hour >= start && hour < end) return { open: true, hour };
+  const next = new Date(now);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: config.OUTBOUND_TIMEZONE || 'Europe/Moscow',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .formatToParts(now)
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value]),
+  );
+  const moscowStartUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), start - 3, 0, 0);
+  const nextRunAt = hour < start ? new Date(moscowStartUtc) : new Date(moscowStartUtc + 24 * 60 * 60 * 1000);
+  if (nextRunAt <= now) nextRunAt.setUTCDate(nextRunAt.getUTCDate() + 1);
+  return { open: false, hour, nextRunAt: nextRunAt.toISOString() };
 }
 
 function retryDelayForJob(job) {
