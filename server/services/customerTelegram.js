@@ -879,6 +879,14 @@ async function approveBrief(store, lead, chatId) {
       briefSummaryKeyboard({ canApprove: false }),
     );
     await store.addEvent(lead.id, 'customer.brief_validation_failed', issues.join('; '));
+    await store.transitionLead(lead.id, {
+      pipelineStage: 'needs_review',
+      stageStatus: 'content_review_required',
+      artifactStatus: 'blocked',
+      lane: 'Диагноз',
+      owner: 'Mobile',
+      reason: 'customer_brief_validation_failed',
+    });
     return { ok: false, lead, reason: 'brief_validation_failed', issues };
   }
   const approvedAt = new Date().toISOString();
@@ -997,6 +1005,21 @@ async function approveBrief(store, lead, chatId) {
 }
 
 async function buildApprovedBriefPreview(store, lead, chatId) {
+  const issues = customerBriefSafetyIssues(lead);
+  if (issues.length) {
+    await store.cancelLeadJobs?.(lead.id, RESETTABLE_JOB_TYPES, 'Customer brief safety gate failed');
+    const updated = await store.transitionLead(lead.id, {
+      pipelineStage: 'needs_review',
+      stageStatus: 'content_review_required',
+      artifactStatus: 'blocked',
+      lane: 'Диагноз',
+      owner: 'Mobile',
+      reason: 'customer_brief_safety_gate_failed',
+    });
+    await sendTelegramTo(chatId, 'Пока не запускаю сборку: в ТЗ есть рискованная тематика или некорректные поля. Можно собрать ТЗ заново через /reset.');
+    await sendTelegram(`<b>Клиентское превью заблокировано safety gate</b>\nЛид: ${escapeHtml(updated?.name || lead.name)}\nLead ID: <code>${escapeHtml(lead.id)}</code>\nПричины: <code>${escapeHtml(issues.join('; ').slice(0, 700))}</code>`);
+    return { ok: false, lead: updated || lead, reason: 'customer_brief_safety_gate_failed', issues };
+  }
   await sendTelegramTo(chatId, 'ТЗ утверждено. Готовлю первое превью сайта, это может занять немного времени.');
   let updated = await store.updateLead(lead.id, {
     lane: 'Lovable',

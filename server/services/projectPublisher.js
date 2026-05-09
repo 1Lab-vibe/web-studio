@@ -205,7 +205,7 @@ function generatedPreviewHtml(lead) {
             <p class="muted">${escapeHtml(proof)}</p>
             <div class="metric">
               <div><b>2 дня</b><span class="muted">до первого рабочего варианта</span></div>
-              <div><b>30 000 ₽</b><span class="muted">старт для сайта-визитки</span></div>
+              <div><b>15 000 ₽</b><span class="muted">первый заказ со скидкой 50%</span></div>
             </div>
           </aside>
         </div>

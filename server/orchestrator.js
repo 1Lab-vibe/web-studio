@@ -294,6 +294,8 @@ export class Orchestrator {
           pipelineStage: 'needs_review',
           stageStatus: 'content_review_required',
           artifactStatus: 'blocked',
+          lane: 'Диагноз',
+          owner: 'Mobile',
           reason: 'customer_brief_safety_gate_failed',
         });
         await this.store.addEvent(lead.id, 'customer.brief_safety_blocked', issues.join('; '));
@@ -921,6 +923,20 @@ export class Orchestrator {
       if (next) {
         const patch = { lane: next.lane, owner: next.agent, status: 'in_progress' };
         if (lead.lane === 'Диагноз') {
+          const customerIssues = lead.source === 'telegram_inbound' ? customerBriefSafetyIssues(lead) : [];
+          if (customerIssues.length) {
+            await this.store.cancelLeadJobs(lead.id, ['customer_preview_build', 'lovable_build', 'coder_deploy', 'filmer_render', 'checker_eval', 'outbound_queue'], 'Customer brief safety gate failed');
+            const blocked = await this.store.transitionLead(lead.id, {
+              pipelineStage: 'needs_review',
+              stageStatus: 'content_review_required',
+              artifactStatus: 'blocked',
+              lane: 'Диагноз',
+              owner: 'Mobile',
+              reason: 'customer_brief_safety_gate_failed',
+            });
+            await this.store.addEvent(lead.id, 'customer.brief_safety_blocked', customerIssues.join('; '));
+            return { ok: true, held: true, reason: 'customer_brief_safety_gate_failed', issues: customerIssues, lead: blocked };
+          }
           patch.mockup = await prepareLovableMockup(lead);
           if (patch.mockup?.status === 'export_ready') {
             await this.store.updateLead(lead.id, { ...patch, owner: 'Coder', status: 'export_ready' });
@@ -1057,6 +1073,10 @@ export class Orchestrator {
 }
 
 function actionForLead(lead, topLovableIds) {
+  if (lead.source === 'telegram_inbound') {
+    const issues = customerBriefSafetyIssues(lead);
+    if (issues.length) return { action: 'review_customer_brief', label: 'Проверить клиентское ТЗ', score: 100, autoRunnable: false };
+  }
   if (isBuildFailedWithSource(lead)) {
     const attempts = Number(lead.mockup?.repairAttempts ?? 0);
     if (attempts < 2) return { action: 'repair_deploy', label: 'Починить деплой кодером', score: 98 - attempts, autoRunnable: true };
@@ -1355,7 +1375,10 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
     ? 'У вас уже есть сайт, но первый экран можно сделать сильнее под заявки.'
     : 'В открытых источниках не нашли рабочий сайт, хотя карточка в картах уже дает доверие и может приводить больше заявок.';
   const proof = [lead.rating ? `рейтинг ${lead.rating}` : '', lead.reviews ? `${lead.reviews} ${reviewWord(lead.reviews)}` : '', lead.city || ''].filter(Boolean).join(', ');
-  const price = formatRub(lead.deal || 30000);
+  const fullPrice = lead.deal || 30000;
+  const firstOrderPrice = Math.round(fullPrice * 0.5);
+  const price = formatRub(firstOrderPrice);
+  const fullPriceText = formatRub(fullPrice);
   return [
     greeting,
     '',
@@ -1366,7 +1389,7 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
     siteUrl ? `Превью сайта: ${siteUrl}` : '',
     videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
     '',
-    `Если идея близка, ответьте на это письмо или откройте бота - там за пару минут можно оставить правки и собрать точное ТЗ. Ориентир по запуску простого сайта-визитки - от ${price}; финальную стоимость фиксируем после согласованного превью.`,
+    `Если идея близка, ответьте на это письмо или откройте бота - там за пару минут можно оставить правки и собрать точное ТЗ. Для первого заказа действует скидка 50%: запуск простого сайта-визитки - от ${price} вместо ${fullPriceText}; финальную стоимость фиксируем после согласованного превью.`,
     botLink ? `Бот для правок и ТЗ: ${botLink}` : '',
     '',
     'Если сейчас не актуально, просто ответьте «не интересно».',
