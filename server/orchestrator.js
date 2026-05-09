@@ -916,6 +916,12 @@ function actionForLead(lead, topLovableIds) {
   if (lead.outboundStatus === 'scheduled_working_hours' && !isOutboundScheduleDue(lead)) {
     return { action: 'wait_working_hours', label: 'Ждет рабочее время для письма', score: lead.fitScore ?? 0, autoRunnable: false };
   }
+  if (lead.stageStatus === 'checker_failed' || lead.status === 'checker_failed') {
+    return { action: 'review_message', label: 'Нужна правка письма', score: 90, autoRunnable: false };
+  }
+  if (lead.outboundStatus === 'needs_channel_decision' || lead.stageStatus === 'needs_channel_decision') {
+    return { action: 'choose_channel', label: 'Нужен канал отправки', score: lead.fitScore ?? 0, autoRunnable: false };
+  }
   if (lead.pitch?.queued || ['queued', 'sent', 'succeeded'].includes(String(lead.outboundStatus || ''))) {
     return { action: 'wait_outbound_status', label: 'Письмо уже в очереди A1', score: lead.fitScore ?? 0, autoRunnable: false };
   }
