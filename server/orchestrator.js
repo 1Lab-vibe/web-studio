@@ -922,11 +922,11 @@ function actionForLead(lead, topLovableIds) {
   if (lead.outboundStatus === 'needs_channel_decision' || lead.stageStatus === 'needs_channel_decision') {
     return { action: 'choose_channel', label: 'Нужен канал отправки', score: lead.fitScore ?? 0, autoRunnable: false };
   }
+  if (String(lead.outboundStatus || '').startsWith('blocked')) {
+    return { action: 'review_outbound', label: 'Проверить отправку вручную', score: lead.fitScore ?? 0, autoRunnable: false };
+  }
   if (lead.pitch?.queued || ['queued', 'sent', 'succeeded'].includes(String(lead.outboundStatus || ''))) {
     return { action: 'wait_outbound_status', label: 'Письмо уже в очереди A1', score: lead.fitScore ?? 0, autoRunnable: false };
-  }
-  if (String(lead.outboundStatus || '').startsWith('blocked') && (lead.lane === 'Отправка' || lead.pipelineStage === 'outbound_ready')) {
-    return { action: 'review_outbound', label: 'Проверить отправку вручную', score: lead.fitScore ?? 0, autoRunnable: false };
   }
   if (lead.status === 'waiting_approval') return { action: 'approve_or_reject', label: 'Ждет approval', score: 100, autoRunnable: false };
   if (lead.mockup?.status === 'export_ready' || lead.status === 'export_ready') {
