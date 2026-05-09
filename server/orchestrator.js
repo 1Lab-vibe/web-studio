@@ -242,11 +242,12 @@ export class Orchestrator {
     let lead = this.store.getLead(leadId);
     if (!lead) throw new Error('Lead not found');
     enrichLeadScore(lead);
-    if (!skipQuota && !this.lovableCandidates().some((candidate) => candidate.id === lead.id)) {
+    const quotaFreeBuild = skipQuota || ['telegram_inbound', 'manual_smoke'].includes(lead.source);
+    if (!quotaFreeBuild && !this.lovableCandidates().some((candidate) => candidate.id === lead.id)) {
       await this.store.transitionLead(lead.id, { pipelineStage: 'diagnosed', stageStatus: 'quota_wait', reason: 'lovable_daily_quota_wait' });
       return { ok: true, skipped: true, reason: 'quota_wait' };
     }
-    if (!skipQuota) {
+    if (!quotaFreeBuild) {
       const slot = await this.store.reserveLovableBuildSlot({ intervalHours: config.LOVABLE_BUILD_INTERVAL_HOURS });
       if (!slot.ok) {
         await this.enqueueJob('lovable_build', lead.id, {
@@ -264,7 +265,7 @@ export class Orchestrator {
     }
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'lovable_building', stageStatus: 'running', artifactStatus: 'building', reason: 'lovable_job_started' });
     const mockup = await prepareLovableMockup(lead);
-    if (skipQuota) {
+    if (quotaFreeBuild) {
       this.store.state.metrics.customerMockupsToday = Number(this.store.state.metrics.customerMockupsToday ?? 0) + 1;
     } else {
       this.store.state.metrics.mockupsToday = Number(this.store.state.metrics.mockupsToday ?? 0) + 1;
