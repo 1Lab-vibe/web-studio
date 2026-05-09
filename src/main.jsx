@@ -31,6 +31,17 @@ import {
 import './styles.css';
 
 const lanes = ['Разведка', 'Диагноз', 'Lovable', 'Видео', 'Проверка', 'Отправка', 'Ответы'];
+
+function apiFetch(url, options = {}) {
+  return fetch(url, {
+    cache: 'no-store',
+    ...options,
+    headers: {
+      'Cache-Control': 'no-cache',
+      ...(options.headers ?? {}),
+    },
+  });
+}
 const agentMeta = {
   Scout: { role: 'ищет лиды в Яндекс/Google Maps', icon: Radar, tone: 'red' },
   Diagnoser: { role: 'готовит диагноз, hero angle и pitch', icon: ClipboardCheck, tone: 'blue' },
@@ -158,7 +169,7 @@ function App() {
 
   const loadAuth = async () => {
     try {
-      const response = await fetch('/api/auth/session', { credentials: 'include' });
+      const response = await apiFetch('/api/auth/session', { credentials: 'include' });
       const session = await response.json();
       setAuth({
         loading: false,
@@ -174,15 +185,15 @@ function App() {
   const loadBackend = async () => {
     try {
       const [healthResponse, stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse, jobsResponse, runsResponse] = await Promise.all([
-        fetch('/api/health', { credentials: 'include' }),
-        fetch('/api/state', { credentials: 'include' }),
-        fetch('/api/leads', { credentials: 'include' }),
-        fetch('/api/events', { credentials: 'include' }),
-        fetch('/api/approvals', { credentials: 'include' }),
-        fetch('/api/orchestrator/top-actions?limit=8', { credentials: 'include' }),
-        fetch('/api/outreach-queue', { credentials: 'include' }),
-        fetch('/api/jobs', { credentials: 'include' }),
-        fetch('/api/orchestrator/runs?limit=10', { credentials: 'include' }),
+        apiFetch('/api/health', { credentials: 'include' }),
+        apiFetch('/api/state', { credentials: 'include' }),
+        apiFetch('/api/leads', { credentials: 'include' }),
+        apiFetch('/api/events', { credentials: 'include' }),
+        apiFetch('/api/approvals', { credentials: 'include' }),
+        apiFetch('/api/orchestrator/top-actions?limit=8', { credentials: 'include' }),
+        apiFetch('/api/outreach-queue', { credentials: 'include' }),
+        apiFetch('/api/jobs', { credentials: 'include' }),
+        apiFetch('/api/orchestrator/runs?limit=10', { credentials: 'include' }),
       ]);
       if ([stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse, jobsResponse, runsResponse].some((response) => response.status === 401)) {
         setAuth((current) => ({ ...current, authenticated: false }));
@@ -233,11 +244,21 @@ function App() {
     const timer = window.setInterval(() => {
       loadBackend();
     }, 15000);
-    return () => window.clearInterval(timer);
+    const refreshOnFocus = () => loadBackend();
+    const refreshOnVisibility = () => {
+      if (document.visibilityState === 'visible') loadBackend();
+    };
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnVisibility);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnVisibility);
+    };
   }, [auth.loading, auth.authenticated, auth.authEnabled]);
 
   const handleLogin = async (login, password) => {
-    const response = await fetch('/api/auth/login', {
+    const response = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -254,7 +275,7 @@ function App() {
   };
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    await apiFetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setAuth({ loading: false, authenticated: false, authEnabled: true, user: null });
   };
 
@@ -279,13 +300,13 @@ function App() {
   };
 
   const runBackendAction = (action) =>
-    runAction(action, () => fetch(`/api/orchestrator/${action}`, { method: 'POST', credentials: 'include' }), `${action} выполнен`);
+    runAction(action, () => apiFetch(`/api/orchestrator/${action}`, { method: 'POST', credentials: 'include' }), `${action} выполнен`);
 
   const advanceCurrentLane = (lane) =>
     runAction(
       'advance-lane',
       () =>
-        fetch('/api/orchestrator/advance-lane', {
+        apiFetch('/api/orchestrator/advance-lane', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -295,15 +316,15 @@ function App() {
     );
 
   const advanceLead = (leadId) =>
-    runAction('advance', () => fetch(`/api/leads/${leadId}/advance`, { method: 'POST', credentials: 'include' }), 'Лид передан дальше');
+    runAction('advance', () => apiFetch(`/api/leads/${leadId}/advance`, { method: 'POST', credentials: 'include' }), 'Лид передан дальше');
 
   const deployLead = (leadId) =>
-    runAction('coder-deploy', () => fetch(`/api/leads/${leadId}/coder/deploy`, { method: 'POST', credentials: 'include' }), 'Coder задеплоил проект');
+    runAction('coder-deploy', () => apiFetch(`/api/leads/${leadId}/coder/deploy`, { method: 'POST', credentials: 'include' }), 'Coder задеплоил проект');
 
   const decideApproval = (approvalId, decision) =>
     runAction(
       decision,
-      () => fetch(`/api/approvals/${approvalId}/${decision}`, { method: 'POST', credentials: 'include' }),
+      () => apiFetch(`/api/approvals/${approvalId}/${decision}`, { method: 'POST', credentials: 'include' }),
       decision === 'approved' ? 'Approval одобрен' : 'Approval отклонен',
     );
 
@@ -1014,3 +1035,4 @@ function Timeline({ lead, events }) {
 }
 
 createRoot(document.getElementById('root')).render(<App />);
+

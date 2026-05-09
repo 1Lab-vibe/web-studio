@@ -47,6 +47,13 @@ app.use(
 );
 app.use(cors({ origin: config.WEB_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '15mb' }));
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('Surrogate-Control', 'no-store');
+  next();
+});
 registerMcpRoutes(app, store);
 registerAuth(app, store);
 app.use('/renders', express.static(path.resolve(config.DATA_DIR, 'renders')));
