@@ -138,6 +138,7 @@ export async function handleCustomerTelegramMessage(store, message) {
     return { ok: true, lead };
   }
   if (command === '/reset' || isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
+  if (command === '/cancel') return cancelCustomerBrief(store, lead, chatId, 'customer_requested_cancel');
   if (command === '/brief') return sendBriefSummary(store, lead, chatId);
   if (command === '/approve') return approveBrief(store, lead, chatId);
   if (text === '/revision') {
@@ -215,7 +216,7 @@ export function isCustomerTelegramCommand(store, message) {
   if (/^\/start(\s+lead_[a-f0-9]{16,64})?/i.test(text)) return true;
   if (!store.listLeads().some((item) => String(item.customerTelegram?.chatId || '') === String(chatId))) return false;
   const command = text.split(/\s+/)[0].split('@')[0];
-  return ['/help', '/brief', '/approve', '/reset', '/restart', '/startover', '/newbrief', '/revision', '/resend', '/email'].includes(command);
+  return ['/help', '/brief', '/approve', '/reset', '/restart', '/startover', '/newbrief', '/cancel', '/revision', '/resend', '/email'].includes(command);
 }
 
 export async function handleCustomerTelegramCallback(store, callback) {
@@ -342,6 +343,7 @@ function customerHelpText(lead) {
     '/brief — показать черновик ТЗ',
     '/approve — утвердить ТЗ и перейти к оплате/работе',
     '/reset — сбросить черновик и собрать ТЗ заново',
+    '/cancel — остановить текущую заявку',
     '/revision — отправить правку по сайту',
     '/resend — отправить email-код заново',
     '/email — изменить email',
@@ -508,6 +510,40 @@ async function resetCustomerBrief(store, lead, chatId, reason = 'customer_reques
     await sendTelegramTo(chatId, 'Сначала подтвердим рабочий email. Пришлите почту, и я отправлю код подтверждения.', emailEntryKeyboard());
   }
   return { ok: true, lead: updated, reset: true, cancelledJobs: cancelled?.length || 0 };
+}
+
+async function cancelCustomerBrief(store, lead, chatId, reason = 'customer_requested_cancel') {
+  const now = new Date().toISOString();
+  const cancelled = await store.cancelLeadJobs?.(lead.id, RESETTABLE_JOB_TYPES, 'Customer cancelled the current request');
+  const updated = await store.updateLead(lead.id, {
+    customerBrief: {
+      resetAt: now,
+      resetReason: reason,
+      cancelledAt: now,
+    },
+    customerTelegram: {
+      ...(lead.customerTelegram ?? {}),
+      mode: 'cancelled',
+    },
+    status: 'customer_cancelled',
+    pipelineStage: 'needs_review',
+    stageStatus: 'customer_cancelled',
+    lane: 'Ответы',
+    owner: 'Mobile',
+    artifactStatus: 'cancelled',
+    lastTransitionReason: reason,
+    nextAction: {
+      type: 'customer_cancelled',
+      title: 'Клиент остановил заявку',
+      reason,
+      createdAt: now,
+    },
+  });
+  await store.addEvent(updated.id, 'customer.brief_cancelled', `Customer cancelled request; cancelled jobs: ${cancelled?.length || 0}`);
+  await emitCustomerA1Event(updated, 'customer.brief_updated', 'Customer cancelled current request', { reason, cancelledJobs: cancelled?.length || 0 });
+  await sendTelegramTo(chatId, 'Остановил текущую заявку и отменил запланированные действия. Если захотите начать заново, отправьте /reset.');
+  await sendTelegram(`<b>Клиент остановил заявку</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>\nОтменено jobs: <code>${escapeHtml(String(cancelled?.length || 0))}</code>`);
+  return { ok: true, lead: updated, cancelled: true, cancelledJobs: cancelled?.length || 0 };
 }
 
 async function handleRejectedBriefInput(store, lead, chatId, reason, key, text) {
