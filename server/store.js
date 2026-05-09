@@ -121,6 +121,22 @@ function compactPersistedLead(value = {}) {
 
 function normalizeTelegramInboundLead(value = {}) {
   if (value.source !== 'telegram_inbound') return value;
+  if (
+    value.stageStatus === 'content_review_required' ||
+    value.artifactStatus === 'blocked' ||
+    value.mockup?.status === 'blocked_by_safety_gate' ||
+    value.outboundStatus === 'blocked_safety_gate'
+  ) {
+    return {
+      ...value,
+      lane: value.lane || 'Диагноз',
+      owner: value.owner || 'Mobile',
+      pipelineStage: value.pipelineStage || 'needs_review',
+      stageStatus: value.stageStatus || 'content_review_required',
+      status: value.status || 'needs_review',
+      lastTransitionReason: value.lastTransitionReason || 'customer_brief_safety_gate_failed',
+    };
+  }
   const emailVerified = Boolean(value.customerTelegram?.emailVerified);
   const hasPreview = Boolean(value.mockup?.publicUrl || value.mockup?.deployedUrl || value.mockup?.publishedUrl);
   if (emailVerified && hasPreview) return value;
