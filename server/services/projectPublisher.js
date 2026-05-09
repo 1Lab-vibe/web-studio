@@ -491,7 +491,9 @@ async function repairAndBuildSourceProject(sourceRoot, publicRoot, basePath = ''
 async function repairMissingAssetImports(sourceRoot, buildError, lead = {}) {
   const matches = [...String(buildError || '').matchAll(/Could not load\s+(.+?)\s+\(imported by\s+([^)]+)\)/g)];
   const repaired = [];
+  let ordinal = 0;
   for (const match of matches) {
+    ordinal += 1;
     const missingPath = path.resolve(match[1].trim());
     const importer = safeProjectPath(sourceRoot, match[2].trim());
     if (!importer) continue;
@@ -503,7 +505,7 @@ async function repairMissingAssetImports(sourceRoot, buildError, lead = {}) {
     }
     const escapedMissing = escapeRegExp(missingPath.replaceAll('\\', '/').split('/').pop() || '');
     if (!escapedMissing) continue;
-    const replacementUrl = imageRepairUrlV2(lead, `${path.basename(missingPath)} ${path.basename(importer)} ${content.slice(0, 300)}`);
+    const replacementUrl = imageRepairUrlV2(lead, `${path.basename(missingPath)} ${path.basename(importer)} ${content.slice(0, 300)}`, ordinal);
     const next = content.replace(
       new RegExp(`import\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+["'][^"']*${escapedMissing}["'];?`, 'g'),
       `const $1 = "${replacementUrl}";`,
@@ -645,40 +647,75 @@ function imageRepairUrl(lead = {}) {
 }
 
 function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
-  const niche = `${lead.niche || ''} ${lead.name || ''}`.toLowerCase();
-  const key = String(context || '').toLowerCase();
+  const key = imageRepairContextKey(lead, context);
+  const seed = stableImageSeed(lead, context, ordinal);
+  const paperPackaging = [
+    ['production|factory|manufactur|machine|roll|workshop|stanok|proizvod|ceh|цех|станок|производ', generatedImageUrl('clean paper drinking straw production line, rolls of kraft paper, cutting and packing equipment, stacks of paper tubes, sustainable packaging factory, realistic industrial commercial photo, no people, no office desk, no mountains, no road, no computer', seed + 11)],
+    ['variety|catalog|assort|product|range|straws-variety|services|feature|colors|diameter|ассортимент|каталог|цвет|диаметр', generatedImageUrl('assortment of eco paper cocktail straws in different colors and diameters, kraft boxes, cafe counter, sustainable horeca packaging product catalog, realistic commercial product photography, no plastic straws, no people, no office desk, no mountains, no road', seed + 12)],
+    ['delivery|box|warehouse|wholesale|order|request|contact|zayavka|price|payment|опт|короб|склад|доставка|заявк|цена', generatedImageUrl('wholesale boxes of eco paper drinking straws ready for delivery to cafes and coffee shops, kraft packaging labels, clean warehouse shelf, sustainable horeca supplies, realistic commercial photo, no people, no office desk, no mountains, no road', seed + 13)],
+    ['detail|close|material|quality|eco|leaf|kraft|bio|качество|материал|крафт|эко', generatedImageUrl('close-up macro of biodegradable kraft paper drinking straws, paper texture and recyclable packaging detail, clean product photo for sustainable horeca supplier, realistic, no plastic, no people, no office desk, no mountains, no road', seed + 14)],
+    ['hero|cover|banner|first|hero-straws|main-image|главн', generatedImageUrl('premium commercial product photo of eco paper drinking straws for cafes, kraft paper straws arranged with recyclable packaging, clean bright background, sustainable horeca supplier brand, realistic, no plastic straws, no people, no office desk, no mountains, no road', seed + 15)],
+  ];
   const photoStudio = [
-    ['hero|studio|main', generatedImageUrl('premium commercial photography studio interior, large cyclorama wall, professional softboxes and camera stands, elegant rental studio atmosphere, realistic architectural photography, no people, no mountains, no road, no office desk', 1101)],
-    ['loft|brick|industrial', generatedImageUrl('loft photography studio hall, exposed brick wall, large industrial windows, seamless paper backdrops, softbox lighting, wooden floor, realistic interior photo, no mountains, no road, no landscape, no office desk', 1102)],
-    ['cyc|cyclorama|white|light', generatedImageUrl('white cyclorama photography studio hall, clean curved wall, bright daylight, professional studio lights, minimal rental studio interior, realistic photo, no bedroom, no mountains, no road, no office desk', 1103)],
-    ['cozy|warm|family', generatedImageUrl('cozy warm photography studio hall for family portraits, neutral sofa, textured wall, soft curtains, warm studio lights, realistic interior photo, no wedding couple, no mountains, no road, no office desk', 1104)],
-    ['dark|black|contrast', generatedImageUrl('dark gray photography studio rental hall, charcoal backdrop, dramatic portrait lighting, two softbox lights, empty studio interior, realistic architectural photo, no office desk, no computer, no people, no mountains, no road', 1115)],
-    ['detail|camera|equipment', generatedImageUrl('close detail of professional photography studio equipment, camera on tripod, softbox lights, backdrops, premium studio rental mood, realistic photo, no office desk, no mountains, no road', 1106)],
+    ['loft|brick|industrial', generatedImageUrl('loft photography studio hall, exposed brick wall, large industrial windows, seamless paper backdrops, softbox lighting, wooden floor, realistic interior photo, no mountains, no road, no landscape, no office desk', seed + 21)],
+    ['cyc|cyclorama|white|light', generatedImageUrl('white cyclorama photography studio hall, clean curved wall, bright daylight, professional studio lights, minimal rental studio interior, realistic photo, no bedroom, no mountains, no road, no office desk', seed + 22)],
+    ['cozy|warm|family', generatedImageUrl('cozy warm photography studio hall for family portraits, neutral sofa, textured wall, soft curtains, warm studio lights, realistic interior photo, no wedding couple, no mountains, no road, no office desk', seed + 23)],
+    ['dark|black|contrast', generatedImageUrl('dark gray photography studio rental hall, charcoal backdrop, dramatic portrait lighting, two softbox lights, empty studio interior, realistic architectural photo, no office desk, no computer, no people, no mountains, no road', seed + 24)],
+    ['detail|camera|equipment', generatedImageUrl('close detail of professional photography studio equipment, camera on tripod, softbox lights, backdrops, premium studio rental mood, realistic photo, no office desk, no mountains, no road', seed + 25)],
+    ['hero|cover|banner|studio|first|главн', generatedImageUrl('premium commercial photography studio interior, large cyclorama wall, professional softboxes and camera stands, elegant rental studio atmosphere, realistic architectural photography, no people, no mountains, no road, no office desk', seed + 26)],
   ];
   const beauty = [
-    ['hero|main', generatedImageUrl('modern beauty salon interior, reception and styling chairs, soft natural light, premium calm atmosphere, realistic architectural photography, no office desk, no mountains, no road', 2101)],
-    ['interior|room|work', generatedImageUrl('beauty salon treatment room, mirrors, styling chairs, warm lighting, clean premium interior, realistic photo, no office desk, no mountains, no road', 2102)],
-    ['detail|service', generatedImageUrl('beauty salon service detail, professional cosmetics and tools on clean counter, elegant spa mood, realistic close-up photo, no computer, no mountains, no road', 2103)],
+    ['interior|room|work', generatedImageUrl('beauty salon treatment room, mirrors, styling chairs, warm lighting, clean premium interior, realistic photo, no office desk, no mountains, no road', seed + 31)],
+    ['detail|service', generatedImageUrl('beauty salon service detail, professional cosmetics and tools on clean counter, elegant spa mood, realistic close-up photo, no computer, no mountains, no road', seed + 32)],
+    ['hero|cover|banner|first|главн', generatedImageUrl('modern beauty salon interior, reception and styling chairs, soft natural light, premium calm atmosphere, realistic architectural photography, no office desk, no mountains, no road', seed + 33)],
   ];
   const construction = [
-    ['hero|main', generatedImageUrl('professional home renovation crew working in modern apartment interior, clean construction site, tools and finished walls, realistic photo, no office desk, no mountains, no road', 3101)],
-    ['detail|tool', generatedImageUrl('close-up of construction tools, measuring tape, level and materials on renovation site, clean realistic commercial photo, no mountains, no road', 3102)],
-    ['interior|finish', generatedImageUrl('finished renovated apartment interior, fresh walls, modern flooring, clean daylight, realistic interior photography, no people, no mountains, no road', 3103)],
+    ['detail|tool', generatedImageUrl('close-up of construction tools, measuring tape, level and materials on renovation site, clean realistic commercial photo, no mountains, no road', seed + 41)],
+    ['interior|finish', generatedImageUrl('finished renovated apartment interior, fresh walls, modern flooring, clean daylight, realistic interior photography, no people, no mountains, no road', seed + 42)],
+    ['hero|cover|banner|first|главн', generatedImageUrl('professional home renovation crew working in modern apartment interior, clean construction site, tools and finished walls, realistic photo, no office desk, no mountains, no road', seed + 43)],
   ];
   const generic = [
-    ['hero|main', generatedImageUrl('modern local business interior, clean reception area, premium commercial photography, realistic, no mountains, no road', 4101)],
-    ['detail|team', generatedImageUrl('professional local business team workspace detail, documents and service tools, realistic commercial photo, no mountains, no road', 4102)],
-    ['interior|office', generatedImageUrl('clean modern service business office interior, warm light, realistic architectural photo, no mountains, no road', 4103)],
+    ['detail|team', generatedImageUrl('professional local business workspace detail, documents and service tools, realistic commercial photo, no mountains, no road', seed + 51)],
+    ['interior|office', generatedImageUrl('clean modern service business office interior, warm light, realistic architectural photo, no mountains, no road', seed + 52)],
+    ['hero|cover|banner|first|главн', generatedImageUrl('modern local business interior, clean reception area, premium commercial photography, realistic, no mountains, no road', seed + 53)],
   ];
-  const set = /фото|photo|studio|студи/.test(niche)
+  const set = /paper\s*straw|straw|drinking\s*straw|cocktail\s*straw|kraft|horeca|packag|eco|biodegrad|трубоч|коктейл|бумажн|крафт|упаков|эко|биоразлага/.test(key)
+    ? paperPackaging
+    : /фото|photo|studio|студи/.test(key)
     ? photoStudio
-    : /beauty|salon|крас|салон/.test(niche)
+    : /beauty|salon|крас|салон/.test(key)
       ? beauty
-      : /ремонт|стро|кров|дом/.test(niche)
+      : /ремонт|стро|кров|дом/.test(key)
         ? construction
         : generic;
   const matched = set.find(([pattern]) => new RegExp(pattern, 'i').test(key));
   return (matched || set[Math.abs(Number(ordinal) || 0) % set.length])[1];
+}
+
+function imageRepairContextKey(lead = {}, context = '') {
+  const brief = lead.customerBrief || {};
+  return [
+    lead.name,
+    lead.niche,
+    lead.city,
+    brief.businessName,
+    brief.goal,
+    brief.services,
+    brief.style,
+    brief.materials,
+    brief.summary,
+    context,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function stableImageSeed(lead = {}, context = '', ordinal = 0) {
+  const input = `${lead.id || lead.name || 'lead'}|${context || ''}|${ordinal || 0}`;
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return 100000 + (Math.abs(hash) % 800000);
 }
 
 function generatedImageUrl(prompt, seed) {
