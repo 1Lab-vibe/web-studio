@@ -648,6 +648,7 @@ function imageRepairUrl(lead = {}) {
 
 function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
   const key = imageRepairContextKey(lead, context);
+  const roleKey = String(context || '').toLowerCase();
   const seed = stableImageSeed(lead, context, ordinal);
   const paperPackaging = [
     ['production|factory|manufactur|machine|roll|workshop|stanok|proizvod|ceh|цех|станок|производ', generatedImageUrl('clean paper drinking straw production line, rolls of kraft paper, cutting and packing equipment, stacks of paper tubes, sustainable packaging factory, realistic industrial commercial photo, no people, no office desk, no mountains, no road, no computer', seed + 11)],
@@ -688,7 +689,7 @@ function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
       : /ремонт|стро|кров|дом/.test(key)
         ? construction
         : generic;
-  const matched = set.find(([pattern]) => new RegExp(pattern, 'i').test(key));
+  const matched = set.find(([pattern]) => new RegExp(pattern, 'i').test(roleKey));
   return (matched || set[Math.abs(Number(ordinal) || 0) % set.length])[1];
 }
 
