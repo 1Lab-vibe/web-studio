@@ -159,7 +159,7 @@ export class Orchestrator {
         await this.enqueueJob(jobType, lead.id, {
           idempotencyKey,
           priority: action.score ?? lead.fitScore ?? 50,
-          payload: { action: action.action },
+          payload: { action: action.action, rebuild: action.action === 'rebuild_lovable' },
         }),
       );
     }
@@ -190,7 +190,7 @@ export class Orchestrator {
       case 'diagnose_lead':
         return this.runDiagnoseJob(job.leadId);
       case 'lovable_build':
-        return this.runLovableBuildJob(job.leadId);
+        return this.runLovableBuildJob(job.leadId, { rebuild: Boolean(job.payload?.rebuild) });
       case 'customer_preview_build':
         return this.runLovableBuildJob(job.leadId, { skipQuota: true, customerChatId: job.payload?.chatId });
       case 'coder_deploy':
@@ -238,10 +238,26 @@ export class Orchestrator {
     return { ok: true, lead };
   }
 
-  async runLovableBuildJob(leadId, { skipQuota = false, customerChatId = '' } = {}) {
+  async runLovableBuildJob(leadId, { skipQuota = false, customerChatId = '', rebuild = false } = {}) {
     let lead = this.store.getLead(leadId);
     if (!lead) throw new Error('Lead not found');
     enrichLeadScore(lead);
+    if (rebuild) {
+      const attempts = Number(lead.mockup?.rebuildAttempts ?? 0) + 1;
+      lead = await this.store.updateLead(lead.id, {
+        mockup: {
+          previousStatus: lead.mockup?.status || '',
+          previousMode: lead.mockup?.mode || '',
+          previousPublicUrl: lead.mockup?.publicUrl || lead.mockup?.deployedUrl || lead.mockup?.publishedUrl || '',
+          rebuildAttempts: attempts,
+          status: 'rebuild_queued',
+        },
+        qualityGate: null,
+        checker: null,
+        outboundPackage: null,
+        outboundStatus: '',
+      });
+    }
     const quotaFreeBuild = skipQuota || ['telegram_inbound', 'manual_smoke'].includes(lead.source);
     if (!quotaFreeBuild && !this.lovableCandidates().some((candidate) => candidate.id === lead.id)) {
       await this.store.transitionLead(lead.id, { pipelineStage: 'diagnosed', stageStatus: 'quota_wait', reason: 'lovable_daily_quota_wait' });
@@ -892,7 +908,11 @@ export class Orchestrator {
 }
 
 function actionForLead(lead, topLovableIds) {
-  if (isPreviewBlocked(lead)) return { action: 'review_preview', label: 'Проверить превью', score: 95, autoRunnable: false };
+  if (isPreviewBlocked(lead)) {
+    const attempts = Number(lead.mockup?.rebuildAttempts ?? 0);
+    if (attempts < 2) return { action: 'rebuild_lovable', label: 'Пересобрать превью в Lovable', score: 96 - attempts, autoRunnable: true };
+    return { action: 'review_preview', label: 'Проверить превью', score: 95, autoRunnable: false };
+  }
   if (lead.outboundStatus === 'scheduled_working_hours' && !isOutboundScheduleDue(lead)) {
     return { action: 'wait_working_hours', label: 'Ждет рабочее время для письма', score: lead.fitScore ?? 0, autoRunnable: false };
   }
@@ -986,6 +1006,7 @@ function jobTypeForAction(action) {
     build_lovable: 'lovable_build',
     deploy_lovable_export: 'coder_deploy',
     deploy_public_url: 'coder_deploy',
+    rebuild_lovable: 'lovable_build',
     make_video: 'filmer_render',
     check_pitch: 'checker_eval',
     queue_pitch: 'outbound_queue',
@@ -994,12 +1015,14 @@ function jobTypeForAction(action) {
 
 function jobIdempotencyKey(lead, action, jobType) {
   if (action === 'queue_pitch') return stableOutboundKey(lead);
+  if (action === 'rebuild_lovable') return `lovable_rebuild:${lead.id}:${Number(lead.mockup?.rebuildAttempts ?? 0) + 1}`;
   if (action === 'check_pitch') return `checker_eval:${lead.id}:${lead.video?.videoUrl || lead.mockup?.publicUrl || lead.mockup?.deployedUrl || 'preview'}`;
   return `${jobType}:${lead.id}:${jobRevisionForAction(lead, action)}`;
 }
 
 function jobRevisionForAction(lead, action) {
   if (action === 'build_lovable') return lead.mockup?.projectId || lead.pipelineStage || 'diagnosed';
+  if (action === 'rebuild_lovable') return Number(lead.mockup?.rebuildAttempts ?? 0) + 1;
   if (action === 'deploy_lovable_export') return lead.mockup?.latestRef || lead.mockup?.updatedAt || lead.updatedAt || 'export';
   if (action === 'deploy_public_url') return lead.mockup?.publishedUrl || lead.mockup?.url || lead.updatedAt || 'url';
   if (action === 'make_video') return lead.mockup?.publicUrl || lead.mockup?.deployedUrl || lead.updatedAt || 'video';
