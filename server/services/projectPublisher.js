@@ -523,20 +523,39 @@ async function repairDuplicateRemoteImageConstants(sourceRoot, lead = {}) {
   const repaired = [];
   for (const file of files) {
     const content = await readFile(file, 'utf8').catch(() => '');
-    if (!content.includes('images.unsplash.com')) continue;
+    if (!content.includes('images.unsplash.com') && !content.includes('image.pollinations.ai')) continue;
     let ordinal = 0;
-    const next = content.replace(
-      /const\s+([A-Za-z_$][\w$]*)\s*=\s*["']https:\/\/images\.unsplash\.com\/[^"']+["'];/g,
-      (match, variableName) => {
-        const url = imageRepairUrlV2(lead, `${variableName} ${path.basename(file)}`, ordinal);
-        ordinal += 1;
-        repaired.push({ file: path.relative(sourceRoot, file), variableName, strategy: 'dedupe_remote_image_constant', url });
-        return `const ${variableName} = "${url}";`;
-      },
-    );
+    let next = content;
+    const matches = [...content.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*["'](?:https:\/\/images\.unsplash\.com|https:\/\/image\.pollinations\.ai)\/[^"']+["'];/g)];
+    for (const match of matches) {
+      const [statement, variableName] = match;
+      const url = imageRepairUrlV2(lead, `${variableName} ${path.basename(file)}`, ordinal);
+      const asset = await materializeRepairImage(sourceRoot, file, variableName, url);
+      ordinal += 1;
+      repaired.push({ file: path.relative(sourceRoot, file), variableName, strategy: asset.ok ? 'generated_local_image_asset' : 'generated_remote_image_url', url: asset.url });
+      next = next.replace(statement, `const ${variableName} = ${asset.expression};`);
+    }
     if (next !== content) await writeFile(file, next, 'utf8');
   }
   return repaired.length ? { ok: true, repaired } : { ok: false, reason: 'no_duplicate_remote_image_constants' };
+}
+
+async function materializeRepairImage(sourceRoot, importerFile, variableName, url) {
+  const fileName = `webstudio-${variableName.replace(/[^a-z0-9_-]/gi, '-').toLowerCase()}.png`;
+  const assetPath = path.join(sourceRoot, 'src', 'assets', fileName);
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(90_000) });
+    const contentType = response.headers.get('content-type') || '';
+    if (!response.ok || !contentType.startsWith('image/')) throw new Error(`image_fetch_failed_${response.status}`);
+    const body = Buffer.from(await response.arrayBuffer());
+    await mkdir(path.dirname(assetPath), { recursive: true });
+    await writeFile(assetPath, body);
+    const relative = path.relative(path.dirname(importerFile), assetPath).replace(/\\/g, '/');
+    const importPath = relative.startsWith('.') ? relative : `./${relative}`;
+    return { ok: true, url, expression: `new URL("${importPath}", import.meta.url).href` };
+  } catch {
+    return { ok: false, url, expression: `"${url}"` };
+  }
 }
 
 async function listSourceCodeFiles(root) {
