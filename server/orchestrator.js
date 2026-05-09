@@ -506,6 +506,24 @@ export class Orchestrator {
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'media_ready', stageStatus: 'in_progress', artifactStatus: 'media_ready', reason: 'video_created' });
     await this.store.addEvent(lead.id, 'video.created', `Filmer rendered video: ${video.videoUrl}`);
     await this.addA1Event(lead, 'video.created', `Filmer rendered video: ${video.videoUrl}`, { video });
+    if (lead.source === 'telegram_inbound') {
+      lead = await this.store.transitionLead(lead.id, {
+        pipelineStage: 'qualified',
+        stageStatus: 'preview_ready',
+        artifactStatus: 'media_ready',
+        lane: 'Ответы',
+        owner: 'Mobile',
+        reason: 'customer_preview_media_ready',
+      });
+      await this.store.updateLead(lead.id, {
+        outboundStatus: 'not_applicable_customer_inbound',
+        customerTelegram: {
+          ...(lead.customerTelegram ?? {}),
+          state: 'preview_ready',
+        },
+      });
+      return { ok: true, lead: this.store.getLead(lead.id), video, skippedChecker: true };
+    }
     await this.enqueueJob('checker_eval', lead.id, { idempotencyKey: `checker:${lead.id}:${video.videoUrl || lead.updatedAt}`, priority: lead.fitScore ?? 55 });
     return { ok: true, lead, video };
   }
@@ -1093,7 +1111,7 @@ function actionForLead(lead, topLovableIds) {
   if (lead.mockup?.status === 'deployed' && (lead.mockup?.publicUrl || lead.mockup?.publishedUrl || lead.mockup?.deployedUrl) && lead.qualityGate?.ok && !lead.video?.ok) {
     return { action: 'make_video', label: 'Подготовить видео', score: lead.fitScore ?? 0, autoRunnable: true };
   }
-  if (lead.mockup?.status === 'deployed' && lead.video?.ok && !lead.checker?.passed && lead.stageStatus !== 'checker_failed' && lead.status !== 'checker_failed') {
+  if (lead.source !== 'telegram_inbound' && lead.mockup?.status === 'deployed' && lead.video?.ok && !lead.checker?.passed && lead.stageStatus !== 'checker_failed' && lead.status !== 'checker_failed') {
     return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   }
   if (lead.stageStatus === 'checker_failed' || lead.status === 'checker_failed') {
