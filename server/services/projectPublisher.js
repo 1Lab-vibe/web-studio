@@ -581,12 +581,12 @@ function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
   const niche = `${lead.niche || ''} ${lead.name || ''}`.toLowerCase();
   const key = String(context || '').toLowerCase();
   const photoStudio = [
-    ['hero|studio|main', 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=1800&q=80'],
-    ['loft|brick|industrial', 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1800&q=80'],
-    ['cyc|cyclorama|white|light', 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1800&q=80'],
-    ['cozy|warm|family', 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1800&q=80'],
-    ['dark|black|contrast', 'https://images.unsplash.com/photo-1500051638674-ff996a0ec29e?auto=format&fit=crop&w=1800&q=80'],
-    ['detail|camera|equipment', 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=1800&q=80'],
+    ['hero|studio|main', generatedImageUrl('premium commercial photography studio interior, large cyclorama wall, professional softboxes and camera stands, elegant rental studio atmosphere, realistic architectural photography, no people, no mountains, no road, no office desk', 1101)],
+    ['loft|brick|industrial', generatedImageUrl('loft photography studio hall, exposed brick wall, large industrial windows, seamless paper backdrops, softbox lighting, wooden floor, realistic interior photo, no mountains, no road, no landscape, no office desk', 1102)],
+    ['cyc|cyclorama|white|light', generatedImageUrl('white cyclorama photography studio hall, clean curved wall, bright daylight, professional studio lights, minimal rental studio interior, realistic photo, no bedroom, no mountains, no road, no office desk', 1103)],
+    ['cozy|warm|family', generatedImageUrl('cozy warm photography studio hall for family portraits, neutral sofa, textured wall, soft curtains, warm studio lights, realistic interior photo, no wedding couple, no mountains, no road, no office desk', 1104)],
+    ['dark|black|contrast', generatedImageUrl('dark black photography studio hall, matte black backdrop, dramatic portrait lighting, grid softbox, professional photo studio equipment, realistic interior photo, no office desk, no computer, no mountains, no road', 1105)],
+    ['detail|camera|equipment', generatedImageUrl('close detail of professional photography studio equipment, camera on tripod, softbox lights, backdrops, premium studio rental mood, realistic photo, no office desk, no mountains, no road', 1106)],
   ];
   const beauty = [
     ['hero|main', 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1800&q=80'],
@@ -612,6 +612,11 @@ function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
         : generic;
   const matched = set.find(([pattern]) => new RegExp(pattern, 'i').test(key));
   return (matched || set[Math.abs(Number(ordinal) || 0) % set.length])[1];
+}
+
+function generatedImageUrl(prompt, seed) {
+  const encoded = encodeURIComponent(prompt);
+  return `https://image.pollinations.ai/prompt/${encoded}?width=1600&height=1000&seed=${seed}&nologo=true&enhance=true`;
 }
 
 function escapeRegExp(value) {
