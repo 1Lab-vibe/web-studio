@@ -803,9 +803,15 @@ export async function repairLeadSourceProject(store, leadId, { renderVideo = fal
       deployedAt: new Date().toISOString(),
     },
     outboundStatus: String(lead.outboundStatus || '').startsWith('blocked_quality_regression') ? 'blocked_previous_queue_needs_review' : '',
+    pipelineStage: 'deployed',
+    stageStatus: 'quality_pending',
+    assignedAgent: 'Filmer',
+    artifactStatus: 'deployed',
     lane: 'Видео',
     owner: 'Filmer',
     status: 'in_progress',
+    lastTransitionAt: new Date().toISOString(),
+    lastTransitionReason: 'coder_repair_deployed',
   });
   await store.addEvent(lead.id, 'project.repaired_deployed', `Coder repaired and deployed Lovable export: ${publicUrl}`);
   await crmAddEvent({
