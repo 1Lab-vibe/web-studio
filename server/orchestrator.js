@@ -7,7 +7,7 @@ import { prepareLovableMockup } from './services/lovableMcp.js';
 import { renderLeadVideo } from './services/filmer.js';
 import { enrichContacts } from './services/contactEnrichment.js';
 import { approvalKeyboard, sendTelegram, sendTelegramTo } from './services/telegram.js';
-import { enrichLeadScore, topLovableCandidates } from './services/scoring.js';
+import { enrichLeadScore, isLovableEligible, topLovableCandidates } from './services/scoring.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
 import { runPreviewQualityGate } from './services/qualityGate.js';
 
@@ -261,6 +261,27 @@ export class Orchestrator {
       });
     }
     const quotaFreeBuild = skipQuota || ['telegram_inbound', 'manual_smoke'].includes(lead.source);
+    if (!quotaFreeBuild && !isLovableEligible(lead)) {
+      await this.store.transitionLead(lead.id, {
+        pipelineStage: 'diagnosed',
+        stageStatus: 'needs_email_enrichment',
+        lane: 'Диагноз',
+        owner: 'Scout',
+        reason: 'lovable_requires_email_contact',
+      });
+      const patch = {
+        outboundStatus: 'needs_channel_decision',
+      };
+      if (lead.mockup) {
+        patch.mockup = {
+          ...lead.mockup,
+          status: 'blocked_no_email',
+          blockedAt: new Date().toISOString(),
+        };
+      }
+      await this.store.updateLead(lead.id, patch);
+      return { ok: true, skipped: true, reason: 'lovable_requires_email_contact' };
+    }
     if (!quotaFreeBuild && !this.lovableCandidates().some((candidate) => candidate.id === lead.id)) {
       await this.store.transitionLead(lead.id, { pipelineStage: 'diagnosed', stageStatus: 'quota_wait', reason: 'lovable_daily_quota_wait' });
       return { ok: true, skipped: true, reason: 'quota_wait' };
