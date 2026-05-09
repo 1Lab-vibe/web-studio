@@ -475,7 +475,7 @@ async function buildSourceProject(sourceRoot, publicRoot, basePath = '') {
 async function repairAndBuildSourceProject(sourceRoot, publicRoot, basePath = '', lead = {}) {
   const repairs = [];
   let build = await buildSourceProject(sourceRoot, publicRoot, basePath);
-  for (let attempt = 0; !build.ok && attempt < 3; attempt += 1) {
+  for (let attempt = 0; !build.ok && attempt < 10; attempt += 1) {
     const repair = await repairMissingAssetImports(sourceRoot, build.error || '', lead);
     if (!repair.ok) break;
     repairs.push(repair);
