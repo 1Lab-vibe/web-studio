@@ -656,19 +656,19 @@ function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
     ['detail|camera|equipment', generatedImageUrl('close detail of professional photography studio equipment, camera on tripod, softbox lights, backdrops, premium studio rental mood, realistic photo, no office desk, no mountains, no road', 1106)],
   ];
   const beauty = [
-    ['hero|main', 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1800&q=80'],
-    ['interior|room', 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=1800&q=80'],
-    ['detail|service', 'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?auto=format&fit=crop&w=1800&q=80'],
+    ['hero|main', generatedImageUrl('modern beauty salon interior, reception and styling chairs, soft natural light, premium calm atmosphere, realistic architectural photography, no office desk, no mountains, no road', 2101)],
+    ['interior|room|work', generatedImageUrl('beauty salon treatment room, mirrors, styling chairs, warm lighting, clean premium interior, realistic photo, no office desk, no mountains, no road', 2102)],
+    ['detail|service', generatedImageUrl('beauty salon service detail, professional cosmetics and tools on clean counter, elegant spa mood, realistic close-up photo, no computer, no mountains, no road', 2103)],
   ];
   const construction = [
-    ['hero|main', 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=1800&q=80'],
-    ['detail|tool', 'https://images.unsplash.com/photo-1581094794329-c8112a89af12?auto=format&fit=crop&w=1800&q=80'],
-    ['interior|finish', 'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=1800&q=80'],
+    ['hero|main', generatedImageUrl('professional home renovation crew working in modern apartment interior, clean construction site, tools and finished walls, realistic photo, no office desk, no mountains, no road', 3101)],
+    ['detail|tool', generatedImageUrl('close-up of construction tools, measuring tape, level and materials on renovation site, clean realistic commercial photo, no mountains, no road', 3102)],
+    ['interior|finish', generatedImageUrl('finished renovated apartment interior, fresh walls, modern flooring, clean daylight, realistic interior photography, no people, no mountains, no road', 3103)],
   ];
   const generic = [
-    ['hero|main', 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1800&q=80'],
-    ['detail|team', 'https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1800&q=80'],
-    ['interior|office', 'https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=1800&q=80'],
+    ['hero|main', generatedImageUrl('modern local business interior, clean reception area, premium commercial photography, realistic, no mountains, no road', 4101)],
+    ['detail|team', generatedImageUrl('professional local business team workspace detail, documents and service tools, realistic commercial photo, no mountains, no road', 4102)],
+    ['interior|office', generatedImageUrl('clean modern service business office interior, warm light, realistic architectural photo, no mountains, no road', 4103)],
   ];
   const set = /фото|photo|studio|студи/.test(niche)
     ? photoStudio
