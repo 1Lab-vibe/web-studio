@@ -672,16 +672,17 @@ export class Orchestrator {
       fitScore: lead.fitScore ?? 0,
       a1Outbound: outbound,
     });
+    const sentNow = outboundWasSent(outbound);
     lead = await this.store.updateLead(lead.id, {
       contacts: lead.contacts,
-      pitch: { ok: outbound.ok, queued: true, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound },
-      outboundStatus: outbound.ok ? 'queued' : 'failed',
+      pitch: { ok: outbound.ok, queued: !sentNow, sent: sentNow, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound },
+      outboundStatus: outbound.ok ? (sentNow ? 'sent' : 'queued') : 'failed',
       outboundScheduledAt: '',
     });
     if (!outbound.ok) throw new Error(outbound.error || outbound.reason || 'A1 outbound queue failed');
-    lead = await this.store.transitionLead(lead.id, { pipelineStage: 'outbound_sent', stageStatus: 'queued', reason: 'outbound_queued_in_a1' });
-    await this.store.addEvent(lead.id, 'pitch.queued', `Pitcher queued message: ${item.channel}`);
-    await this.addA1Event(lead, 'outbound.queued', 'Pitcher queued outbound email in A1', { queueItem: item, outbound });
+    lead = await this.store.transitionLead(lead.id, { pipelineStage: 'outbound_sent', stageStatus: sentNow ? 'sent' : 'queued', reason: sentNow ? 'outbound_sent_by_a1' : 'outbound_queued_in_a1' });
+    await this.store.addEvent(lead.id, sentNow ? 'pitch.sent' : 'pitch.queued', sentNow ? `Pitcher sent message via A1: ${item.channel}` : `Pitcher queued message: ${item.channel}`);
+    await this.addA1Event(lead, sentNow ? 'outbound.sent' : 'outbound.queued', sentNow ? 'Pitcher sent outbound email via A1' : 'Pitcher queued outbound email in A1', { queueItem: item, outbound });
     return { ok: true, lead, outbound };
   }
 
@@ -1256,6 +1257,18 @@ function jobRevisionForAction(lead, action) {
 
 function stableOutboundKey(lead = {}) {
   return `webstudio:${lead.id}:outbound:sales-email-v1`;
+}
+
+function outboundWasSent(outbound) {
+  const data = parsedToolData(outbound) || {};
+  const status = String(
+    data.message?.status ||
+      data.sendResult?.response?.status ||
+      data.sendResult?.response?.action_result?.status ||
+      data.status ||
+      '',
+  ).toLowerCase();
+  return ['sent', 'delivered', 'succeeded'].includes(status);
 }
 
 function normalizeDedupeText(value) {
