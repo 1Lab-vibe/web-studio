@@ -671,9 +671,16 @@ function injectVisualMediaBlock(content, block, filePath) {
   if (filePath.endsWith('.html') && clean.includes('<body')) {
     return clean.replace(/(<body[^>]*>)/i, `$1\n${block}`);
   }
-  const returnOpen = clean.match(/return\s*\(\s*<>/);
+  const fragmentMatches = [...clean.matchAll(/return\s*\(\s*<>/g)];
+  const returnOpen = fragmentMatches.at(-1);
   if (returnOpen?.index !== undefined) {
     const insertAt = returnOpen.index + returnOpen[0].length;
+    return `${clean.slice(0, insertAt)}\n${block}\n${clean.slice(insertAt)}`;
+  }
+  const rootMatches = [...clean.matchAll(/return\s*\(\s*(<(?:div|section)[^>]*>)/g)];
+  const rootOpen = rootMatches.at(-1);
+  if (rootOpen?.index !== undefined) {
+    const insertAt = rootOpen.index + rootOpen[0].length;
     return `${clean.slice(0, insertAt)}\n${block}\n${clean.slice(insertAt)}`;
   }
   return clean;
