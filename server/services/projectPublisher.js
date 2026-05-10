@@ -811,6 +811,12 @@ function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
     ['detail|service', generatedImageUrl('beauty salon service detail, professional cosmetics and tools on clean counter, elegant spa mood, realistic close-up photo, no computer, no mountains, no road', seed + 32)],
     ['hero|cover|banner|first|главн', generatedImageUrl('modern beauty salon interior, reception and styling chairs, soft natural light, premium calm atmosphere, realistic architectural photography, no office desk, no mountains, no road', seed + 33)],
   ];
+  const aiStudio = [
+    ['hero|cover|banner|first|главн', generatedImageUrl('premium dark AI automation studio workspace, CRM pipeline dashboard on large monitor, neural network workflow diagrams, clean high-end technology office, realistic commercial photo, no people faces, no mountains, no road, no photography studio lights', seed + 36)],
+    ['crm|api|integration|pipeline|ворон|интеграц', generatedImageUrl('close-up of CRM automation dashboard, API integration nodes, sales pipeline analytics on screen, dark premium SaaS interface, realistic technology photo, no mountains, no road, no photography studio', seed + 37)],
+    ['bot|chat|support|sales|продаж|поддерж', generatedImageUrl('AI chatbot conversation dashboard for sales and support, messenger automation interface, clean dark control room mood, realistic technology workspace photo, no people faces, no mountains, no road', seed + 38)],
+    ['process|workflow|agent|операцион|автоматизац', generatedImageUrl('AI agent workflow map on a large screen, connected business process blocks, automation operations center, premium dark technology interior, realistic photo, no mountains, no road, no photography studio', seed + 39)],
+  ];
   const construction = [
     ['detail|tool', generatedImageUrl('close-up of construction tools, measuring tape, level and materials on renovation site, clean realistic commercial photo, no mountains, no road', seed + 41)],
     ['interior|finish', generatedImageUrl('finished renovated apartment interior, fresh walls, modern flooring, clean daylight, realistic interior photography, no people, no mountains, no road', seed + 42)],
@@ -823,6 +829,8 @@ function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
   ];
   const set = /paper\s*straw|straw|drinking\s*straw|cocktail\s*straw|kraft|horeca|packag|eco|biodegrad|трубоч|коктейл|бумажн|крафт|упаков|эко|биоразлага/.test(key)
     ? paperPackaging
+    : /\bai\b|ии|нейро|neuro|chatbot|bot|бот|crm|api|a1|automation|автоматизац|интеграц|операцион/.test(key)
+    ? aiStudio
     : /фото|photo|photography|photographer|фотограф|фотостуди/.test(key)
     ? photoStudio
     : /beauty|salon|крас|салон/.test(key)
