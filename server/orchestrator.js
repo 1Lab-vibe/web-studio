@@ -193,7 +193,8 @@ export class Orchestrator {
     const now = new Date();
     const scoutKey = `scout:${now.toISOString().slice(0, 13)}`;
     planned.push(await this.enqueueJob('scout_sources', '', { idempotencyKey: scoutKey, priority: 10 }));
-    for (const action of this.topActions(config.AUTONOMY_TOP_ACTIONS_LIMIT).filter((item) => item.autoRunnable)) {
+    const planningLimit = Math.max(50, Number(config.AUTONOMY_TOP_ACTIONS_LIMIT) || 12);
+    for (const action of this.topActions(planningLimit).filter((item) => item.autoRunnable)) {
       const lead = action.lead;
       const jobType = jobTypeForAction(action.action);
       if (!jobType) continue;
@@ -201,7 +202,7 @@ export class Orchestrator {
       planned.push(
         await this.enqueueJob(jobType, lead.id, {
           idempotencyKey,
-          priority: action.score ?? lead.fitScore ?? 50,
+          priority: jobPriorityForAction(action, lead),
           payload: { action: action.action, rebuild: action.action === 'rebuild_lovable' },
         }),
       );
@@ -354,7 +355,7 @@ export class Orchestrator {
       if (!slot.ok) {
         await this.enqueueJob('lovable_build', lead.id, {
           idempotencyKey: `lovable_build:${lead.id}:scheduled:${slot.nextRunAt}`,
-          priority: lead.fitScore ?? 70,
+          priority: lovableJobPriority(lead),
           nextRunAt: slot.nextRunAt,
         });
         await this.store.transitionLead(lead.id, {
@@ -381,7 +382,7 @@ export class Orchestrator {
         reason: 'lovable_export_ready',
       });
       await this.store.addEvent(lead.id, 'mockup.export_ready', `Lovable returned ${mockup.files?.length || 0} source file(s)`);
-      await this.enqueueJob('coder_deploy', lead.id, { idempotencyKey: `coder_deploy:${lead.id}:${mockup.latestRef || mockup.updatedAt || lead.updatedAt}`, priority: lead.fitScore ?? 70 });
+      await this.enqueueJob('coder_deploy', lead.id, { idempotencyKey: `coder_deploy:${lead.id}:${mockup.latestRef || mockup.updatedAt || lead.updatedAt}`, priority: pipelineJobPriority(lead, 900) });
       if (customerChatId) await this.store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), pendingPreviewChatId: customerChatId } });
       await this.addA1Event(lead, 'mockup.export_ready', 'Lovable returned source files', { mockup });
       return { ok: true, lead };
@@ -393,7 +394,7 @@ export class Orchestrator {
         artifactStatus: 'public_url_attached',
         reason: 'lovable_public_url_attached',
       });
-      await this.enqueueJob('coder_deploy', lead.id, { idempotencyKey: `coder_deploy:${lead.id}:${mockup.publishedUrl || mockup.url || lead.updatedAt}`, priority: lead.fitScore ?? 70 });
+      await this.enqueueJob('coder_deploy', lead.id, { idempotencyKey: `coder_deploy:${lead.id}:${mockup.publishedUrl || mockup.url || lead.updatedAt}`, priority: pipelineJobPriority(lead, 900) });
       if (customerChatId) await this.store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), pendingPreviewChatId: customerChatId } });
       return { ok: true, lead };
     }
@@ -462,7 +463,7 @@ export class Orchestrator {
         },
       });
     }
-    await this.enqueueJob('filmer_render', lead.id, { idempotencyKey: `filmer:${lead.id}:${lead.mockup?.publicUrl || lead.updatedAt}`, priority: lead.fitScore ?? 60 });
+    await this.enqueueJob('filmer_render', lead.id, { idempotencyKey: `filmer:${lead.id}:${lead.mockup?.publicUrl || lead.updatedAt}`, priority: pipelineJobPriority(lead, 800) });
     await this.addA1Event(lead, 'project.quality_passed', 'Coder deploy passed quality gate', { qualityGate: quality });
     return { ok: true, lead, quality };
   }
@@ -492,7 +493,7 @@ export class Orchestrator {
     }
     if (lead.video?.ok && lead.video?.videoUrl) {
       if (!lead.checker?.passed && lead.lane !== 'Отправка') {
-        await this.enqueueJob('checker_eval', lead.id, { idempotencyKey: `checker:${lead.id}:${lead.video.videoUrl}`, priority: lead.fitScore ?? 55 });
+        await this.enqueueJob('checker_eval', lead.id, { idempotencyKey: `checker:${lead.id}:${lead.video.videoUrl}`, priority: pipelineJobPriority(lead, 700) });
       }
       return { ok: true, skipped: true, reason: 'video_already_ready', lead, video: lead.video };
     }
@@ -524,7 +525,7 @@ export class Orchestrator {
       });
       return { ok: true, lead: this.store.getLead(lead.id), video, skippedChecker: true };
     }
-    await this.enqueueJob('checker_eval', lead.id, { idempotencyKey: `checker:${lead.id}:${video.videoUrl || lead.updatedAt}`, priority: lead.fitScore ?? 55 });
+    await this.enqueueJob('checker_eval', lead.id, { idempotencyKey: `checker:${lead.id}:${video.videoUrl || lead.updatedAt}`, priority: pipelineJobPriority(lead, 700) });
     return { ok: true, lead, video };
   }
 
@@ -572,7 +573,7 @@ export class Orchestrator {
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'outbound_ready', stageStatus: 'ready', reason: 'checker_passed' });
     await this.store.addEvent(lead.id, 'checker.passed', `Checker passed: ${lead.checker.score}`);
     await this.addA1Event(lead, 'checker.passed', `Checker passed: ${lead.checker.score}`, { checker: lead.checker, outboundPackage: packageGate });
-    await this.enqueueJob('outbound_queue', lead.id, { idempotencyKey: stableOutboundKey(lead), priority: lead.fitScore ?? 50 });
+    await this.enqueueJob('outbound_queue', lead.id, { idempotencyKey: stableOutboundKey(lead), priority: pipelineJobPriority(lead, 600) });
     return { ok: true, lead };
   }
 
@@ -593,7 +594,7 @@ export class Orchestrator {
       });
       await this.enqueueJob('outbound_queue', lead.id, {
         idempotencyKey: `${stableOutboundKey(lead)}:${workingWindow.nextRunAt.slice(0, 10)}`,
-        priority: lead.fitScore ?? 50,
+        priority: pipelineJobPriority(lead, 600),
         nextRunAt: workingWindow.nextRunAt,
       });
       return { ok: true, skipped: true, reason: 'outside_working_hours', nextRunAt: workingWindow.nextRunAt };
@@ -874,7 +875,7 @@ export class Orchestrator {
           });
           await this.enqueueJob('outbound_queue', lead.id, {
             idempotencyKey: `${stableOutboundKey(lead)}:${workingWindow.nextRunAt.slice(0, 10)}`,
-            priority: lead.fitScore ?? 50,
+            priority: pipelineJobPriority(lead, 600),
             nextRunAt: workingWindow.nextRunAt,
           });
           return { ok: true, held: true, reason: 'Outside working hours; outbound scheduled', lead };
@@ -1233,6 +1234,21 @@ function jobTypeForAction(action) {
     check_pitch: 'checker_eval',
     queue_pitch: 'outbound_queue',
   }[action];
+}
+
+function lovableJobPriority(lead = {}) {
+  return 1000 + Number(lead.fitScore ?? lead.priority ?? 70);
+}
+
+function pipelineJobPriority(lead = {}, offset = 500) {
+  return Number(offset) + Number(lead.fitScore ?? lead.priority ?? 50);
+}
+
+function jobPriorityForAction(action = {}, lead = {}) {
+  const base = Number(action.score ?? lead.fitScore ?? 50);
+  if (['build_lovable', 'rebuild_lovable'].includes(action.action)) return 1000 + base;
+  if (['deploy_lovable_export', 'deploy_public_url', 'repair_deploy'].includes(action.action)) return 900 + base;
+  return base;
 }
 
 function jobIdempotencyKey(lead, action, jobType) {

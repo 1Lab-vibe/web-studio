@@ -44,6 +44,10 @@ export function isLovableEligible(lead) {
   return isQuotaFreeLead(lead) || hasEmailContact(lead);
 }
 
+export function isScoutLovableEligible(lead) {
+  return !isQuotaFreeLead(lead) && hasEmailContact(lead);
+}
+
 export function calculateFitScore(lead) {
   const priority = Number(lead.priority ?? 50);
   const dealScore = Math.min(25, Math.round(Number(lead.deal ?? 0) / 15000));
@@ -64,6 +68,7 @@ export function enrichLeadScore(lead) {
     contactScore: contactScore(lead),
     hasEmail: hasEmailContact(lead),
     lovableEligible: isLovableEligible(lead),
+    scoutLovableEligible: isScoutLovableEligible(lead),
     updatedAt: new Date().toISOString(),
   };
   return lead;
@@ -78,7 +83,7 @@ export function topLovableCandidates(leads, limit = config.DAILY_MOCKUP_LIMIT) {
   return leads
     .filter(isDiagnosisLane)
     .filter((lead) => !['done', 'paused', 'waiting_approval', 'needs_review'].includes(lead.status))
-    .filter((lead) => isLovableEligible(lead))
+    .filter((lead) => isScoutLovableEligible(lead))
     .map((lead) => enrichLeadScore({ ...lead }))
     .sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0))
     .slice(0, Math.max(0, Number(limit) || 0));
