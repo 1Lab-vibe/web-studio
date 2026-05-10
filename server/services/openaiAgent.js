@@ -2,6 +2,12 @@ import OpenAI from 'openai';
 import { config, hasSecret } from '../config.js';
 import { loadNicheConfig } from './niches.js';
 import { analyzeLeadSite } from './siteAnalyzer.js';
+import { maskBriefForLLM, maskCustomerLeadForLLM } from './piiMasker.js';
+
+function leadForLLM(lead) {
+  if (lead?.source === 'telegram_inbound') return maskCustomerLeadForLLM(lead);
+  return lead;
+}
 
 const client = hasSecret(config.OPENAI_API_KEY) ? new OpenAI({ apiKey: config.OPENAI_API_KEY }) : null;
 
@@ -49,17 +55,21 @@ export async function diagnoseLead(lead) {
       {
         role: 'user',
         content: JSON.stringify({
-          lead: {
-            name: lead.name,
-            city: lead.city,
-            niche: lead.niche,
-            rating: lead.rating,
-            reviews: lead.reviews,
-            yearsOnMap: lead.years,
-            currentSite: lead.site,
-            address: lead.address,
-            phone: lead.phone,
-          },
+          lead: (() => {
+            const safe = leadForLLM(lead);
+            return {
+              name: safe.name,
+              city: safe.city,
+              niche: safe.niche,
+              rating: safe.rating,
+              reviews: safe.reviews,
+              yearsOnMap: safe.years,
+              currentSite: safe.site,
+              address: safe.address,
+              phone: safe.phone,
+              customerBrief: safe.customerBrief,
+            };
+          })(),
           nicheConfig: {
             slug: niche.slug,
             label: niche.label,
@@ -76,6 +86,9 @@ export async function diagnoseLead(lead) {
           market: 'Россия',
           source: lead.source === 'google_places' ? 'Google Places' : 'Яндекс Карты',
           offer: 'готовый сайт/лендинг в Lovable с быстрым запуском',
+          piiPolicy: lead.source === 'telegram_inbound'
+            ? 'PII клиента (телефоны, email, паспорта, карты, Telegram-хэндлы) уже замаскированы. Не выдумывай настоящие значения.'
+            : '',
         }),
       },
     ],
@@ -173,16 +186,19 @@ export async function evaluatePitch(lead) {
           previewUrl: lead.outboundPackage?.previewUrl || '',
           videoUrl: lead.outboundPackage?.videoUrl || '',
           botLink: lead.outboundPackage?.botLink || '',
-          lead: {
-            name: lead.name,
-            city: lead.city,
-            niche: lead.niche,
-            rating: lead.rating,
-            reviews: lead.reviews,
-            channel,
-            message: lead.message,
-            diagnosis: lead.diagnosis,
-          },
+          lead: (() => {
+            const safe = leadForLLM(lead);
+            return {
+              name: safe.name,
+              city: safe.city,
+              niche: safe.niche,
+              rating: safe.rating,
+              reviews: safe.reviews,
+              channel,
+              message: safe.message,
+              diagnosis: safe.diagnosis,
+            };
+          })(),
         }),
       },
     ],

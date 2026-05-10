@@ -8,6 +8,8 @@ import { deployLeadExportedProject, deployLeadGeneratedPreview, deployLeadPublic
 import { downloadTelegramFile, getTelegramFile, sendTelegram, sendTelegramTo } from './telegram.js';
 import { legalLinks } from './legalDocs.js';
 import { classifyCustomerRevision, isRevisionPaymentOk, revisionIdempotencyKey, revisionPaymentRequiredText } from './revisions.js';
+import { classifyContent, safetyReport } from './safetyGate.js';
+import { maskBriefForLLM, maskCustomerLeadForLLM, maskPiiText } from './piiMasker.js';
 
 const QUESTIONS = [
   { key: 'businessName', text: 'Как называется бизнес или проект? Если название в превью уже верное, напишите “оставить”.' },
@@ -104,8 +106,11 @@ function looksLikeKeyboardGibberish(text, key = '') {
 }
 
 function hasProhibitedBriefContent(text) {
-  const value = normalizeText(text).toLowerCase();
-  return /(\bставк[аи]\b|наркот|заклад|казино|букмекер|эскорт|проститу|интим[- ]?услуг|порн|porn|pornhub|18\+|секс|sex|эротик|обнажен|обнажён|голы[еймхая]|нюд|онанист|ананист|оружи|взлом|фишинг|скам|кардинг|поддельн|паспорт|экстрем|террор|ненавист|убить|насили|malware|phishing|scam|casino|escort|weapon|drug)/i.test(value);
+  return !classifyContent(text).allowed;
+}
+
+function describeProhibited(text) {
+  return safetyReport(text);
 }
 
 function isGenericTelegramLeadName(lead) {
@@ -833,19 +838,22 @@ async function finishBriefCapture(store, lead, chatId) {
     return { ok: false, lead, reason: 'empty_capture' };
   }
   const rawText = captured.map((item, index) => `${index + 1}. [${item.kind || 'text'}] ${item.text}`).join('\n');
-  if (hasProhibitedBriefContent(rawText)) {
+  const captureSafety = describeProhibited(rawText);
+  if (!captureSafety.allowed) {
     const updated = await store.transitionLead(lead.id, {
       pipelineStage: 'needs_review',
       stageStatus: 'content_review_required',
       artifactStatus: 'blocked',
       lane: 'Диагноз',
       owner: 'Mobile',
-      reason: 'customer_brief_capture_safety_failed',
+      reason: `customer_brief_capture_safety_failed:${captureSafety.categories.join(',') || 'soft'}`,
     });
-    await store.addEvent(lead.id, 'customer.brief_safety_blocked', 'Captured brief contains prohibited or risky content');
-    await sendTelegramTo(chatId, 'Не могу собрать ТЗ: в материалах есть запрещенная или рискованная тематика. Можно начать заново через /reset и описать легальную задачу.');
-    await sendTelegram(`<b>Клиентский capture-бриф заблокирован</b>\nЛид: ${escapeHtml(lead.name)}\nLead ID: <code>${escapeHtml(lead.id)}</code>\nФрагмент: <code>${escapeHtml(rawText.slice(0, 700))}</code>`);
-    return { ok: false, lead: updated || lead, reason: 'prohibited_capture' };
+    await store.addEvent(lead.id, 'customer.brief_safety_blocked', `Captured brief blocked: ${captureSafety.labels?.join(', ') || 'prohibited content'}`);
+    await sendTelegramTo(chatId, captureSafety.hardBlock
+      ? 'Эту тему я не могу принять как ТЗ — она запрещена. Если у вас есть легальный сайт-проект, опишите его через /reset.'
+      : 'Не могу собрать ТЗ: в материалах есть запрещенная или рискованная тематика. Можно начать заново через /reset и описать легальную задачу.');
+    await sendTelegram(`<b>Клиентский capture-бриф заблокирован</b>\nЛид: ${escapeHtml(lead.name)}\nLead ID: <code>${escapeHtml(lead.id)}</code>\nКатегории: <code>${escapeHtml(captureSafety.labels?.join(', ') || '')}</code>\nФрагмент: <code>${escapeHtml(maskPiiText(rawText.slice(0, 700)))}</code>`);
+    return { ok: false, lead: updated || lead, reason: 'prohibited_capture', categories: captureSafety.categories };
   }
   const structured = await briefFromCapturedContent(lead, rawText);
   const brief = {
@@ -870,9 +878,11 @@ async function finishBriefCapture(store, lead, chatId) {
 
 async function refineBriefFromMessage(store, lead, chatId, text) {
   if (isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
-  if (hasProhibitedBriefContent(text)) {
-    await handleRejectedBriefInput(store, lead, chatId, 'prohibited', 'refinement', text);
-    return { ok: false, lead, reason: 'prohibited' };
+  const refineSafety = describeProhibited(text);
+  if (!refineSafety.allowed) {
+    await handleRejectedBriefInput(store, lead, chatId, refineSafety.hardBlock ? 'prohibited_hard' : 'prohibited', 'refinement', text);
+    await sendTelegram(`<b>Клиентский refine заблокирован</b>\nЛид: ${escapeHtml(lead.name)}\nLead ID: <code>${escapeHtml(lead.id)}</code>\nКатегории: <code>${escapeHtml(refineSafety.labels?.join(', ') || '')}</code>\nФрагмент: <code>${escapeHtml(maskPiiText(String(text).slice(0, 400)))}</code>`);
+    return { ok: false, lead, reason: 'prohibited', categories: refineSafety.categories };
   }
   if (looksLikeKeyboardGibberish(text, 'refinement')) {
     await handleRejectedBriefInput(store, lead, chatId, 'gibberish', 'refinement', text);
@@ -950,8 +960,9 @@ async function briefDialogAgent(lead, currentBrief, text) {
               niche: lead.niche,
               previewUrl: lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || '',
             },
-            currentBrief,
-            customerMessage: text,
+            currentBrief: maskBriefForLLM(currentBrief),
+            customerMessage: maskPiiText(text),
+            piiPolicy: 'PII (телефоны, email, номера паспорта/карты) уже замаскированы в виде [phone], [email], [passport]. Не пытайся их восстанавливать или просить.',
           }),
         },
       ],
@@ -992,7 +1003,8 @@ async function briefFromCapturedContent(lead, rawText) {
               niche: lead.niche,
               source: lead.source,
             },
-            capturedMessages: rawText,
+            capturedMessages: maskPiiText(rawText),
+            piiPolicy: 'PII клиента (телефоны, email, паспорта, карты) замаскированы в виде [phone], [email], [passport], [card•1234]. Не выдумывай настоящие значения.',
           }),
         },
       ],
