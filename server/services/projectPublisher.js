@@ -142,6 +142,7 @@ function generatedPreviewHtml(lead) {
   const contacts = brief.contacts || 'форма заявки, телефон, email';
   const style = brief.style || 'современный, аккуратный, быстрый';
   const proof = brief.materials || 'показываем кейсы, подход и понятный следующий шаг';
+  const heroImage = generatedImageUrl(`Russian business landing hero for ${business}, ${niche}, ${style}, cinematic realistic photo, no text`, lead.id || business);
   return `<!doctype html>
 <html lang="ru">
   <head>
@@ -167,6 +168,12 @@ function generatedPreviewHtml(lead) {
       .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 18px; border: 1px solid var(--line); border-radius: 6px; text-decoration: none; font-weight: 750; }
       .btn.primary { background: var(--accent); color: #06110f; border-color: var(--accent); }
       .panel { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 22px; }
+      .hero-photo { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 8px; display: block; margin-bottom: 18px; border: 1px solid rgba(255,255,255,.12); }
+      .hero-svg { width: 100%; height: auto; display: block; margin: 18px 0; }
+      .hero-svg .pulse { animation: wsPulse 2.4s ease-in-out infinite; transform-origin: center; }
+      .hero-svg .flow { stroke-dasharray: 10 12; animation: wsFlow 5s linear infinite; }
+      @keyframes wsPulse { 0%, 100% { opacity: .45; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.05); } }
+      @keyframes wsFlow { to { stroke-dashoffset: -88; } }
       .metric { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
       .metric div { border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
       .metric b { display: block; color: var(--accent2); font-size: 24px; line-height: 1; margin-bottom: 8px; }
@@ -201,6 +208,8 @@ function generatedPreviewHtml(lead) {
             </div>
           </div>
           <aside class="panel">
+            <img class="hero-photo" src="${escapeHtml(heroImage)}" alt="${escapeHtml(`${business}: ${niche}`)}">
+            ${animatedHeroSvg()}
             <b>Что важно показать сразу</b>
             <p class="muted">${escapeHtml(proof)}</p>
             <div class="metric">
@@ -217,6 +226,21 @@ function generatedPreviewHtml(lead) {
     <footer><div class="wrap">Превью подготовлено Web Studio Coder на основе клиентского ТЗ.</div></footer>
   </body>
 </html>`;
+}
+
+function animatedHeroSvg() {
+  return [
+    '<svg class="hero-svg" viewBox="0 0 520 180" role="img" aria-label="Website workflow preview">',
+    '<defs><linearGradient id="ws-g" x1="0" x2="1"><stop offset="0" stop-color="#55d6be"/><stop offset="1" stop-color="#ffcf5a"/></linearGradient></defs>',
+    '<rect x="1" y="1" width="518" height="178" rx="18" fill="#0b0f17" stroke="#273144"/>',
+    '<path class="flow" d="M90 92H210C245 92 245 48 280 48H430M90 92H210C245 92 245 136 280 136H430" fill="none" stroke="url(#ws-g)" stroke-width="4" stroke-linecap="round"/>',
+    '<circle class="pulse" cx="90" cy="92" r="32" fill="#55d6be" opacity=".75"/>',
+    '<circle class="pulse" cx="280" cy="48" r="24" fill="#ffcf5a" opacity=".75"/>',
+    '<circle class="pulse" cx="280" cy="136" r="24" fill="#55d6be" opacity=".65"/>',
+    '<rect x="388" y="30" width="74" height="36" rx="8" fill="#121722" stroke="#55d6be"/>',
+    '<rect x="388" y="118" width="74" height="36" rx="8" fill="#121722" stroke="#ffcf5a"/>',
+    '</svg>',
+  ].join('');
 }
 
 function splitItems(value) {
@@ -1157,15 +1181,24 @@ function revisionBlockForFile(filePath, text, lead = {}) {
 }
 
 function injectRevisionBlock(content, block, filePath) {
+  const clean = stripExistingRevisionBlocks(content, filePath);
   if (filePath.endsWith('.html')) {
-    if (content.includes('</body>')) return content.replace('</body>', `${block}\n</body>`);
-    return `${content}\n${block}`;
+    if (clean.includes('</body>')) return clean.replace('</body>', `${block}\n</body>`);
+    return `${clean}\n${block}`;
   }
-  const mainIndex = content.lastIndexOf('</main>');
-  if (mainIndex >= 0) return `${content.slice(0, mainIndex)}${block}\n${content.slice(mainIndex)}`;
-  const divIndex = content.lastIndexOf('</div>');
-  if (divIndex >= 0) return `${content.slice(0, divIndex)}${block}\n${content.slice(divIndex)}`;
-  return content;
+  const mainIndex = clean.lastIndexOf('</main>');
+  if (mainIndex >= 0) return `${clean.slice(0, mainIndex)}${block}\n${clean.slice(mainIndex)}`;
+  const divIndex = clean.lastIndexOf('</div>');
+  if (divIndex >= 0) return `${clean.slice(0, divIndex)}${block}\n${clean.slice(divIndex)}`;
+  return clean;
+}
+
+function stripExistingRevisionBlocks(content, filePath) {
+  const isHtml = filePath.endsWith('.html');
+  const pattern = isHtml
+    ? /\s*<section\s+class=["']webstudio-revision-block["'][\s\S]*?<\/section>\s*/g
+    : /\s*<section\s+className=["']webstudio-revision-block["'][\s\S]*?<\/section>\s*/g;
+  return String(content || '').replace(pattern, '\n');
 }
 
 function revisionTitle(text) {
@@ -1179,9 +1212,49 @@ function revisionTitle(text) {
 
 function yandexMapUrl(text, lead = {}) {
   const value = String(text || '');
-  if (!/(карт|map|яндекс|адрес)/i.test(value)) return '';
-  const query = lead.address || value.replace(/добавь|подключи|виджет|яндекс|карт[уы]?|map/gi, '').trim() || lead.name || '';
-  return `https://yandex.ru/map-widget/v1/?text=${encodeURIComponent(query)}`;
+  if (!/(карт|map|yandex|яндекс|адрес|точк|координат)/i.test(value)) return '';
+  const coordinates = extractMapCoordinates(value);
+  if (coordinates) {
+    const { lat, lon } = coordinates;
+    return `https://yandex.ru/map-widget/v1/?ll=${encodeURIComponent(`${lon},${lat}`)}&z=16&pt=${encodeURIComponent(`${lon},${lat},pm2rdm`)}`;
+  }
+  const explicitAddress = extractExplicitMapAddress(value);
+  const leadAddress = normalizeLeadAddress(lead);
+  const query = explicitAddress || leadAddress;
+  if (!query) return '';
+  return `https://yandex.ru/map-widget/v1/?text=${encodeURIComponent(query)}&z=16`;
+}
+
+function normalizeLeadAddress(lead = {}) {
+  const address = String(lead.address || '').trim();
+  if (!address) return '';
+  const city = String(lead.city || '').trim();
+  if (!city || address.toLowerCase().includes(city.toLowerCase())) return address;
+  return `${city}, ${address}`;
+}
+
+function extractExplicitMapAddress(value) {
+  const text = String(value || '');
+  const patterns = [
+    /(?:адрес|address)(?:\s+[\p{L}\d_-]+){0,4}\s*[:\-–]\s*([^\n.;]+)/iu,
+    /(?:по адресу|находимся по адресу|точка на карте)\s+([^\n.;]+)/iu,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const address = match?.[1]?.trim().replace(/\s+/g, ' ');
+    if (address && /[,\d]/.test(address) && !/(виджет|карт|map|yandex|яндекс)$/i.test(address)) return address;
+  }
+  return '';
+}
+
+function extractMapCoordinates(value) {
+  const match = String(value || '').match(/(?:координаты|coords?|geo|lat\/lon|lat\s*,?\s*lon)?\s*(-?\d{1,2}(?:[.,]\d{3,}))\s*[,; ]\s*(-?\d{1,3}(?:[.,]\d{3,}))/i);
+  if (!match) return null;
+  const lat = Number.parseFloat(match[1].replace(',', '.'));
+  const lon = Number.parseFloat(match[2].replace(',', '.'));
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat, lon };
 }
 
 function extractImageUrls(text) {
