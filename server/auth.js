@@ -164,6 +164,7 @@ function publicApiPath(req) {
   if (pathname.startsWith('/api/auth/')) return true;
   if (pathname === '/api/telegram/webhook') return true;
   if (pathname === '/api/a1/webhook') return true;
+  if (pathname.startsWith('/api/consents')) return true;
   return false;
 }
 

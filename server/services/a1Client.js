@@ -133,6 +133,7 @@ export async function crmUpsertLead(lead, reason = 'sync') {
         channels: lead.contacts?.channels || [],
       },
       webstudioLead: publicLeadPayload(lead),
+      consents: lead.consentSummary || {},
       idempotencyKey: `webstudio:${lead.id}:upsert:${lead.updatedAt || reason}`,
     },
   });
@@ -336,6 +337,7 @@ function publicLeadPayload(lead) {
     mockup: publicMockupPayload(lead.mockup),
     video: lead.video,
     customerBotLink: customerBotLink(lead),
+    consentSummary: lead.consentSummary || {},
   };
 }
 

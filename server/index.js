@@ -88,44 +88,7 @@ app.get('/p/:token', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.redirect(302, parsed.target);
 });
-registerLegalRoutes(app);
-
-app.get('/privacy', (req, res) => {
-  res.type('html').send(`<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Политика конфиденциальности 1Lab Web Studio</title>
-  <style>
-    body{font-family:Arial,sans-serif;line-height:1.55;margin:0;color:#111827;background:#f8fafc}
-    main{max-width:820px;margin:0 auto;padding:40px 20px}
-    h1{font-size:28px;margin:0 0 16px}
-    h2{font-size:18px;margin:28px 0 8px}
-    p,li{font-size:15px}
-    a{color:#0f766e}
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Политика конфиденциальности 1Lab Web Studio</h1>
-    <p>Эта политика описывает, как 1Lab Web Studio обрабатывает данные, которые вы передаете через сайт, email и Telegram-бота.</p>
-    <h2>Какие данные обрабатываются</h2>
-    <p>Мы можем получать имя, название компании, телефон, email, Telegram ID/username, ответы на вопросы по сайту, материалы для сайта и историю обращений.</p>
-    <h2>Для чего используются данные</h2>
-    <p>Данные используются для подготовки технического задания, создания и доработки сайта, связи с вами, формирования счета/ссылки на оплату и сопровождения проекта.</p>
-    <h2>Передача третьим лицам</h2>
-    <p>Данные могут передаваться сервисам, необходимым для работы: CRM, платежному провайдеру, email/Telegram-инфраструктуре, сервисам генерации и размещения сайта. Мы не продаем ваши данные.</p>
-    <h2>Срок хранения</h2>
-    <p>Данные хранятся столько, сколько нужно для выполнения заявки, сопровождения сайта и исполнения обязательств по закону.</p>
-    <h2>Отзыв согласия</h2>
-    <p>Вы можете запросить удаление или уточнение данных, написав в Telegram-бот или на email студии.</p>
-    <h2>Контакты</h2>
-    <p>Оператор: 1Lab Web Studio. Сайт: <a href="${config.PUBLIC_BASE_URL}">${config.PUBLIC_BASE_URL}</a>.</p>
-  </main>
-</body>
-</html>`);
-});
+registerLegalRoutes(app, store);
 
 app.get('/api/health', (req, res) => {
   res.json({

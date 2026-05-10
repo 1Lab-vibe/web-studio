@@ -436,6 +436,8 @@ function LoginScreen({ onLogin }) {
         </button>
         <div className="legal-links">
           <a href="/privacy" target="_blank" rel="noreferrer">Политика ПД</a>
+          <a href="/personal-data-consent" target="_blank" rel="noreferrer">Согласие ПД</a>
+          <a href="/marketing-consent" target="_blank" rel="noreferrer">Рассылки</a>
           <a href="/offer" target="_blank" rel="noreferrer">Оферта</a>
           <a href="/disclaimer" target="_blank" rel="noreferrer">Дисклеймер</a>
         </div>

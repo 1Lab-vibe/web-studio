@@ -88,6 +88,7 @@ export async function setTelegramCommands() {
     { command: 'resend', description: 'Отправить email-код заново' },
     { command: 'email', description: 'Изменить email' },
     { command: 'legal', description: 'Юридические документы' },
+    { command: 'consent', description: 'Согласия и отзыв согласий' },
   ];
   const adminCommands = [
     { command: 'help', description: 'Команды Web Studio' },
@@ -100,6 +101,7 @@ export async function setTelegramCommands() {
     { command: 'resend', description: 'Клиент: отправить email-код заново' },
     { command: 'email', description: 'Клиент: изменить email' },
     { command: 'legal', description: 'Юридические документы' },
+    { command: 'consent', description: 'Клиент: согласия и отзыв согласий' },
     { command: 'actions', description: 'Топ действий оркестратора' },
     { command: 'lead', description: 'Карточка лида: /lead <id>' },
     { command: 'handoff', description: 'Lovable handoff prompt: /handoff <id>' },

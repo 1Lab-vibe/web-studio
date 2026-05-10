@@ -33,6 +33,8 @@ export async function handleAdminTelegramMessage(store, orchestrator, message) {
       [
         '<b>Юридические документы 1Lab Web Studio</b>',
         `Политика ПД: ${links.privacy}`,
+        `Согласие ПД: ${links.personalDataConsent}`,
+        `Согласие на рассылки: ${links.marketingConsent}`,
         `Оферта: ${links.offer}`,
         `Дисклеймер: ${links.disclaimer}`,
       ].join('\n'),

@@ -209,7 +209,9 @@ export class Store {
   constructor(dataDir) {
     this.dataDir = path.resolve(dataDir);
     this.file = path.join(this.dataDir, 'state.json');
+    this.consentFile = path.join(this.dataDir, 'consents.json');
     this.state = structuredClone(initialState);
+    this.consents = { records: [] };
   }
 
   async load() {
@@ -219,6 +221,13 @@ export class Store {
     } catch {
       await this.save();
     }
+    try {
+      this.consents = JSON.parse(await readFile(this.consentFile, 'utf8'));
+    } catch {
+      this.consents = { records: [] };
+      await this.saveConsents();
+    }
+    this.consents.records ??= [];
     this.state.authSecurity ??= structuredClone(initialState.authSecurity);
     this.state.authSecurity.clients ??= {};
     this.state.authSecurity.attempts ??= [];
@@ -236,7 +245,7 @@ export class Store {
     this.state.scheduler ??= structuredClone(initialState.scheduler);
     this.state.leads = this.state.leads.map((lead) => {
       const normalizedLead = normalizeTelegramInboundLead(compactPersistedLead(lead));
-      return {
+      const hydrated = {
         ...normalizedLead,
         lane: normalizeLane(normalizedLead.lane),
         owner: normalizedLead.owner || 'Scout',
@@ -248,6 +257,10 @@ export class Store {
         lastTransitionReason: normalizedLead.lastTransitionReason || '',
         priority: Number.isFinite(Number(normalizedLead.priority)) ? Number(normalizedLead.priority) : 50,
         publicLeadToken: normalizedLead.publicLeadToken || randomToken(),
+      };
+      return {
+        ...hydrated,
+        consentSummary: this.consentSummaryForSubject(this.consentSubjectForLead(hydrated)),
       };
     });
     this.state.jobs = this.state.jobs.map((job) => ({
@@ -261,6 +274,85 @@ export class Store {
   async save() {
     await mkdir(this.dataDir, { recursive: true });
     await writeFile(this.file, JSON.stringify(this.state, null, 2), 'utf8');
+  }
+
+  async saveConsents() {
+    await mkdir(this.dataDir, { recursive: true });
+    await writeFile(this.consentFile, JSON.stringify(this.consents, null, 2), 'utf8');
+  }
+
+  consentSubjectForLead(lead = {}) {
+    const telegram = lead.customerTelegram || {};
+    const email = telegram.email || lead.contacts?.emails?.find?.(Boolean) || '';
+    if (telegram.userId) return `telegram:${telegram.userId}`;
+    if (telegram.chatId) return `telegram-chat:${telegram.chatId}`;
+    if (email) return `email:${String(email).toLowerCase()}`;
+    return lead.id ? `lead:${lead.id}` : '';
+  }
+
+  latestConsent(subjectKey, type) {
+    if (!subjectKey || !type) return null;
+    return [...(this.consents.records || [])]
+      .filter((record) => record.subjectKey === subjectKey && record.type === type)
+      .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))[0] || null;
+  }
+
+  consentSummaryForSubject(subjectKey) {
+    const types = ['personal_data', 'marketing'];
+    const summary = {};
+    for (const type of types) {
+      const latest = this.latestConsent(subjectKey, type);
+      summary[type] = latest
+        ? {
+            decision: latest.decision,
+            granted: latest.decision === 'granted',
+            declined: latest.decision === 'declined',
+            withdrawn: latest.decision === 'withdrawn',
+            documentVersion: latest.documentVersion,
+            documentUrl: latest.documentUrl,
+            updatedAt: latest.createdAt,
+          }
+        : { decision: 'pending', granted: false, declined: false, withdrawn: false };
+    }
+    return summary;
+  }
+
+  consentSummaryForLead(lead = {}) {
+    return this.consentSummaryForSubject(this.consentSubjectForLead(lead));
+  }
+
+  async recordConsent(input = {}) {
+    const now = new Date().toISOString();
+    const record = {
+      id: randomUUID(),
+      createdAt: now,
+      subjectKey: input.subjectKey || '',
+      leadId: input.leadId || '',
+      type: input.type || '',
+      decision: input.decision || '',
+      documentVersion: input.documentVersion || '',
+      documentUrl: input.documentUrl || '',
+      source: input.source || 'unknown',
+      actor: input.actor || '',
+      ip: input.ip || '',
+      userAgent: String(input.userAgent || '').slice(0, 300),
+      evidenceText: input.evidenceText || '',
+      metadata: input.metadata || {},
+    };
+    if (!record.subjectKey || !record.type || !record.decision) return null;
+    this.consents.records ??= [];
+    this.consents.records.unshift(record);
+    this.consents.records = this.consents.records.slice(0, 10000);
+    await this.saveConsents();
+    if (record.leadId) {
+      const lead = this.getLead(record.leadId);
+      if (lead) {
+        lead.consentSummary = this.consentSummaryForLead(lead);
+        lead.updatedAt = now;
+        await this.save();
+      }
+    }
+    return record;
   }
 
   listLeads() {

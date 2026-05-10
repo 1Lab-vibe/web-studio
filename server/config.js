@@ -108,6 +108,8 @@ const envSchema = z.object({
   LEGAL_OPERATOR_ADDRESS: z.string().optional().default(''),
   LEGAL_OPERATOR_INN: z.string().optional().default('500804863530'),
   LEGAL_OPERATOR_OGRN: z.string().optional().default(''),
+  LEGAL_OPERATOR_RESPONSIBLE: z.string().optional().default('Трушков И. А.'),
+  LEGAL_RKN_REGISTRY_NUMBER: z.string().optional().default(''),
   WEB_STUDIO_MCP_TOKEN: z.string().optional().default(''),
   WEB_AUTH_LOGIN: z.string().optional().default(''),
   WEB_AUTH_PASSWORD: z.string().optional().default(''),
