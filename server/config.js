@@ -16,7 +16,7 @@ const envSchema = z.object({
   AUTONOMY_TOP_ACTIONS_LIMIT: z.coerce.number().default(12),
   AUTONOMY_MAX_ACTIONS_PER_TICK: z.coerce.number().default(3),
   AUTONOMY_MAX_LOVABLE_BUILDS_PER_TICK: z.coerce.number().default(1),
-  AUTONOMY_MAX_JOBS_PER_TICK: z.coerce.number().default(3),
+  AUTONOMY_MAX_JOBS_PER_TICK: z.coerce.number().default(10),
   AUTONOMY_MAX_LOVABLE_JOBS_PER_TICK: z.coerce.number().default(1),
   AUTONOMY_MAX_FILMER_JOBS_PER_TICK: z.coerce.number().default(1),
   AUTONOMY_JOB_LOCK_MINUTES: z.coerce.number().default(30),
