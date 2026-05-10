@@ -7,6 +7,7 @@ import { prepareLovableMockup } from './lovableMcp.js';
 import { deployLeadExportedProject, deployLeadGeneratedPreview, deployLeadPublicUrlProject } from './projectPublisher.js';
 import { downloadTelegramFile, getTelegramFile, sendTelegram, sendTelegramTo } from './telegram.js';
 import { legalLinks } from './legalDocs.js';
+import { classifyCustomerRevision, isRevisionPaymentOk, revisionIdempotencyKey, revisionPaymentRequiredText } from './revisions.js';
 
 const QUESTIONS = [
   { key: 'businessName', text: 'Как называется бизнес или проект? Если название в превью уже верное, напишите “оставить”.' },
@@ -199,6 +200,9 @@ export async function handleCustomerTelegramMessage(store, message) {
   if (lead.customerTelegram?.emailVerified && (command === '/finish' || isFinishBriefText(text))) return finishBriefCapture(store, lead, chatId);
   if (command === '/brief') return sendBriefSummary(store, lead, chatId);
   if (command === '/approve') return approveBrief(store, lead, chatId);
+  if (command === '/revision' && text.length > '/revision'.length) {
+    return acceptCustomerRevision(store, lead, chatId, text.slice('/revision'.length).trim());
+  }
   if (text === '/revision') {
     await store.updateLead(lead.id, { customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'revision' } });
     await sendTelegramTo(chatId, 'Напишите, что нужно изменить на сайте. Одним сообщением, можно списком.');
@@ -206,6 +210,10 @@ export async function handleCustomerTelegramMessage(store, message) {
   }
 
   if (lead.customerTelegram?.mode === 'revision') {
+    return acceptCustomerRevision(store, lead, chatId, text);
+  }
+
+  if (false && lead.customerTelegram?.mode === 'revision') {
     const updated = await store.updateLead(lead.id, {
       status: 'revision_requested',
       revision: {
@@ -275,6 +283,46 @@ export function isCustomerTelegramCommand(store, message) {
   if (!store.listLeads().some((item) => String(item.customerTelegram?.chatId || '') === String(chatId))) return false;
   const command = text.split(/\s+/)[0].split('@')[0];
   return ['/help', '/brief', '/approve', '/finish', '/done', '/end', '/reset', '/restart', '/startover', '/newbrief', '/cancel', '/revision', '/resend', '/email'].includes(command);
+}
+
+async function acceptCustomerRevision(store, lead, chatId, text) {
+  const requestedAt = new Date().toISOString();
+  const route = classifyCustomerRevision(text);
+  const paid = isRevisionPaymentOk(lead);
+  const updated = await store.updateLead(lead.id, {
+    status: 'revision_requested',
+    revision: {
+      ...(lead.revision ?? {}),
+      text,
+      requestedAt,
+      route: route.route,
+      routeReason: route.reason,
+      paymentRequired: !paid,
+    },
+    customerTelegram: { ...(lead.customerTelegram ?? {}), mode: 'brief' },
+  });
+  await emitCustomerA1Event(updated, 'customer.revision_requested', text, { text, route });
+  if (!paid) {
+    await store.addEvent(updated.id, 'customer.revision_payment_required', `Revision blocked until payment: ${text}`);
+    await sendTelegramTo(chatId, revisionPaymentRequiredText(updated));
+    return { ok: true, lead: updated, paymentRequired: true };
+  }
+  const queued = await store.enqueueJob({
+    type: 'customer_revision_triage',
+    leadId: updated.id,
+    priority: route.route === 'lovable' ? 970 : 880,
+    maxAttempts: 3,
+    payload: { chatId, text, route: route.route, requestedAt },
+    idempotencyKey: revisionIdempotencyKey(updated.id, text, requestedAt),
+  });
+  await store.addEvent(updated.id, 'customer.revision_queued', `Revision queued for ${route.route}: ${text}`);
+  await sendTelegramTo(
+    chatId,
+    route.route === 'lovable'
+      ? 'Принял правку. Это похоже на сложную переработку, передам задачу в Lovable и после проверки пришлю обновленное превью.'
+      : 'Принял правку. Это простое изменение, передам Coder-агенту и после проверки пришлю обновленную ссылку.',
+  );
+  return { ok: true, lead: updated, queued: queued.job, route };
 }
 
 export async function handleCustomerTelegramCallback(store, callback) {

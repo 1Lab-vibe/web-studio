@@ -8,8 +8,9 @@ import { renderLeadVideo } from './services/filmer.js';
 import { enrichContacts } from './services/contactEnrichment.js';
 import { approvalKeyboard, sendTelegram, sendTelegramTo } from './services/telegram.js';
 import { customerBriefSafetyIssues } from './services/customerTelegram.js';
+import { classifyCustomerRevision, isRevisionPaymentOk, revisionPaymentRequiredText } from './services/revisions.js';
 import { enrichLeadScore, isLovableEligible, topLovableCandidates } from './services/scoring.js';
-import { deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
+import { applySimpleRevisionToSourceProject, deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
 import { runPreviewQualityGate } from './services/qualityGate.js';
 
 const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
@@ -216,7 +217,7 @@ export class Orchestrator {
   }
 
   async enqueueJob(type, leadId, options = {}) {
-    const supersedeSameLeadType = ['lovable_build', 'coder_deploy', 'filmer_render', 'checker_eval', 'outbound_queue'].includes(type);
+    const supersedeSameLeadType = ['lovable_build', 'customer_preview_build', 'customer_revision_triage', 'customer_revision_apply', 'coder_deploy', 'filmer_render', 'checker_eval', 'outbound_queue'].includes(type);
     return this.store.enqueueJob({
       type,
       leadId,
@@ -238,7 +239,11 @@ export class Orchestrator {
       case 'lovable_build':
         return this.runLovableBuildJob(job.leadId, { rebuild: Boolean(job.payload?.rebuild) });
       case 'customer_preview_build':
-        return this.runLovableBuildJob(job.leadId, { skipQuota: true, customerChatId: job.payload?.chatId });
+        return this.runLovableBuildJob(job.leadId, { skipQuota: true, customerChatId: job.payload?.chatId, rebuild: Boolean(job.payload?.rebuild) });
+      case 'customer_revision_triage':
+        return this.runCustomerRevisionTriageJob(job.leadId, job.payload || {});
+      case 'customer_revision_apply':
+        return this.runCustomerRevisionApplyJob(job.leadId, job.payload || {});
       case 'coder_deploy':
         return this.runCoderDeployJob(job.leadId);
       case 'filmer_render':
@@ -405,6 +410,90 @@ export class Orchestrator {
     }
     await this.store.transitionLead(lead.id, { pipelineStage: 'lovable_building', stageStatus: 'handoff_required', artifactStatus: mockup?.status || 'waiting', reason: 'waiting_lovable_handoff' });
     return { ok: true, lead: this.store.getLead(lead.id), waiting: true };
+  }
+
+  async runCustomerRevisionTriageJob(leadId, payload = {}) {
+    let lead = this.store.getLead(leadId);
+    if (!lead) throw new Error('Lead not found');
+    const text = payload.text || lead.revision?.text || '';
+    if (!text) throw new Error('Revision text is empty');
+    if (!isRevisionPaymentOk(lead)) {
+      lead = await this.store.updateLead(lead.id, {
+        status: 'revision_payment_required',
+        revision: { ...(lead.revision ?? {}), text, paymentRequired: true, status: 'payment_required' },
+        payment: { ...(lead.payment ?? {}), status: lead.payment?.status || 'revision_payment_required' },
+      });
+      await this.store.addEvent(lead.id, 'customer.revision_payment_required', `Revision blocked until payment: ${text}`);
+      if (payload.chatId) await sendTelegramTo(payload.chatId, revisionPaymentRequiredText(lead));
+      return { ok: true, skipped: true, reason: 'revision_payment_required', lead };
+    }
+    const route = payload.route ? { route: payload.route, reason: 'payload_route' } : classifyCustomerRevision(text);
+    lead = await this.store.updateLead(lead.id, {
+      revision: {
+        ...(lead.revision ?? {}),
+        text,
+        route: route.route,
+        routeReason: route.reason,
+        triagedAt: new Date().toISOString(),
+        status: 'triaged',
+      },
+    });
+    await this.store.addEvent(lead.id, 'customer.revision_triaged', `Revision route: ${route.route}`);
+    if (route.route === 'lovable') {
+      const notes = [lead.customerBrief?.notes, `Правка клиента: ${text}`].filter(Boolean).join('\n');
+      lead = await this.store.updateLead(lead.id, {
+        customerBrief: { ...(lead.customerBrief ?? {}), notes },
+        revision: { ...(lead.revision ?? {}), status: 'lovable_queued' },
+      });
+      const queued = await this.enqueueJob('customer_preview_build', lead.id, {
+        idempotencyKey: `customer_revision_lovable:${lead.id}:${payload.requestedAt || lead.revision?.requestedAt || lead.updatedAt}`,
+        priority: lovableJobPriority(lead),
+        payload: { chatId: payload.chatId, rebuild: true, revisionText: text },
+      });
+      if (payload.chatId) await sendTelegramTo(payload.chatId, 'Правка требует глубокой переработки. Передал задачу в Lovable, после деплоя и проверки пришлю новую ссылку.');
+      return { ok: true, lead, route, queued };
+    }
+    const queued = await this.enqueueJob('customer_revision_apply', lead.id, {
+      idempotencyKey: `customer_revision_apply:${lead.id}:${payload.requestedAt || lead.revision?.requestedAt || lead.updatedAt}`,
+      priority: pipelineJobPriority(lead, 850),
+      payload: { chatId: payload.chatId, text, requestedAt: payload.requestedAt },
+    });
+    if (payload.chatId) await sendTelegramTo(payload.chatId, 'Правка понятна. Coder внесет изменение в текущий сайт, затем пройдет сборка и проверка.');
+    return { ok: true, lead, route, queued };
+  }
+
+  async runCustomerRevisionApplyJob(leadId, payload = {}) {
+    let lead = this.store.getLead(leadId);
+    if (!lead) throw new Error('Lead not found');
+    const text = payload.text || lead.revision?.text || '';
+    if (!isRevisionPaymentOk(lead)) {
+      await this.store.updateLead(lead.id, {
+        status: 'revision_payment_required',
+        revision: { ...(lead.revision ?? {}), text, paymentRequired: true, status: 'payment_required' },
+      });
+      if (payload.chatId) await sendTelegramTo(payload.chatId, revisionPaymentRequiredText(lead));
+      return { ok: true, skipped: true, reason: 'revision_payment_required', lead };
+    }
+    const result = await applySimpleRevisionToSourceProject(this.store, lead.id, { text, renderVideo: false });
+    lead = result.lead || this.store.getLead(lead.id) || lead;
+    if (!result.ok) throw new Error(result.error || 'Customer revision apply failed');
+    const quality = await runPreviewQualityGate(lead);
+    lead = await this.store.updateLead(lead.id, { qualityGate: quality });
+    if (!quality.ok) {
+      await this.store.transitionLead(lead.id, {
+        pipelineStage: 'needs_review',
+        stageStatus: 'revision_quality_failed',
+        artifactStatus: 'quality_failed',
+        lane: 'Lovable',
+        owner: 'Orchestrator',
+        reason: quality.issues?.join('; ') || 'revision_quality_failed',
+      });
+      throw new Error(`Revision quality failed: ${quality.issues?.join('; ') || 'unknown'}`);
+    }
+    if (payload.chatId) {
+      await sendTelegramTo(payload.chatId, `Готово, внес правку и обновил сайт:\n${result.publicUrl}\n\nЕсли нужно еще что-то поправить, отправьте /revision.`);
+    }
+    return { ok: true, lead, result, quality };
   }
 
   async runCoderDeployJob(leadId) {
@@ -1339,6 +1428,9 @@ function retryDelayForJob(job) {
     enrich_lead: 90_000,
     diagnose_lead: 90_000,
     lovable_build: 20 * 60_000,
+    customer_preview_build: 20 * 60_000,
+    customer_revision_triage: 60_000,
+    customer_revision_apply: 10 * 60_000,
     coder_deploy: 10 * 60_000,
     filmer_render: 8 * 60_000,
     checker_eval: 90_000,
@@ -1349,7 +1441,7 @@ function retryDelayForJob(job) {
 }
 
 function isLongRunningJob(job) {
-  return ['lovable_build', 'customer_preview_build', 'coder_deploy', 'filmer_render'].includes(job.type);
+  return ['lovable_build', 'customer_preview_build', 'customer_revision_apply', 'coder_deploy', 'filmer_render'].includes(job.type);
 }
 
 function outboundPackageGate(lead) {

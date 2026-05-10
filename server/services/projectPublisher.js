@@ -1010,3 +1010,200 @@ export async function repairLeadSourceProject(store, leadId, { renderVideo = fal
   await syncA1CrmLead(lead, 'project_repaired_deployed');
   return { ok: true, publicUrl, slug, build, lead, videoQueued: renderVideo === false };
 }
+
+export async function applySimpleRevisionToSourceProject(store, leadId, { text = '', renderVideo = false } = {}) {
+  let lead = store.getLead(leadId);
+  if (!lead) return { ok: false, error: 'Lead not found' };
+  const sourceRoot = lead.mockup?.sourceRoot;
+  const slug = lead.mockup?.projectSlug;
+  if (!sourceRoot || !slug) return { ok: false, error: 'Lead has no saved source project to revise' };
+
+  const sourceBase = path.resolve(config.DATA_DIR, 'sources');
+  const resolvedSource = path.resolve(sourceRoot);
+  if (!resolvedSource.startsWith(sourceBase + path.sep)) return { ok: false, error: 'Unsafe source project path' };
+
+  const target = await findRevisionTargetFile(resolvedSource);
+  if (!target) return { ok: false, error: 'No supported source file for simple revision' };
+  const previous = await readFile(target, 'utf8');
+  const block = revisionBlockForFile(target, text, lead);
+  const next = injectRevisionBlock(previous, block, target);
+  if (next === previous) return { ok: false, error: 'Could not inject revision block' };
+  await writeFile(target, next, 'utf8');
+
+  const publicRoot = path.resolve(config.DATA_DIR, 'projects', slug);
+  const publicUrl = projectUrl(slug);
+  const routerPatch = await patchBrowserRouterBasename(resolvedSource);
+  const build = await repairAndBuildSourceProject(resolvedSource, publicRoot, `/projects/${slug}/`, lead);
+  const files = await collectSourceFiles(resolvedSource);
+  const repoName = lead.mockup?.github?.repo || `${config.GITHUB_REPO_PREFIX}${slug}`.slice(0, 100).replace(/-+$/g, '');
+  const github = await publishFilesToGitHub({
+    repoName,
+    description: `Web Studio landing for ${lead.name}`,
+    files,
+    metadata: { leadId: lead.id, businessName: lead.name, publicUrl, revisionText: text },
+  }).catch((error) => ({ ok: false, error: error.message }));
+
+  if (!build.ok) {
+    await writeFile(path.join(publicRoot, 'index.html'), buildFailedHtml({ title: lead.name || 'Web Studio project', build }), 'utf8');
+    lead = await store.updateLead(lead.id, {
+      revision: {
+        ...(lead.revision ?? {}),
+        status: 'failed',
+        failedAt: new Date().toISOString(),
+        error: build.error || build.strategy || 'Revision build failed',
+      },
+      qualityGate: {
+        ok: false,
+        checkedAt: new Date().toISOString(),
+        url: publicUrl,
+        issues: [`revision_${build.strategy}`, 'build_failed_stub_page'],
+        warnings: [],
+      },
+      status: 'needs_review',
+      lane: 'Lovable',
+      owner: 'Orchestrator',
+    });
+    await store.addEvent(lead.id, 'customer.revision_failed', `Coder revision failed: ${build.error || build.strategy}`);
+    return { ok: false, error: build.error || build.strategy || 'Revision build failed', publicUrl, slug, github, build, lead };
+  }
+
+  lead = await store.updateLead(lead.id, {
+    mockup: {
+      ...compactStoredMockup(lead.mockup),
+      ok: true,
+      status: 'deployed',
+      publishedUrl: publicUrl,
+      deployedUrl: publicUrl,
+      publicUrl,
+      projectSlug: slug,
+      sourceRoot: resolvedSource,
+      deploymentStrategy: build.strategy,
+      deploymentWarning: '',
+      clientSendAllowed: true,
+      routerPatch,
+      github,
+      revisedAt: new Date().toISOString(),
+    },
+    revision: {
+      ...(lead.revision ?? {}),
+      status: 'applied',
+      appliedAt: new Date().toISOString(),
+      appliedBy: 'coder',
+      github,
+      publicUrl,
+    },
+    pipelineStage: 'production',
+    stageStatus: 'revision_applied',
+    artifactStatus: 'deployed',
+    lane: 'Ответы',
+    owner: 'Coder',
+    status: 'revision_applied',
+  });
+  await store.addEvent(lead.id, 'customer.revision_applied', `Coder applied customer revision: ${publicUrl}`);
+  await crmAddEvent({
+    entityType: lead.a1DealId ? 'deal' : 'lead',
+    entityId: lead.a1DealId || lead.a1LeadId || lead.id,
+    eventType: 'customer.revision_applied',
+    text: `Coder applied customer revision: ${publicUrl}`,
+    payload: { webstudioLeadId: lead.id, publicUrl, slug, github, build, text },
+    idempotencyKey: `webstudio:${lead.id}:customer.revision_applied:${Date.now()}`,
+  });
+  await syncA1CrmLead(lead, 'customer_revision_applied');
+  return { ok: true, publicUrl, slug, github, build, lead, videoQueued: renderVideo === false };
+}
+
+async function findRevisionTargetFile(sourceRoot) {
+  const candidates = ['src/pages/Index.tsx', 'src/pages/Index.jsx', 'src/pages/Home.tsx', 'src/pages/Home.jsx', 'src/App.tsx', 'src/App.jsx', 'src/App.ts', 'src/App.js', 'index.html'];
+  for (const relative of candidates) {
+    const filePath = path.join(sourceRoot, relative);
+    try {
+      await readFile(filePath, 'utf8');
+      return filePath;
+    } catch {
+      // Try next candidate.
+    }
+  }
+  return null;
+}
+
+function revisionBlockForFile(filePath, text, lead = {}) {
+  const isHtml = filePath.endsWith('.html');
+  const imageUrls = extractImageUrls(text);
+  const mapUrl = yandexMapUrl(text, lead);
+  if (isHtml) {
+    return [
+      '<section class="webstudio-revision-block" style="padding:72px 24px;background:#f8fafc;color:#111827">',
+      '<div style="max-width:1120px;margin:0 auto">',
+      '<p style="margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#64748b">Обновление сайта</p>',
+      `<h2 style="margin:0 0 16px;font-size:32px;line-height:1.1">${escapeHtml(revisionTitle(text))}</h2>`,
+      `<p style="margin:0 0 24px;max-width:760px;font-size:18px;line-height:1.55;color:#334155">${escapeHtml(text)}</p>`,
+      ...imageUrls.map((url) => `<img src="${escapeHtml(url)}" alt="Материал клиента" style="width:100%;max-width:760px;border-radius:12px;margin:12px 0;display:block">`),
+      mapUrl ? `<iframe title="Яндекс Карта" src="${escapeHtml(mapUrl)}" loading="lazy" style="width:100%;height:360px;border:0;border-radius:12px"></iframe>` : '',
+      '</div>',
+      '</section>',
+    ].join('\n');
+  }
+  return [
+    '      <section className="webstudio-revision-block" style={{ padding: "72px 24px", background: "#f8fafc", color: "#111827" }}>',
+    '        <div style={{ maxWidth: "1120px", margin: "0 auto" }}>',
+    '          <p style={{ margin: "0 0 10px", fontSize: "13px", textTransform: "uppercase", letterSpacing: ".08em", color: "#64748b" }}>Обновление сайта</p>',
+    `          <h2 style={{ margin: "0 0 16px", fontSize: "32px", lineHeight: 1.1 }}>{${JSON.stringify(revisionTitle(text))}}</h2>`,
+    `          <p style={{ margin: "0 0 24px", maxWidth: "760px", fontSize: "18px", lineHeight: 1.55, color: "#334155" }}>{${JSON.stringify(String(text || ''))}}</p>`,
+    ...imageUrls.map((url) => `          <img src="${escapeHtml(url)}" alt="Материал клиента" style={{ width: "100%", maxWidth: "760px", borderRadius: "12px", margin: "12px 0", display: "block" }} />`),
+    mapUrl ? `          <iframe title="Яндекс Карта" src="${escapeHtml(mapUrl)}" loading="lazy" style={{ width: "100%", height: "360px", border: 0, borderRadius: "12px" }} />` : '',
+    '        </div>',
+    '      </section>',
+  ].join('\n');
+}
+
+function injectRevisionBlock(content, block, filePath) {
+  if (filePath.endsWith('.html')) {
+    if (content.includes('</body>')) return content.replace('</body>', `${block}\n</body>`);
+    return `${content}\n${block}`;
+  }
+  const mainIndex = content.lastIndexOf('</main>');
+  if (mainIndex >= 0) return `${content.slice(0, mainIndex)}${block}\n${content.slice(mainIndex)}`;
+  const divIndex = content.lastIndexOf('</div>');
+  if (divIndex >= 0) return `${content.slice(0, divIndex)}${block}\n${content.slice(divIndex)}`;
+  return content;
+}
+
+function revisionTitle(text) {
+  const value = String(text || '').toLowerCase();
+  if (/карт|адрес|map|яндекс/.test(value)) return 'Как нас найти';
+  if (/фото|изображ|картин|галере/.test(value)) return 'Новые материалы';
+  if (/контакт|телефон|почт|email|telegram|whatsapp/.test(value)) return 'Контакты и связь';
+  if (/блок|раздел|секц/.test(value)) return 'Новый раздел';
+  return 'Обновление по задаче клиента';
+}
+
+function yandexMapUrl(text, lead = {}) {
+  const value = String(text || '');
+  if (!/(карт|map|яндекс|адрес)/i.test(value)) return '';
+  const query = lead.address || value.replace(/добавь|подключи|виджет|яндекс|карт[уы]?|map/gi, '').trim() || lead.name || '';
+  return `https://yandex.ru/map-widget/v1/?text=${encodeURIComponent(query)}`;
+}
+
+function extractImageUrls(text) {
+  return [...String(text || '').matchAll(/https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:\?\S*)?/gi)].map((match) => match[0].replace(/[),.]+$/, '')).slice(0, 6);
+}
+
+async function collectSourceFiles(sourceRoot) {
+  const files = [];
+  async function walk(dir) {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      const relative = path.relative(sourceRoot, full).replace(/\\/g, '/');
+      if (entry.isDirectory()) {
+        if (['node_modules', 'dist', 'build', '.git'].includes(entry.name)) continue;
+        await walk(full);
+        continue;
+      }
+      if (!isPublishableSourceFile(relative)) continue;
+      files.push({ path: relative, content: await readFile(full, 'utf8') });
+    }
+  }
+  await walk(sourceRoot);
+  return files;
+}

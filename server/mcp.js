@@ -78,6 +78,8 @@ function landingBrief(lead) {
 
 function landingPrompt(lead) {
   const brief = landingBrief(lead);
+  const customerBrief = lead.customerBrief || {};
+  const revision = lead.revision?.text ? `Customer revision request: ${lead.revision.text}` : '';
   return [
     `Build a Lovable landing page for Russian local business "${lead.name}".`,
     `City: ${lead.city}. Niche: ${lead.niche}.`,
@@ -89,6 +91,9 @@ function landingPrompt(lead) {
     ...brief.pageRequirements.map((item) => `- ${item}`),
     '',
     'Use real Russian UI copy. Keep the design practical for this exact industry.',
+    Object.keys(customerBrief).length ? `Customer brief JSON: ${JSON.stringify(customerBrief)}` : '',
+    revision,
+    lead.mockup?.publicUrl ? `Existing Web Studio preview URL: ${lead.mockup.publicUrl}` : '',
     '',
     'After the landing page is created, hand the result back to Web Studio through MCP.',
     'Preferred: call attach_lovable_url with a public preview or published URL.',
