@@ -723,9 +723,11 @@ async function ensureExactAddressText(sourceRoot, lead = {}) {
   for (const file of files.filter((item) => /\.(tsx|jsx|ts|js)$/.test(item))) {
     const content = await readFile(file, 'utf8').catch(() => '');
     let next = content
+      .replace(/\?{3,}\s*·\s*([^"`<\n]+)/g, `${city} · $1`)
       .replace(/Санкт-Петербург\s*·\s*ул\.[^"`<\n]+/g, address.replace(',', ' ·'))
       .replace(/Санкт-Петербург/g, city)
-      .replace(/\bСПб\b/g, city);
+      .replace(/СПб/g, city)
+      .replace(/СПБ/g, city);
     if (next !== content) {
       await writeFile(file, next, 'utf8');
       repaired.push(path.relative(sourceRoot, file));
