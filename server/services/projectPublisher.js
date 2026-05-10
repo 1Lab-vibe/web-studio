@@ -722,8 +722,10 @@ async function ensureExactAddressText(sourceRoot, lead = {}) {
   const repaired = [];
   for (const file of files.filter((item) => /\.(tsx|jsx|ts|js)$/.test(item))) {
     const content = await readFile(file, 'utf8').catch(() => '');
+    const duplicatedCityAddress = new RegExp(`${escapeRegExp(city)}\\s*·\\s*${escapeRegExp(city)},\\s*`, 'g');
     let next = content
       .replace(/\?{3,}\s*·\s*([^"`<\n]+)/g, `${city} · $1`)
+      .replace(duplicatedCityAddress, `${city} · `)
       .replace(/Санкт-Петербург\s*·\s*ул\.[^"`<\n]+/g, address.replace(',', ' ·'))
       .replace(/Санкт-Петербург/g, city)
       .replace(/СПб/g, city)
