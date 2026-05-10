@@ -1143,8 +1143,7 @@ export async function applySimpleRevisionToSourceProject(store, leadId, { text =
   const previous = await readFile(target, 'utf8');
   const block = revisionBlockForFile(target, text, lead);
   const next = injectRevisionBlock(previous, block, target);
-  if (next === previous) return { ok: false, error: 'Could not inject revision block' };
-  await writeFile(target, next, 'utf8');
+  if (next !== previous) await writeFile(target, next, 'utf8');
 
   const publicRoot = path.resolve(config.DATA_DIR, 'projects', slug);
   const publicUrl = projectUrl(slug);
