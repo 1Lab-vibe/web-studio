@@ -8,6 +8,8 @@ const LOVABLE_SHORT_REQUEST = { timeout: 2 * 60 * 1000 };
 const LOVABLE_OAUTH_RESOURCE = 'https://mcp.lovable.dev/';
 const LOVABLE_REFRESH_EVERY_MS = 6 * 60 * 60 * 1000;
 
+let oauthRefreshInFlight = null;
+
 export function parseToolContent(result) {
   const content = Array.isArray(result?.content) ? result.content : [];
   const text = content
@@ -103,9 +105,19 @@ export function shouldForceLovableOAuthRefresh(token) {
 async function refreshOAuthToken(token, options = {}) {
   if (!token?.refresh_token) return token;
   if (!shouldRefreshOAuthToken(token, options)) return token;
+  if (oauthRefreshInFlight) return oauthRefreshInFlight;
+  oauthRefreshInFlight = performOAuthTokenRefresh(token, options).finally(() => {
+    oauthRefreshInFlight = null;
+  });
+  return oauthRefreshInFlight;
+}
+
+async function performOAuthTokenRefresh(token, options = {}) {
+  const refreshStartedAt = Date.now();
+  const attemptedRefreshToken = token.refresh_token;
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
-    refresh_token: token.refresh_token,
+    refresh_token: attemptedRefreshToken,
     client_id: token.client?.client_id || '6d465f583e1e4ce5801b1616f735670c',
     resource: token.mcpUrl || LOVABLE_OAUTH_RESOURCE,
   });
@@ -116,6 +128,14 @@ async function refreshOAuthToken(token, options = {}) {
   });
   const text = await response.text();
   if (!response.ok) {
+    const latest = await loadOAuthToken();
+    const latestRefreshedAt = lastOAuthRefreshAt(latest);
+    const anotherRefreshWon =
+      latest?.access_token &&
+      !latest.refreshError &&
+      (latest.refresh_token !== attemptedRefreshToken || latestRefreshedAt >= refreshStartedAt) &&
+      tokenExpiresAt(latest) > Date.now();
+    if (anotherRefreshWon) return latest;
     return {
       ...token,
       refreshFailedAt: new Date().toISOString(),
