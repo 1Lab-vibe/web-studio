@@ -1,4 +1,5 @@
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -500,6 +501,8 @@ async function repairAndBuildSourceProject(sourceRoot, publicRoot, basePath = ''
   const repairs = [];
   const duplicateRepair = await repairDuplicateRemoteImageConstants(sourceRoot, lead);
   if (duplicateRepair.ok) repairs.push(duplicateRepair);
+  const visualRepair = await ensureVisualMediaBlock(sourceRoot, lead);
+  if (visualRepair.ok) repairs.push(visualRepair);
   const externalImageRepair = await materializeExternalImageLiterals(sourceRoot, lead);
   if (externalImageRepair.ok) repairs.push(externalImageRepair);
   let build = await buildSourceProject(sourceRoot, publicRoot, basePath);
@@ -587,11 +590,93 @@ async function materializeExternalImageLiterals(sourceRoot, lead = {}) {
       const asset = await materializeRepairImage(sourceRoot, file, `external-${ordinal}`, url, fallbackUrl);
       ordinal += 1;
       repaired.push({ file: path.relative(sourceRoot, file), strategy: asset.ok ? 'materialize_external_image_url' : 'external_image_generation_fallback_url', sourceUrl: url, url: asset.url });
-      next = next.replace(literal, asset.expression);
+      const prefix = content.slice(Math.max(0, (match.index ?? 0) - 24), match.index ?? 0);
+      const replacement = /\.(tsx|jsx)$/.test(file) && /\b(?:src|poster)\s*=\s*$/.test(prefix)
+        ? `{${asset.expression}}`
+        : asset.expression;
+      next = next.replace(literal, replacement);
     }
     if (next !== content) await writeFile(file, next, 'utf8');
   }
   return repaired.length ? { ok: true, repaired } : { ok: false, reason: 'no_external_image_literals' };
+}
+
+async function ensureVisualMediaBlock(sourceRoot, lead = {}) {
+  const srcRoot = path.join(sourceRoot, 'src');
+  const files = await listSourceCodeFiles(srcRoot);
+  const sourceFiles = files.filter((file) => /\.(tsx|ts|jsx|js|html)$/.test(file));
+  const hasImage = sourceFiles.some((file) => {
+    const content = readFileSyncSafe(file);
+    return /<img\b|<picture\b|backgroundImage\s*:|background-image\s*:|image\.pollinations\.ai|images\.unsplash\.com/i.test(content);
+  });
+  if (hasImage) return { ok: false, reason: 'visual_media_already_present' };
+  const target = await findRevisionTargetFile(sourceRoot);
+  if (!target) return { ok: false, reason: 'no_visual_target_file' };
+  const content = await readFile(target, 'utf8').catch(() => '');
+  if (!content || content.includes('webstudio-visual-hero')) return { ok: false, reason: 'visual_block_already_present' };
+  const block = visualMediaBlockForFile(target, lead);
+  const next = injectVisualMediaBlock(content, block, target);
+  if (next === content) return { ok: false, reason: 'could_not_inject_visual_block' };
+  await writeFile(target, next, 'utf8');
+  return { ok: true, strategy: 'injected_visual_media_block', file: path.relative(sourceRoot, target) };
+}
+
+function readFileSyncSafe(filePath) {
+  try {
+    return readFileSync(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function visualMediaBlockForFile(filePath, lead = {}) {
+  const imageUrl = imageRepairUrlV2(lead, 'hero cover banner first visual media block', 0);
+  const title = lead.name || 'Web Studio preview';
+  if (filePath.endsWith('.html')) {
+    return [
+      '<section class="webstudio-visual-hero" style="padding:32px 24px;background:#0b0f17;color:#f8fafc">',
+      '<div style="max-width:1120px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,.55fr);gap:22px;align-items:center">',
+      `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)}" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:16px;display:block">`,
+      animatedHeroSvg(),
+      '</div>',
+      '</section>',
+    ].join('\n');
+  }
+  return [
+    '      <section className="webstudio-visual-hero" style={{ padding: "32px 24px", background: "#0b0f17", color: "#f8fafc" }}>',
+    '        <div style={{ maxWidth: "1120px", margin: "0 auto", display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(260px,.55fr)", gap: "22px", alignItems: "center" }}>',
+    `          <img src="${escapeHtml(imageUrl)}" alt={${JSON.stringify(title)}} style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: "16px", display: "block" }} />`,
+    '          <svg viewBox="0 0 520 180" role="img" aria-label="Website workflow preview" style={{ width: "100%", height: "auto", display: "block" }}>',
+    '            <defs><linearGradient id="ws-react-g" x1="0" x2="1"><stop offset="0" stopColor="#55d6be" /><stop offset="1" stopColor="#ffcf5a" /></linearGradient></defs>',
+    '            <rect x="1" y="1" width="518" height="178" rx="18" fill="#121722" stroke="#273144" />',
+    '            <path d="M90 92H210C245 92 245 48 280 48H430M90 92H210C245 92 245 136 280 136H430" fill="none" stroke="url(#ws-react-g)" strokeWidth="4" strokeLinecap="round" strokeDasharray="10 12" />',
+    '            <circle cx="90" cy="92" r="32" fill="#55d6be" opacity=".75" />',
+    '            <circle cx="280" cy="48" r="24" fill="#ffcf5a" opacity=".75" />',
+    '            <circle cx="280" cy="136" r="24" fill="#55d6be" opacity=".65" />',
+    '            <rect x="388" y="30" width="74" height="36" rx="8" fill="#0b0f17" stroke="#55d6be" />',
+    '            <rect x="388" y="118" width="74" height="36" rx="8" fill="#0b0f17" stroke="#ffcf5a" />',
+    '          </svg>',
+    '        </div>',
+    '      </section>',
+  ].join('\n');
+}
+
+function injectVisualMediaBlock(content, block, filePath) {
+  const clean = String(content || '').replace(/\s*<section\s+class(?:Name)?=["']webstudio-visual-hero["'][\s\S]*?<\/section>\s*/g, '\n');
+  const mainOpen = clean.match(/<main[^>]*>/i);
+  if (mainOpen?.index !== undefined) {
+    const insertAt = mainOpen.index + mainOpen[0].length;
+    return `${clean.slice(0, insertAt)}\n${block}\n${clean.slice(insertAt)}`;
+  }
+  if (filePath.endsWith('.html') && clean.includes('<body')) {
+    return clean.replace(/(<body[^>]*>)/i, `$1\n${block}`);
+  }
+  const returnOpen = clean.match(/return\s*\(\s*<>/);
+  if (returnOpen?.index !== undefined) {
+    const insertAt = returnOpen.index + returnOpen[0].length;
+    return `${clean.slice(0, insertAt)}\n${block}\n${clean.slice(insertAt)}`;
+  }
+  return clean;
 }
 
 async function materializeRepairImage(sourceRoot, importerFile, variableName, url, fallbackUrl = url) {
@@ -1236,12 +1321,16 @@ function normalizeLeadAddress(lead = {}) {
 function extractExplicitMapAddress(value) {
   const text = String(value || '');
   const patterns = [
-    /(?:адрес|address)(?:\s+[\p{L}\d_-]+){0,4}\s*[:\-–]\s*([^\n.;]+)/iu,
-    /(?:по адресу|находимся по адресу|точка на карте)\s+([^\n.;]+)/iu,
+    /(?:адрес|address)(?:\s+[\p{L}\d_-]+){0,4}\s*[:\-–]\s*([^\n;]+)/iu,
+    /(?:по адресу|находимся по адресу|точка на карте)\s+([^\n;]+)/iu,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    const address = match?.[1]?.trim().replace(/\s+/g, ' ');
+    const address = match?.[1]
+      ?.replace(/\s+(?:контакты|телефон|phone|email|telegram|whatsapp|почта)\s*:.*$/iu, '')
+      .replace(/[.。]+$/g, '')
+      .trim()
+      .replace(/\s+/g, ' ');
     if (address && /[,\d]/.test(address) && !/(виджет|карт|map|yandex|яндекс)$/i.test(address)) return address;
   }
   return '';
