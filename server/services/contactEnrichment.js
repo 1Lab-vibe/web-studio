@@ -1,5 +1,6 @@
 import { config, hasSecret } from '../config.js';
 import { searchContactsViaA1Yandex } from './a1YandexSearch.js';
+import { pickBestEmail } from './emailValidator.js';
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
@@ -60,11 +61,25 @@ export async function enrichContacts(lead) {
   const a1Yandex = websiteEmails.length ? { emails: [], urls: [] } : await searchContactsViaA1Yandex(lead);
   const a1YandexEmails = unique((a1Yandex.text?.match(EMAIL_RE) || []).map(normalizeEmail));
   const searchEmailsFound = websiteEmails.length || a1YandexEmails.length ? [] : await searchEmails(lead);
-  const emails = unique([...existingEmails, ...websiteEmails, ...a1YandexEmails, ...searchEmailsFound]);
+  const allCandidates = unique([...existingEmails, ...websiteEmails, ...a1YandexEmails, ...searchEmailsFound]);
+
+  const validation = await pickBestEmail(allCandidates, { siteUrl: lead.url });
+  const valid = validation.all.filter((entry) => entry.ok);
+  const emails = valid.length ? valid.map((entry) => entry.value) : allCandidates;
+  const best = validation.best;
+
   const channels = [...existingEmailChannels];
-  if (emails.length && !channels.some((channel) => normalizeEmail(channel.value) === emails[0])) {
-    const confidence = websiteEmails.length ? 0.85 : a1YandexEmails.length ? 0.65 : 0.55;
-    channels.push({ type: 'email', value: emails[0], confidence });
+  if (best?.value && !channels.some((channel) => normalizeEmail(channel.value) === best.value)) {
+    channels.push({
+      type: 'email',
+      value: best.value,
+      confidence: best.confidence ?? 0,
+      hasMx: Boolean(best.hasMx),
+      role: Boolean(best.role),
+      freeMail: Boolean(best.freeMail),
+      matchesSite: Boolean(best.matchesSite),
+      reasons: best.reasons || [],
+    });
   }
   if (lead.phone) channels.push({ type: 'phone_call', value: lead.phone, confidence: 0.7 });
   if (lead.phone) channels.push({ type: 'sms_requires_consent', value: lead.phone, confidence: 0.2 });
@@ -73,6 +88,28 @@ export async function enrichContacts(lead) {
     emails,
     phone: lead.phone || '',
     channels,
+    emailValidation: {
+      best: best
+        ? {
+            value: best.value,
+            confidence: best.confidence,
+            hasMx: best.hasMx,
+            role: best.role,
+            freeMail: best.freeMail,
+            matchesSite: best.matchesSite,
+            reasons: best.reasons,
+          }
+        : null,
+      candidates: validation.all.map((entry) => ({
+        value: entry.value,
+        confidence: entry.confidence,
+        hasMx: entry.hasMx,
+        role: entry.role,
+        freeMail: entry.freeMail,
+        matchesSite: entry.matchesSite,
+        reasons: entry.reasons,
+      })),
+    },
     sources: {
       website: { emails: websiteEmails.length },
       a1Yandex: { ok: Boolean(a1Yandex.ok), skipped: Boolean(a1Yandex.skipped), emails: a1YandexEmails.length, reason: a1Yandex.reason || '' },

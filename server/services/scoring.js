@@ -23,9 +23,17 @@ export function nicheWeight(lead) {
 
 export function contactScore(lead) {
   const hasPhone = Boolean(lead.phone || lead.contacts?.phone);
-  if (hasEmailContact(lead)) return 18;
+  if (hasValidatedEmailContact(lead)) return 18;
+  if (hasEmailContact(lead)) return 10;
   if (hasPhone) return 4;
   return 0;
+}
+
+export function bestEmailChannel(lead) {
+  const channels = Array.isArray(lead.contacts?.channels) ? lead.contacts.channels : [];
+  return channels
+    .filter((channel) => channel?.type === 'email' && channel?.value)
+    .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))[0] || null;
 }
 
 export function hasEmailContact(lead) {
@@ -36,16 +44,27 @@ export function hasEmailContact(lead) {
   return Boolean(emails.length || hasEmailChannel || lead.email);
 }
 
+export function hasValidatedEmailContact(lead) {
+  const channel = bestEmailChannel(lead);
+  if (!channel) return false;
+  const minConfidence = Number(config.EMAIL_MIN_CONFIDENCE_FOR_LOVABLE ?? 0.6);
+  const confidence = Number(channel.confidence ?? 0);
+  if (confidence < minConfidence) return false;
+  if (config.EMAIL_VALIDATION_ENABLED && channel.hasMx === false) return false;
+  if (channel.role === true && confidence < 0.7) return false;
+  return true;
+}
+
 export function isQuotaFreeLead(lead) {
   return ['telegram_inbound', 'manual_smoke'].includes(String(lead.source || ''));
 }
 
 export function isLovableEligible(lead) {
-  return isQuotaFreeLead(lead) || hasEmailContact(lead);
+  return isQuotaFreeLead(lead) || hasValidatedEmailContact(lead);
 }
 
 export function isScoutLovableEligible(lead) {
-  return !isQuotaFreeLead(lead) && hasEmailContact(lead);
+  return !isQuotaFreeLead(lead) && hasValidatedEmailContact(lead);
 }
 
 export function calculateFitScore(lead) {

@@ -1,0 +1,39 @@
+{
+  "slug": "floor-repair",
+  "label": "Ремонт полов",
+  "match": ["пол ", "полы", "ремонт пол", "паркет", "ламинат", "стяжк"],
+  "palette": {
+    "background": "#fbfaf6",
+    "surface": "#ffffff",
+    "primary": "#7d4f2c",
+    "accent": "#c79a6b",
+    "text": "#1a1410"
+  },
+  "typography": {
+    "headlineFont": "Manrope, system-ui, sans-serif",
+    "bodyFont": "Inter, system-ui, sans-serif",
+    "mood": "практичный, профессиональный, уютный"
+  },
+  "heroAngle": "конкретные кейсы полов до/после, понятная цена за м² и сроки",
+  "sections": [
+    "Hero с фото готового пола и кнопкой расчёта",
+    "Калькулятор: тип покрытия, площадь → ориентир цены за м²",
+    "Услуги: стяжка, ламинат, паркет, инженерная доска, плитка, наливные полы",
+    "Кейсы до/после с площадью, материалом, сроком",
+    "Этапы работы и гарантия",
+    "Команда и оборудование",
+    "Отзывы и видео-обзоры объектов",
+    "Форма заявки на бесплатный замер"
+  ],
+  "ctaPrimary": "Рассчитать стоимость пола",
+  "ctaSecondary": "Бесплатный замер мастером",
+  "trustSignals": ["договор", "гарантия на работы", "профессиональное оборудование", "своя бригада"],
+  "imageHints": [
+    "fresh installed engineered wood flooring in modern apartment, natural daylight, clean room before furniture, realistic interior photography, no people, no text",
+    "close-up of professional flooring tools and parquet planks on subfloor, realistic construction macro photo, no logos",
+    "before-after split image of old worn floor and brand new wooden floor in same room, realistic interior photography"
+  ],
+  "emailHook": "В ремонте полов клиент выбирает по фото готовых объектов и понятной цене за м², а не по слогану.",
+  "emailProofIdea": "Соберём калькулятор площади и материала, фото готовых объектов с ценой и сроком, гарантию.",
+  "emailRiskIfIgnored": "Без сайта с кейсами и калькулятором заявки уходят в компании, которые показали цифры и фото."
+}

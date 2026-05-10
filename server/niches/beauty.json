@@ -1,0 +1,39 @@
+{
+  "slug": "beauty",
+  "label": "Салон красоты",
+  "match": ["салон", "beauty", "красот", "парикмах", "ногт", "маникюр", "брови", "ресниц", "космет"],
+  "palette": {
+    "background": "#fdf7f2",
+    "surface": "#ffffff",
+    "primary": "#a4774b",
+    "accent": "#dba488",
+    "text": "#1f1612"
+  },
+  "typography": {
+    "headlineFont": "Cormorant Garamond, Manrope, serif",
+    "bodyFont": "Inter, system-ui, sans-serif",
+    "mood": "тёплый, премиальный, женственный"
+  },
+  "heroAngle": "атмосфера салона, мастера в лицо и онлайн-запись с выбором мастера и времени",
+  "sections": [
+    "Hero c интерьером и кнопкой онлайн-записи",
+    "Услуги с ценами и длительностью",
+    "Мастера: фото, специализация, портфолио, отзывы",
+    "Портфолио работ по категориям",
+    "Атмосфера салона: интерьер, продукция, чай/кофе",
+    "Отзывы из Яндекс/2ГИС",
+    "Адрес, парковка, метро",
+    "Форма онлайн-записи или ссылка на YClients/DIKIDI"
+  ],
+  "ctaPrimary": "Записаться онлайн",
+  "ctaSecondary": "Посмотреть работы мастеров",
+  "trustSignals": ["опытные мастера", "сертифицированная продукция", "стерильность инструмента", "запись через YClients/DIKIDI"],
+  "imageHints": [
+    "modern beauty salon interior with warm wooden tones, mirrors, styling chairs, natural light, premium calm atmosphere, realistic interior photography, no people, no text",
+    "close-up of manicurist hands working on client nails, soft warm light, premium service detail, realistic macro photo, no faces",
+    "beauty salon styling chair with gold mirror and elegant decor, premium spa mood, realistic photo, no logos, no text"
+  ],
+  "emailHook": "Салон выбирают по атмосфере, мастеру и удобству записи — на сайте нужны живые фото мастеров и онлайн-слот.",
+  "emailProofIdea": "Покажем мастеров и портфолио, реальные интерьеры салона и онлайн-запись с выбором мастера и времени.",
+  "emailRiskIfIgnored": "Без сильного сайта клиенты выбирают по фото в инстаграме конкурентов и забывают про карточку в картах."
+}

@@ -1,0 +1,39 @@
+{
+  "slug": "roofer",
+  "label": "Кровельные работы",
+  "match": ["кров", "крыш", "roof", "фальц"],
+  "palette": {
+    "background": "#0e141b",
+    "surface": "#161e29",
+    "primary": "#f97316",
+    "accent": "#22d3ee",
+    "text": "#f5f7fa"
+  },
+  "typography": {
+    "headlineFont": "Bebas Neue, Manrope, system-ui, sans-serif",
+    "bodyFont": "Inter, system-ui, sans-serif",
+    "mood": "уверенный, прикладной, без воды"
+  },
+  "heroAngle": "конкретные кейсы крыш, понятный калькулятор и гарантия — чтобы клиент сразу видел цену и доверие",
+  "sections": [
+    "Hero с фото готовой крыши и кнопкой расчёта стоимости",
+    "Калькулятор: тип кровли, площадь, материал → ориентир цены",
+    "Кейсы: фото объектов, материал, сроки, цена",
+    "Этапы работы: замер, проект, монтаж, гарантия",
+    "Гарантия и сертификаты материалов",
+    "Команда и техника: фото бригады, оборудование",
+    "Отзывы заказчиков с района",
+    "Форма заявки на бесплатный замер"
+  ],
+  "ctaPrimary": "Рассчитать стоимость",
+  "ctaSecondary": "Заказать бесплатный замер",
+  "trustSignals": ["гарантия 5+ лет", "сертифицированные материалы", "договор", "своя бригада, не подряд"],
+  "imageHints": [
+    "professional roofers installing standing seam metal roof on a private house, blue sky, realistic construction photo, no faces visible, no text",
+    "close-up of finished metal seam roof with clean joints, sunlight, premium quality detail, realistic photo, no logos",
+    "private house with brand new roof, neat gutters, clean facade, after-renovation exterior shot, realistic photography, no people"
+  ],
+  "emailHook": "В кровле клиент решает по фото готовых объектов и понятной цене — без этого заявку не оставит.",
+  "emailProofIdea": "Соберём калькулятор площади и материала, кейсы с ценой и сроками, понятную гарантию.",
+  "emailRiskIfIgnored": "Без сайта с кейсами клиенты уходят в компании, у которых видно прайс и фото готовых крыш."
+}

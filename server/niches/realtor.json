@@ -1,0 +1,39 @@
+{
+  "slug": "realtor",
+  "label": "Недвижимость и риелторы",
+  "match": ["риел", "риэл", "недвиж", "квартир", "real estate", "агентство недвижимост"],
+  "palette": {
+    "background": "#0e1320",
+    "surface": "#161e2c",
+    "primary": "#cba35a",
+    "accent": "#7eb8ff",
+    "text": "#f5f7fa"
+  },
+  "typography": {
+    "headlineFont": "Manrope, system-ui, sans-serif",
+    "bodyFont": "Inter, system-ui, sans-serif",
+    "mood": "статусный, спокойный, доверительный"
+  },
+  "heroAngle": "сильный личный бренд агента и подборка реальных объектов с ценой и фото — клиент сразу видит, с кем работает",
+  "sections": [
+    "Hero с фото агента/команды и понятным оффером",
+    "Подборка свежих объектов с фото, ценой, метражом",
+    "Услуги: продажа, покупка, ипотека, юридическое сопровождение",
+    "Кейсы сделок с короткой историей клиента",
+    "О команде/агенте: опыт, сертификаты, награды",
+    "Отзывы клиентов",
+    "Гарантии, договор, прозрачная комиссия",
+    "Форма заявки на подбор/оценку"
+  ],
+  "ctaPrimary": "Получить подборку объектов",
+  "ctaSecondary": "Узнать стоимость моей квартиры",
+  "trustSignals": ["опыт агента", "договор и юр. сопровождение", "членство в РГР", "реальные сделки в районе"],
+  "imageHints": [
+    "professional Russian real estate agent in modern office, holding tablet, premium business attire, soft daylight, realistic editorial photo, no logos, no text",
+    "modern apartment interior staged for sale, neutral tones, natural daylight, clean composition, realistic interior photography, no people",
+    "key handover moment in modern apartment, hands only, soft warm light, realistic photo, no faces, no text"
+  ],
+  "emailHook": "Клиент выбирает риелтора по личному бренду и подборке реальных объектов, а не по абстрактному «опыт 10 лет».",
+  "emailProofIdea": "Соберём личный лендинг с подборкой объектов, кейсами и отзывами, формой заявки на подбор/оценку.",
+  "emailRiskIfIgnored": "Без сайта-визитки агента клиенты идут к конкурентам с понятным портфелем сделок и фото объектов."
+}

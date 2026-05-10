@@ -23,6 +23,9 @@ import {
   refreshLovableOAuthToken,
 } from './services/lovableOfficialMcp.js';
 import { customerBotLink } from './services/a1Client.js';
+import { imagesPublicMount } from './services/imageGenerator.js';
+import { parseTrackingToken } from './services/clickTracker.js';
+import { recordSubjectClick } from './services/subjectAB.js';
 
 const app = express();
 const store = new Store(config.DATA_DIR);
@@ -59,6 +62,32 @@ registerMcpRoutes(app, store);
 registerAuth(app, store);
 app.use('/renders', express.static(path.resolve(config.DATA_DIR, 'renders')));
 app.use('/projects', express.static(path.resolve(config.DATA_DIR, 'projects')));
+{
+  const mount = imagesPublicMount();
+  app.use(mount.route, express.static(mount.directory));
+}
+
+app.get('/p/:token', async (req, res) => {
+  const parsed = parseTrackingToken(req.params.token);
+  if (!parsed?.target || !/^https?:\/\//i.test(parsed.target)) {
+    return res.status(404).type('text/plain').send('Link expired');
+  }
+  try {
+    await store.recordLeadClick(parsed.leadId, {
+      kind: parsed.kind,
+      target: parsed.target,
+      variantId: parsed.variantId,
+      stage: parsed.stage,
+      ip: req.ip,
+      ua: req.get('user-agent') || '',
+    });
+    if (parsed.variantId) await recordSubjectClick(store, parsed.variantId);
+  } catch (error) {
+    console.warn('Click tracking record failed', error.message);
+  }
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.redirect(302, parsed.target);
+});
 registerLegalRoutes(app);
 
 app.get('/privacy', (req, res) => {

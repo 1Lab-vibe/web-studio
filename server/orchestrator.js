@@ -11,7 +11,10 @@ import { customerBriefSafetyIssues } from './services/customerTelegram.js';
 import { classifyCustomerRevision, isRevisionPaymentOk, revisionPaymentRequiredText } from './services/revisions.js';
 import { enrichLeadScore, isLovableEligible, topLovableCandidates } from './services/scoring.js';
 import { applySimpleRevisionToSourceProject, deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
-import { runPreviewQualityGate } from './services/qualityGate.js';
+import { ensureQualityGate, runPreviewQualityGate } from './services/qualityGate.js';
+import { listSubjectVariants, pickSubjectVariant, recordSubjectSend, variantId } from './services/subjectAB.js';
+import { discoverLeadSite } from './services/siteFinder.js';
+import { trackingUrl } from './services/clickTracker.js';
 
 const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
 
@@ -252,6 +255,10 @@ export class Orchestrator {
         return this.runCheckerJob(job.leadId);
       case 'outbound_queue':
         return this.runOutboundJob(job.leadId);
+      case 'outbound_followup_1':
+        return this.runFollowupJob(job.leadId, 1);
+      case 'outbound_followup_2':
+        return this.runFollowupJob(job.leadId, 2);
       case 'a1_sync':
         return this.runA1SyncJob(job.leadId, job.payload?.reason || 'job');
       default:
@@ -269,6 +276,19 @@ export class Orchestrator {
     if (!lead) throw new Error('Lead not found');
     const gate = await this.checkGates(lead);
     if (!gate.ok) throw new Error(gate.reason || gate.error || 'Gate failed');
+    if (!lead.url || !/^https?:\/\//i.test(lead.url)) {
+      const discovery = await discoverLeadSite(lead).catch((error) => ({ ok: false, reason: error.message }));
+      if (discovery?.ok && discovery.url) {
+        lead = await this.store.updateLead(lead.id, {
+          url: discovery.url,
+          site: 'сайт есть',
+          siteDiscovery: discovery,
+        });
+        await this.store.addEvent(lead.id, 'site.discovered', `Site discovered via ${discovery.source}: ${discovery.url}`);
+      } else if (discovery && !discovery.skipped) {
+        await this.store.updateLead(lead.id, { siteDiscovery: discovery });
+      }
+    }
     Object.assign(lead, await diagnoseLead(lead));
     enrichLeadScore(lead);
     lead = await this.store.updateLead(lead.id, lead);
@@ -537,6 +557,7 @@ export class Orchestrator {
       await sendTelegram(`<b>Preview quality gate failed</b>\n${lead.name}\n${quality.issues.join('; ')}`);
       throw new Error(`Preview quality failed: ${quality.issues.join('; ')}`);
     }
+    lead = this.store.getLead(lead.id);
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'deployed', stageStatus: 'quality_passed', artifactStatus: 'deployed', reason: 'coder_deploy_quality_passed' });
     if (lead.customerTelegram?.pendingPreviewChatId) {
       const previewUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
@@ -562,8 +583,8 @@ export class Orchestrator {
     if (!lead) throw new Error('Lead not found');
     const artifactGate = await this.requireDeployedSite(lead);
     if (!artifactGate.ok) throw new Error(artifactGate.reason || 'No deployed site');
-    const quality = await runPreviewQualityGate(lead);
-    lead = await this.store.updateLead(lead.id, { qualityGate: quality });
+    const quality = await ensureQualityGate(lead);
+    if (quality !== lead.qualityGate) lead = await this.store.updateLead(lead.id, { qualityGate: quality });
     if (!quality.ok) {
       await this.store.updateLead(lead.id, {
         video: { ok: false, reason: 'preview_quality_not_passed_before_filmer', invalidatedAt: new Date().toISOString() },
@@ -624,8 +645,8 @@ export class Orchestrator {
     const artifactGate = await this.requireDeployedSite(lead);
     if (!artifactGate.ok) throw new Error(artifactGate.reason || 'No deployed site');
     if (!lead.qualityGate?.ok) {
-      const quality = await runPreviewQualityGate(lead);
-      lead = await this.store.updateLead(lead.id, { qualityGate: quality });
+      const quality = await ensureQualityGate(lead);
+      if (quality !== lead.qualityGate) lead = await this.store.updateLead(lead.id, { qualityGate: quality });
       if (!quality.ok) {
         const reason = `preview_quality_not_passed: ${quality.issues?.join('; ') || 'unknown'}`;
         await this.store.updateLead(lead.id, {
@@ -708,8 +729,8 @@ export class Orchestrator {
       });
       throw new Error(`Outbound package blocked: ${packageGate.issues.join('; ')}`);
     }
-    const freshQuality = await runPreviewQualityGate(lead);
-    lead = await this.store.updateLead(lead.id, { qualityGate: freshQuality });
+    const freshQuality = await ensureQualityGate(lead);
+    if (freshQuality !== lead.qualityGate) lead = await this.store.updateLead(lead.id, { qualityGate: freshQuality });
     if (!freshQuality.ok) {
       await this.store.updateLead(lead.id, { outboundStatus: 'blocked_quality_failed' });
       await this.store.transitionLead(lead.id, {
@@ -726,10 +747,15 @@ export class Orchestrator {
     const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
     if (reserved.reserved < 1) throw new Error('Daily send limit reached');
     const botLink = customerBotLink(lead);
-    const siteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
-    const videoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
-    const message = outboundEmailBody(lead, { botLink, siteUrl, videoUrl });
-    const subject = outboundEmailSubject(lead);
+    const rawSiteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
+    const rawVideoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
+    const variant = pickSubjectVariant(lead, this.store);
+    const subject = (variant?.text || '').trim() || outboundEmailSubject(lead);
+    const subjectVariantId = variant?.id || variantId(subject);
+    const siteUrl = rawSiteUrl ? trackingUrl({ leadId: lead.id, kind: 'preview', target: rawSiteUrl, variantId: subjectVariantId, stage: 0 }) : '';
+    const videoUrl = rawVideoUrl ? trackingUrl({ leadId: lead.id, kind: 'video', target: rawVideoUrl, variantId: subjectVariantId, stage: 0 }) : '';
+    const trackedBotLink = botLink ? trackingUrl({ leadId: lead.id, kind: 'bot', target: botLink, variantId: subjectVariantId, stage: 0 }) : '';
+    const message = outboundEmailBody(lead, { botLink: trackedBotLink, siteUrl, videoUrl });
     const outbound = await outboundQueueMessage({
       a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
       externalId: lead.id,
@@ -743,7 +769,7 @@ export class Orchestrator {
       attachments: [
         siteUrl ? { type: 'link', url: siteUrl, title: 'Превью сайта' } : null,
         videoUrl ? { type: 'link', url: videoUrl, title: 'Видео-превью' } : null,
-        botLink ? { type: 'link', url: botLink, title: 'Бот для правок и ТЗ' } : null,
+        trackedBotLink ? { type: 'link', url: trackedBotLink, title: 'Бот для правок и ТЗ' } : null,
       ].filter(Boolean),
       deliveryPolicy: {
         workingHoursOnly: true,
@@ -761,19 +787,27 @@ export class Orchestrator {
       message,
       fitScore: lead.fitScore ?? 0,
       a1Outbound: outbound,
+      subjectVariantId,
+      subjectVariantAngle: variant?.angle || '',
+      trackedLinks: { preview: siteUrl, video: videoUrl, bot: trackedBotLink },
     });
     const sentNow = outboundWasSent(outbound);
     lead = await this.store.updateLead(lead.id, {
       contacts: lead.contacts,
-      pitch: { ok: outbound.ok, queued: !sentNow, sent: sentNow, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound },
+      pitch: { ok: outbound.ok, queued: !sentNow, sent: sentNow, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound, subjectVariantId, subjectVariantAngle: variant?.angle || '' },
       outboundStatus: outbound.ok ? (sentNow ? 'sent' : 'queued') : 'failed',
       outboundScheduledAt: '',
+      subjectVariantId,
     });
     if (!outbound.ok) throw new Error(outbound.error || outbound.reason || 'A1 outbound queue failed');
+    if (sentNow) await recordSubjectSend(this.store, subjectVariantId);
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'outbound_sent', stageStatus: sentNow ? 'sent' : 'queued', reason: sentNow ? 'outbound_sent_by_a1' : 'outbound_queued_in_a1' });
-    await this.store.addEvent(lead.id, sentNow ? 'pitch.sent' : 'pitch.queued', sentNow ? `Pitcher sent message via A1: ${item.channel}` : `Pitcher queued message: ${item.channel}`);
-    await this.addA1Event(lead, sentNow ? 'outbound.sent' : 'outbound.queued', sentNow ? 'Pitcher sent outbound email via A1' : 'Pitcher queued outbound email in A1', { queueItem: item, outbound });
-    return { ok: true, lead, outbound };
+    await this.store.addEvent(lead.id, sentNow ? 'pitch.sent' : 'pitch.queued', sentNow ? `Pitcher sent message via A1: ${item.channel} (subj=${variant?.angle || 'primary'})` : `Pitcher queued message: ${item.channel} (subj=${variant?.angle || 'primary'})`);
+    await this.addA1Event(lead, sentNow ? 'outbound.sent' : 'outbound.queued', sentNow ? 'Pitcher sent outbound email via A1' : 'Pitcher queued outbound email in A1', { queueItem: item, outbound, subjectVariantId, subjectVariantAngle: variant?.angle || '' });
+    if (sentNow) {
+      await this.scheduleFollowups(lead);
+    }
+    return { ok: true, lead, outbound, subjectVariantId };
   }
 
   async runA1SyncJob(leadId, reason = 'job') {
@@ -782,6 +816,137 @@ export class Orchestrator {
     const syncedLead = await this.syncLeadWithA1(lead, reason);
     await this.store.addEvent(lead.id, 'a1.crm.synced', `A1 CRM sync: ${syncedLead.a1Crm?.ok ? 'ok' : syncedLead.a1Crm?.reason || syncedLead.a1Crm?.error || 'failed'}`);
     return { ok: true, lead: syncedLead };
+  }
+
+  async scheduleFollowups(lead) {
+    const now = new Date();
+    const day = 24 * 60 * 60 * 1000;
+    const stages = [
+      { stage: 1, jobType: 'outbound_followup_1', runAt: new Date(now.getTime() + 3 * day).toISOString(), priority: 550 },
+      { stage: 2, jobType: 'outbound_followup_2', runAt: new Date(now.getTime() + 7 * day).toISOString(), priority: 540 },
+    ];
+    const followupsState = { ...(lead.followups || {}) };
+    for (const stage of stages) {
+      const key = `stage_${stage.stage}`;
+      if (followupsState[key]?.sentAt) continue;
+      const queued = await this.enqueueJob(stage.jobType, lead.id, {
+        idempotencyKey: `webstudio:${lead.id}:followup:${stage.stage}:v1`,
+        priority: stage.priority,
+        nextRunAt: stage.runAt,
+        payload: { stage: stage.stage },
+      });
+      followupsState[key] = {
+        ...(followupsState[key] || {}),
+        scheduledAt: stage.runAt,
+        jobId: queued?.job?.id || followupsState[key]?.jobId || '',
+        status: 'scheduled',
+      };
+    }
+    await this.store.updateLead(lead.id, { followups: followupsState });
+    return followupsState;
+  }
+
+  async cancelFollowups(leadId, reason = 'lead_replied') {
+    const cancelled = await this.store.cancelLeadJobs(leadId, ['outbound_followup_1', 'outbound_followup_2'], reason);
+    if (cancelled.length) {
+      const lead = this.store.getLead(leadId);
+      if (lead?.followups) {
+        const next = { ...lead.followups };
+        for (const job of cancelled) {
+          const stage = job.payload?.stage || (job.type === 'outbound_followup_1' ? 1 : 2);
+          const key = `stage_${stage}`;
+          if (next[key] && !next[key].sentAt) {
+            next[key] = { ...next[key], status: 'cancelled', cancelledReason: reason };
+          }
+        }
+        await this.store.updateLead(leadId, { followups: next });
+      }
+    }
+    return cancelled;
+  }
+
+  async runFollowupJob(leadId, stage) {
+    let lead = this.store.getLead(leadId);
+    if (!lead) throw new Error('Lead not found');
+    const key = `stage_${stage}`;
+    const followupsState = { ...(lead.followups || {}) };
+    if (followupsState[key]?.sentAt) return { ok: true, skipped: true, reason: 'already_sent' };
+    if (lead.reply?.text || ['replied', 'positive_reply', 'converted', 'paid'].includes(String(lead.status || ''))) {
+      followupsState[key] = { ...(followupsState[key] || {}), status: 'cancelled', cancelledReason: 'lead_replied' };
+      await this.store.updateLead(leadId, { followups: followupsState });
+      return { ok: true, skipped: true, reason: 'lead_replied' };
+    }
+    const emailChannel = (lead.contacts?.channels || []).find((channel) => channel.type === 'email' && channel.value);
+    if (!emailChannel?.value) return { ok: true, skipped: true, reason: 'no_email_channel' };
+    const workingWindow = outboundWorkingWindow();
+    if (!workingWindow.open) {
+      await this.enqueueJob(`outbound_followup_${stage}`, lead.id, {
+        idempotencyKey: `webstudio:${lead.id}:followup:${stage}:v1`,
+        priority: 540,
+        nextRunAt: workingWindow.nextRunAt,
+        payload: { stage },
+      });
+      return { ok: true, skipped: true, reason: 'outside_working_hours', nextRunAt: workingWindow.nextRunAt };
+    }
+    const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
+    if (reserved.reserved < 1) throw new Error('Daily send limit reached');
+    const subjectVariantIdForFollowup = lead.subjectVariantId || lead.pitch?.subjectVariantId || '';
+    const rawBotLink = customerBotLink(lead);
+    const rawSiteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
+    const rawVideoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
+    const siteUrl = rawSiteUrl ? trackingUrl({ leadId: lead.id, kind: 'preview', target: rawSiteUrl, variantId: subjectVariantIdForFollowup, stage }) : '';
+    const videoUrl = rawVideoUrl ? trackingUrl({ leadId: lead.id, kind: 'video', target: rawVideoUrl, variantId: subjectVariantIdForFollowup, stage }) : '';
+    const botLink = rawBotLink ? trackingUrl({ leadId: lead.id, kind: 'bot', target: rawBotLink, variantId: subjectVariantIdForFollowup, stage }) : '';
+    const subject = followupSubject(lead, stage);
+    const body = followupEmailBody(lead, stage, { botLink, siteUrl, videoUrl });
+    const outbound = await outboundQueueMessage({
+      a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
+      externalId: `${lead.id}:followup:${stage}`,
+      dedupeKey: `webstudio:${lead.id}:followup:${stage}`,
+      to: emailChannel.value,
+      senderProfile: '1lab',
+      fromAddress: '1lab@1true.ru',
+      purpose: 'sales_followup',
+      subject,
+      body,
+      attachments: [
+        siteUrl ? { type: 'link', url: siteUrl, title: 'Превью сайта' } : null,
+        botLink ? { type: 'link', url: botLink, title: 'Бот для правок и ТЗ' } : null,
+      ].filter(Boolean),
+      deliveryPolicy: {
+        workingHoursOnly: true,
+        timezone: config.OUTBOUND_TIMEZONE,
+        startHour: config.OUTBOUND_WORKING_HOURS_START,
+        endHour: config.OUTBOUND_WORKING_HOURS_END,
+      },
+      idempotencyKey: `webstudio:${lead.id}:followup:${stage}:v1`,
+    });
+    if (!outbound.ok) throw new Error(outbound.error || outbound.reason || `Followup ${stage} A1 outbound failed`);
+    const item = await this.store.addOutreachQueueItem({
+      leadId: lead.id,
+      channel: 'Email',
+      to: emailChannel.value,
+      subject,
+      message: body,
+      fitScore: lead.fitScore ?? 0,
+      a1Outbound: outbound,
+      followupStage: stage,
+      subjectVariantId: subjectVariantIdForFollowup,
+      trackedLinks: { preview: siteUrl, video: videoUrl, bot: botLink },
+    });
+    const sentNow = outboundWasSent(outbound);
+    followupsState[key] = {
+      ...(followupsState[key] || {}),
+      sentAt: sentNow ? new Date().toISOString() : '',
+      queuedAt: !sentNow ? new Date().toISOString() : '',
+      queueId: item.id,
+      subject,
+      status: sentNow ? 'sent' : 'queued',
+    };
+    lead = await this.store.updateLead(lead.id, { followups: followupsState });
+    await this.store.addEvent(lead.id, sentNow ? `pitch.followup_${stage}.sent` : `pitch.followup_${stage}.queued`, sentNow ? `Followup ${stage} sent via A1` : `Followup ${stage} queued in A1`);
+    await this.addA1Event(lead, sentNow ? `outbound.followup_${stage}.sent` : `outbound.followup_${stage}.queued`, `Followup ${stage} ${sentNow ? 'sent' : 'queued'}`, { queueItem: item, outbound, stage });
+    return { ok: true, lead, outbound, stage };
   }
 
   topActions(limit = 10) {
@@ -1435,9 +1600,51 @@ function retryDelayForJob(job) {
     filmer_render: 8 * 60_000,
     checker_eval: 90_000,
     outbound_queue: 60_000,
+    outbound_followup_1: 30 * 60_000,
+    outbound_followup_2: 30 * 60_000,
     a1_sync: 60_000,
   };
   return delays[job.type] || 60_000;
+}
+
+function followupSubject(lead, stage) {
+  const business = lead.name || 'вашего бизнеса';
+  if (stage === 1) return `Re: ${String(lead.subject || `сделали превью сайта для ${business}`).slice(0, 110)}`;
+  return `Закрыть тред по сайту для ${business}?`.slice(0, 110);
+}
+
+function followupEmailBody(lead, stage, { botLink = '', siteUrl = '', videoUrl = '' } = {}) {
+  const owner = lead.ownerName || lead.contactName || '';
+  const greeting = owner ? `${owner}, добрый день.` : 'Добрый день.';
+  const business = lead.name || 'вашей компании';
+  const niche = (lead.niche || 'ваш бизнес').toLowerCase();
+  const ctaText = String(lead.ctaText || 'Посмотреть превью').trim();
+  const proofIdea = String(lead.angle || `быстрый путь к заявке для ${niche}`).toLowerCase();
+
+  if (stage === 1) {
+    return [
+      greeting,
+      '',
+      `Поднимаю свое прошлое письмо про сайт для ${business}. Возможно, оно прошло мимо во входящих.`,
+      '',
+      `Если коротко — мы собрали один рабочий вариант сайта под ${niche}: ${proofIdea}. Не шаблон «на потом», а превью под ваши тексты, фото и контакты.`,
+      '',
+      siteUrl ? `${ctaText}: ${siteUrl}` : '',
+      videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
+      '',
+      'Если стоит передвинуть встречу или пообсуждать позже — скажите, когда удобно. Если не актуально, просто ответьте «не интересно», и я больше не пишу.',
+    ].filter(Boolean).join('\n').trim();
+  }
+  return [
+    greeting,
+    '',
+    `Это последнее письмо в ветке про сайт для ${business}. Не хочу занимать ваш ящик, поэтому сворачиваю тему, если ответа не будет.`,
+    '',
+    siteUrl ? `Если соберетесь посмотреть превью — оно по-прежнему здесь: ${siteUrl}` : '',
+    botLink ? `И есть бот для правок и ТЗ за пару минут: ${botLink}` : '',
+    '',
+    'Если сейчас не до этого — это нормально, просто отвечать необязательно. Спасибо, что прочитали.',
+  ].filter(Boolean).join('\n').trim();
 }
 
 function isLongRunningJob(job) {
@@ -1507,6 +1714,8 @@ function formatRub(value) {
 }
 
 function outboundEmailSubject(lead) {
+  const subject = String(lead.subject || '').trim();
+  if (subject) return subject.slice(0, 120);
   const business = lead.name || 'вашего бизнеса';
   const owner = lead.ownerName || lead.contactName || '';
   return owner ? `${owner}, сделали превью сайта для ${business}` : `Сделали превью сайта для ${business}`;
@@ -1515,6 +1724,34 @@ function outboundEmailSubject(lead) {
 function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } = {}) {
   const owner = lead.ownerName || lead.contactName || '';
   const greeting = owner ? `${owner}, здравствуйте.` : 'Здравствуйте.';
+  const fullPrice = lead.deal || 30000;
+  const firstOrderPrice = Math.round(fullPrice * 0.5);
+  const price = formatRub(firstOrderPrice);
+  const fullPriceText = formatRub(fullPrice);
+  const ctaText = String(lead.ctaText || '').trim() || 'Посмотреть превью';
+  const postscript = String(lead.postscript || 'Если сейчас не актуально, просто ответьте «не интересно».').trim();
+
+  const paragraphs = Array.isArray(lead.bodyParagraphs)
+    ? lead.bodyParagraphs.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+
+  if (paragraphs.length) {
+    const offerLine = `Для первого заказа действует скидка 50%: от ${price} вместо ${fullPriceText}; финальную стоимость фиксируем после согласованного превью.`;
+    return [
+      greeting,
+      '',
+      ...interleave(paragraphs, ''),
+      '',
+      siteUrl ? `${ctaText}: ${siteUrl}` : '',
+      videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
+      botLink ? `Бот для правок и ТЗ: ${botLink}` : '',
+      '',
+      offerLine,
+      '',
+      `P.S. ${postscript}`,
+    ].filter((line) => line !== undefined && line !== null).join('\n').trim();
+  }
+
   const business = lead.name || 'ваша компания';
   const niche = lead.niche || 'ваш бизнес';
   const angle = lead.angle || `первый экран, который быстро показывает пользу ${business} и ведет клиента к заявке`;
@@ -1522,28 +1759,33 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
     ? 'У вас уже есть сайт, но первый экран можно сделать сильнее под заявки.'
     : 'В открытых источниках не нашли рабочий сайт, хотя карточка в картах уже дает доверие и может приводить больше заявок.';
   const proof = [lead.rating ? `рейтинг ${lead.rating}` : '', lead.reviews ? `${lead.reviews} ${reviewWord(lead.reviews)}` : '', lead.city || ''].filter(Boolean).join(', ');
-  const fullPrice = lead.deal || 30000;
-  const firstOrderPrice = Math.round(fullPrice * 0.5);
-  const price = formatRub(firstOrderPrice);
-  const fullPriceText = formatRub(fullPrice);
   return [
     greeting,
     '',
     `Мы из 1Lab собрали для ${business} рабочее превью сайта под направление «${niche}». ${currentSituation}${proof ? ` В основу взяли то, что уже видит клиент: ${proof}.` : ''}`,
     '',
-    `Идея: ${angle}. Не шаблон “на потом”, а быстрый вариант, который можно довести до запуска под ваши тексты, фото, цены и контакты.`,
+    `Идея: ${angle}. Не шаблон "на потом", а быстрый вариант, который можно довести до запуска под ваши тексты, фото, цены и контакты.`,
     '',
-    siteUrl ? `Превью сайта: ${siteUrl}` : '',
+    siteUrl ? `${ctaText}: ${siteUrl}` : '',
     videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
     '',
     `Если идея близка, ответьте на это письмо или откройте бота - там за пару минут можно оставить правки и собрать точное ТЗ. Для первого заказа действует скидка 50%: запуск простого сайта-визитки - от ${price} вместо ${fullPriceText}; финальную стоимость фиксируем после согласованного превью.`,
     botLink ? `Бот для правок и ТЗ: ${botLink}` : '',
     '',
-    'Если сейчас не актуально, просто ответьте «не интересно».',
+    `P.S. ${postscript}`,
   ]
     .filter(Boolean)
     .join('\n')
     .trim();
+}
+
+function interleave(items, separator) {
+  const out = [];
+  items.forEach((item, index) => {
+    out.push(item);
+    if (index < items.length - 1) out.push(separator);
+  });
+  return out;
 }
 
 function reviewWord(value) {

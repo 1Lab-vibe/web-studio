@@ -6,7 +6,7 @@ export function lovableBuildUrl(prompt) {
 }
 
 export async function prepareLovableMockup(lead) {
-  const prompt = landingPrompt(lead);
+  const prompt = await landingPrompt(lead);
   if (lovableOfficialConfigured()) {
     const result = await createAndMaybeDeployLovableProject({ lead, prompt });
     if (result.ok) {
