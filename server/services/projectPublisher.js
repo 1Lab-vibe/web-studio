@@ -503,6 +503,8 @@ async function repairAndBuildSourceProject(sourceRoot, publicRoot, basePath = ''
   if (duplicateRepair.ok) repairs.push(duplicateRepair);
   const visualRepair = await ensureVisualMediaBlock(sourceRoot, lead);
   if (visualRepair.ok) repairs.push(visualRepair);
+  const mapRepair = await ensureRequestedYandexMapBlock(sourceRoot, lead);
+  if (mapRepair.ok) repairs.push(mapRepair);
   const externalImageRepair = await materializeExternalImageLiterals(sourceRoot, lead);
   if (externalImageRepair.ok) repairs.push(externalImageRepair);
   let build = await buildSourceProject(sourceRoot, publicRoot, basePath);
@@ -686,6 +688,29 @@ function injectVisualMediaBlock(content, block, filePath) {
   return clean;
 }
 
+async function ensureRequestedYandexMapBlock(sourceRoot, lead = {}) {
+  const requestText = [
+    lead.revision?.text,
+    lead.customerBrief?.notes,
+    lead.customerBrief?.contacts,
+    lead.address ? `Адрес: ${normalizeLeadAddress(lead)}` : '',
+  ].filter(Boolean).join('\n');
+  const mapUrl = yandexMapUrl(requestText, lead);
+  if (!mapUrl) return { ok: false, reason: 'no_requested_yandex_map' };
+  const target = await findRevisionTargetFile(sourceRoot);
+  if (!target) return { ok: false, reason: 'no_map_target_file' };
+  const content = await readFile(target, 'utf8').catch(() => '');
+  if (!content || /yandex\.ru\/map-widget/i.test(content)) return { ok: false, reason: 'yandex_map_already_present' };
+  const address = extractExplicitMapAddress(requestText) || normalizeLeadAddress(lead);
+  const contact = lead.customerBrief?.contacts || lead.phone || lead.contacts?.emails?.[0] || '';
+  const text = ['Адрес на карте', address ? `Адрес: ${address}` : '', contact ? `Контакты: ${contact}` : ''].filter(Boolean).join('. ');
+  const block = revisionBlockForFile(target, text, lead);
+  const next = injectRevisionBlock(content, block, target);
+  if (next === content) return { ok: false, reason: 'could_not_inject_yandex_map' };
+  await writeFile(target, next, 'utf8');
+  return { ok: true, strategy: 'injected_requested_yandex_map', file: path.relative(sourceRoot, target), mapUrl };
+}
+
 async function materializeRepairImage(sourceRoot, importerFile, variableName, url, fallbackUrl = url) {
   const baseName = `webstudio-${variableName.replace(/[^a-z0-9_-]/gi, '-').toLowerCase()}`;
   const urls = [...new Set([url, fallbackUrl].filter(Boolean))];
@@ -798,7 +823,7 @@ function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
   ];
   const set = /paper\s*straw|straw|drinking\s*straw|cocktail\s*straw|kraft|horeca|packag|eco|biodegrad|трубоч|коктейл|бумажн|крафт|упаков|эко|биоразлага/.test(key)
     ? paperPackaging
-    : /фото|photo|studio|студи/.test(key)
+    : /фото|photo|photography|photographer|фотограф|фотостуди/.test(key)
     ? photoStudio
     : /beauty|salon|крас|салон/.test(key)
       ? beauty
