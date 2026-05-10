@@ -720,6 +720,8 @@ async function materializeRepairImage(sourceRoot, importerFile, variableName, ur
     if (result.ok) return result;
     lastError = result.error || lastError;
   }
+  const localFallback = await createGeneratedVisualAsset(sourceRoot, importerFile, baseName, fallbackUrl || url);
+  if (localFallback.ok) return { ...localFallback, error: lastError, strategy: 'generated_svg_visual_fallback' };
   return { ok: false, url: fallbackUrl || url, error: lastError, expression: `"${fallbackUrl || url}"` };
 }
 
@@ -739,6 +741,23 @@ async function fetchRepairImage(sourceRoot, importerFile, baseName, url) {
     return { ok: true, url, expression: `new URL("${importPath}", import.meta.url).href` };
   } catch (error) {
     return { ok: false, url, error: error.message };
+  }
+}
+
+async function createGeneratedVisualAsset(sourceRoot, importerFile, baseName, sourceUrl = '') {
+  try {
+    const assetPath = path.join(sourceRoot, 'src', 'assets', `${baseName}.svg`);
+    await mkdir(path.dirname(assetPath), { recursive: true });
+    const hue = Math.abs(stableImageSeed({ id: baseName }, sourceUrl, 0)) % 360;
+    const accent = `hsl(${hue} 78% 58%)`;
+    const accent2 = `hsl(${(hue + 72) % 360} 82% 62%)`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-label="Web Studio visual"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#08111f"/><stop offset="1" stop-color="#101827"/></linearGradient><filter id="soft"><feGaussianBlur stdDeviation="18"/></filter></defs><rect width="1600" height="1000" fill="url(#g)"/><circle cx="1220" cy="220" r="260" fill="${accent}" opacity=".24" filter="url(#soft)"/><circle cx="330" cy="760" r="260" fill="${accent2}" opacity=".18" filter="url(#soft)"/><rect x="170" y="180" width="1260" height="640" rx="44" fill="#111827" stroke="#273244" stroke-width="4"/><rect x="250" y="270" width="520" height="64" rx="18" fill="${accent}" opacity=".72"/><rect x="250" y="380" width="860" height="34" rx="17" fill="#e5e7eb" opacity=".20"/><rect x="250" y="446" width="690" height="34" rx="17" fill="#e5e7eb" opacity=".14"/><g fill="none" stroke="${accent2}" stroke-width="7" stroke-linecap="round" stroke-dasharray="22 24"><path d="M330 650H590C660 650 660 560 730 560H1180"/><path d="M330 650H590C660 650 660 740 730 740H1180"/></g><g fill="#0b1020" stroke="#3b465c" stroke-width="4"><rect x="1110" y="480" width="210" height="120" rx="24"/><rect x="1110" y="680" width="210" height="120" rx="24"/></g><circle cx="330" cy="650" r="54" fill="${accent}" opacity=".82"/><circle cx="730" cy="560" r="42" fill="${accent2}" opacity=".78"/><circle cx="730" cy="740" r="42" fill="${accent}" opacity=".65"/></svg>`;
+    await writeFile(assetPath, svg, 'utf8');
+    const relative = path.relative(path.dirname(importerFile), assetPath).replace(/\\/g, '/');
+    const importPath = relative.startsWith('.') ? relative : `./${relative}`;
+    return { ok: true, url: sourceUrl, expression: `new URL("${importPath}", import.meta.url).href` };
+  } catch (error) {
+    return { ok: false, url: sourceUrl, error: error.message };
   }
 }
 
