@@ -8,7 +8,7 @@ import { renderLeadVideo } from './filmer.js';
 import { crmAddEvent, syncA1CrmLead } from './a1Client.js';
 import { publishFilesToGitHub } from './githubPublisher.js';
 import { withBrowserContext } from './browserPool.js';
-import { generateNicheImageUrl } from './imageGenerator.js';
+import { generateNicheImageUrl, localImagePath } from './imageGenerator.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -741,6 +741,8 @@ async function materializeRepairImage(sourceRoot, importerFile, variableName, ur
   const urls = [...new Set([url, fallbackUrl].filter(Boolean))];
   let lastError = '';
   for (const candidate of urls) {
+    const local = await copyLocalGeneratedImage(sourceRoot, importerFile, baseName, candidate);
+    if (local.ok) return local;
     const result = await fetchRepairImage(sourceRoot, importerFile, baseName, candidate);
     if (result.ok) return result;
     lastError = result.error || lastError;
@@ -748,6 +750,24 @@ async function materializeRepairImage(sourceRoot, importerFile, variableName, ur
   const localFallback = await createGeneratedVisualAsset(sourceRoot, importerFile, baseName, fallbackUrl || url);
   if (localFallback.ok) return { ...localFallback, error: lastError, strategy: 'generated_svg_visual_fallback' };
   return { ok: false, url: fallbackUrl || url, error: lastError, expression: `"${fallbackUrl || url}"` };
+}
+
+async function copyLocalGeneratedImage(sourceRoot, importerFile, baseName, url) {
+  const localPath = localImagePath(url);
+  if (!localPath) return { ok: false };
+  try {
+    const body = await readFile(localPath);
+    if (body.length < 1024) throw new Error('image_local_empty_body');
+    const ext = path.extname(localPath) || '.png';
+    const assetPath = path.join(sourceRoot, 'src', 'assets', `${baseName}${ext}`);
+    await mkdir(path.dirname(assetPath), { recursive: true });
+    await writeFile(assetPath, body);
+    const relative = path.relative(path.dirname(importerFile), assetPath).replace(/\\/g, '/');
+    const importPath = relative.startsWith('.') ? relative : `./${relative}`;
+    return { ok: true, url, expression: `new URL("${importPath}", import.meta.url).href`, strategy: 'copied_local_generated_image' };
+  } catch (error) {
+    return { ok: false, url, error: error.message };
+  }
 }
 
 async function fetchRepairImage(sourceRoot, importerFile, baseName, url) {

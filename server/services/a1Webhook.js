@@ -1,4 +1,5 @@
 import { crmAddEvent, crmConvertLeadToDeal } from './a1Client.js';
+import { recordSubjectReply } from './subjectAB.js';
 
 const LANES = {
   scout: '\u0420\u0430\u0437\u0432\u0435\u0434\u043a\u0430',
@@ -52,6 +53,22 @@ export async function handleA1Webhook(store, envelope, idempotencyKey = '') {
 
   const patch = patchForA1Event(lead, envelope);
   const updatedLead = Object.keys(patch).length ? await store.updateLead(lead.id, patch) : lead;
+  if (envelope.eventType === 'lead.replied') {
+    const subjectVariantId = updatedLead.subjectVariantId || updatedLead.pitch?.subjectVariantId || lead.subjectVariantId || lead.pitch?.subjectVariantId;
+    if (subjectVariantId) await recordSubjectReply(store, subjectVariantId);
+    const cancelled = await store.cancelLeadJobs(lead.id, ['outbound_followup_1', 'outbound_followup_2'], 'lead_replied');
+    if (cancelled.length) {
+      const followups = { ...(updatedLead.followups || {}) };
+      for (const job of cancelled) {
+        const stage = job.payload?.stage || (job.type === 'outbound_followup_1' ? 1 : 2);
+        const key = `stage_${stage}`;
+        if (followups[key] && !followups[key].sentAt) {
+          followups[key] = { ...followups[key], status: 'cancelled', cancelledReason: 'lead_replied' };
+        }
+      }
+      await store.updateLead(lead.id, { followups });
+    }
+  }
   if (envelope.eventType === 'lead.replied' && isPositiveReply(envelope.payload) && (updatedLead.a1LeadId || updatedLead.a1?.leadId)) {
     const convert = await crmConvertLeadToDeal({
       a1LeadId: updatedLead.a1LeadId || updatedLead.a1?.leadId,

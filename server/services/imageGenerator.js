@@ -17,6 +17,30 @@ function publicUrlFor(fileName) {
   return `${base}/generated-images/${fileName}`;
 }
 
+const LOCAL_URL_PREFIX = '/generated-images/';
+
+export function localImagePath(url) {
+  if (!url) return '';
+  let pathname = '';
+  if (url.startsWith(LOCAL_URL_PREFIX)) {
+    pathname = url;
+  } else {
+    try {
+      const parsed = new URL(url);
+      const base = String(config.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+      const baseHost = base ? new URL(base).host : '';
+      if (baseHost && parsed.host !== baseHost) return '';
+      pathname = parsed.pathname;
+    } catch {
+      return '';
+    }
+  }
+  if (!pathname.startsWith(LOCAL_URL_PREFIX)) return '';
+  const fileName = pathname.slice(LOCAL_URL_PREFIX.length);
+  if (!fileName || fileName.includes('/') || fileName.includes('\\') || fileName.includes('..')) return '';
+  return path.join(imagesDir(), fileName);
+}
+
 function fallbackImageUrl(prompt, seed) {
   const encoded = encodeURIComponent(prompt);
   const safeSeed = Number.isFinite(Number(seed)) ? Number(seed) : 100000 + Math.floor(Math.random() * 800000);

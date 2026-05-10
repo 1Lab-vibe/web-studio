@@ -11,6 +11,7 @@ import { renderLeadVideo } from './services/filmer.js';
 import { crmAddEvent, syncA1CrmLead } from './services/a1Client.js';
 import { projectSlug } from './services/projectPublisher.js';
 import { loadNicheConfig } from './services/niches.js';
+import { analyzeLeadSite, summarizeSiteAnalysisForPrompt } from './services/siteAnalyzer.js';
 
 function mcpText(data) {
   return {
@@ -104,6 +105,10 @@ export async function landingPrompt(lead) {
   const brief = await landingBrief(lead);
   const customerBrief = lead.customerBrief || {};
   const revision = lead.revision?.text ? `Customer revision request: ${lead.revision.text}` : '';
+  const siteAnalysis = lead.siteAnalysis?.ok
+    ? lead.siteAnalysis
+    : (lead?.url ? await analyzeLeadSite(lead).catch(() => null) : null);
+  const siteSummary = summarizeSiteAnalysisForPrompt(siteAnalysis);
   return [
     `Build a Lovable landing page for Russian local business "${lead.name}".`,
     `City: ${lead.city}. Niche: ${lead.niche} (resolved profile: ${niche.label}).`,
@@ -123,6 +128,14 @@ export async function landingPrompt(lead) {
       trustSignals: niche.trustSignals,
       imageHints: niche.imageHints,
     })}`,
+    '',
+    siteSummary
+      ? [
+          'Existing client website analysis (use real services/headlines/contacts from here, do NOT invent fake competitors or unrelated examples):',
+          siteSummary,
+          'Reuse the actual service names, addresses and phone numbers from the analysis where they exist. Replace what looks weak/outdated with the niche-specific structure above.',
+        ].join('\n')
+      : '',
     '',
     'Requirements:',
     ...brief.pageRequirements.map((item) => `- ${item}`),

@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { config, hasSecret } from '../config.js';
 import { loadNicheConfig } from './niches.js';
+import { analyzeLeadSite } from './siteAnalyzer.js';
 
 const client = hasSecret(config.OPENAI_API_KEY) ? new OpenAI({ apiKey: config.OPENAI_API_KEY }) : null;
 
@@ -14,7 +15,12 @@ function checkerModel() {
 
 export async function diagnoseLead(lead) {
   const niche = await loadNicheConfig(lead);
-  if (!client) return fallbackDiagnosis(lead, niche);
+  const siteAnalysis = lead?.url ? await analyzeLeadSite(lead).catch(() => null) : null;
+  if (!client) {
+    const fallback = fallbackDiagnosis(lead, niche);
+    if (siteAnalysis) fallback.siteAnalysis = compactSiteAnalysisForLead(siteAnalysis);
+    return fallback;
+  }
 
   const response = await client.responses.create({
     model: diagnoserModel(),
@@ -23,13 +29,14 @@ export async function diagnoseLead(lead) {
         role: 'system',
         content: [
           'Ты Diagnoser агент российской solo web-agency.',
-          'Верни строго JSON без markdown с полями: diagnosis, angle, tone, message, channel, deal, replyRate, subject, bodyParagraphs, ctaText, postscript.',
-          'diagnosis около 50 слов — конкретно про этот бизнес, без воды.',
+          'Верни строго JSON без markdown с полями: diagnosis, angle, tone, message, channel, deal, replyRate, subject, subjectVariants, bodyParagraphs, ctaText, postscript.',
+          'diagnosis около 50 слов — конкретно про этот бизнес, без воды. Если есть siteAnalysis, обязательно сошлись на одну конкретную деталь их сайта (заголовок, услугу, год копирайта, платформа), а не общими словами.',
           'angle одно предложение — главный угол сайта под нишу клиента.',
           'tone короткое описание тональности.',
           'message короткое холодное сообщение менее 70 слов на случай SMS/Telegram (резерв).',
-          'subject — тема email до 60 символов, без капса, без спам-маркеров, желательно с упоминанием названия бизнеса или конкретной выгоды (без шаблона "Сделали превью сайта для X").',
-          'bodyParagraphs — массив 3–4 коротких абзацев на русском, под нишу. Каждый абзац максимум 2–3 предложения. Структура: 1) персональный крюк под бизнес и нишу, со ссылкой на их карточку в Яндексе если уместно (рейтинг, отзывы, годы); 2) что именно слабого/упускаемого на текущем этапе и что превью предлагает иначе (используй данные nicheConfig.heroAngle, sections, trustSignals); 3) конкретное соц-доказательство или risk-of-inaction под нишу; 4) опционально — мягкий CTA-абзац перед кнопкой.',
+          'subject — основная тема email до 60 символов, без капса, без спам-маркеров, желательно с упоминанием названия бизнеса или конкретной выгоды (без шаблона "Сделали превью сайта для X").',
+          'subjectVariants — массив 3 объектов вида { angle: "вопрос|выгода|город|отзыв", text: "..." } с разными углами темы (вопросительная; конкретная выгода; локальная привязка к городу/району; отсылка к конкретному отзыву или рейтингу). Темы должны быть разными по структуре, не пересказывать друг друга. Длина каждой ≤60 символов.',
+          'bodyParagraphs — массив 3–4 коротких абзацев на русском, под нишу. Каждый абзац максимум 2–3 предложения. Структура: 1) персональный крюк под бизнес и нишу — если есть siteAnalysis, упомяни конкретную деталь их текущего сайта; иначе — карточку в Яндексе (рейтинг, отзывы, годы); 2) что именно слабого/упускаемого на текущем этапе и что превью предлагает иначе (используй данные nicheConfig.heroAngle, sections, trustSignals); 3) конкретное соц-доказательство или risk-of-inaction под нишу; 4) опционально — мягкий CTA-абзац перед кнопкой.',
           'ctaText — текст для CTA-строки, что-то вроде «Посмотреть превью» или из nicheConfig.ctaPrimary.',
           'postscript — короткий P.S. с альтернативой или мягким опт-аутом ("если не актуально, просто ответьте: не интересно").',
           'deal оценивай в рублях как потенциальный чек сайта.',
@@ -65,6 +72,7 @@ export async function diagnoseLead(lead) {
             emailProofIdea: niche.emailProofIdea,
             emailRiskIfIgnored: niche.emailRiskIfIgnored,
           },
+          siteAnalysis: compactSiteAnalysisForPrompt(siteAnalysis),
           market: 'Россия',
           source: lead.source === 'google_places' ? 'Google Places' : 'Яндекс Карты',
           offer: 'готовый сайт/лендинг в Lovable с быстрым запуском',
@@ -75,10 +83,64 @@ export async function diagnoseLead(lead) {
 
   const text = response.output_text?.trim() || '{}';
   try {
-    return normalizeDiagnosis(JSON.parse(text), lead, niche);
+    const result = normalizeDiagnosis(JSON.parse(text), lead, niche);
+    if (siteAnalysis) result.siteAnalysis = compactSiteAnalysisForLead(siteAnalysis);
+    return result;
   } catch {
-    return { ...fallbackDiagnosis(lead, niche), rawModelOutput: text };
+    const fallback = fallbackDiagnosis(lead, niche);
+    if (siteAnalysis) fallback.siteAnalysis = compactSiteAnalysisForLead(siteAnalysis);
+    return { ...fallback, rawModelOutput: text };
   }
+}
+
+function compactSiteAnalysisForPrompt(analysis) {
+  if (!analysis || !analysis.ok) {
+    return analysis ? { ok: false, reason: analysis.reason || analysis.error || 'unknown' } : null;
+  }
+  return {
+    ok: true,
+    finalUrl: analysis.finalUrl,
+    title: analysis.title,
+    description: analysis.description,
+    headings: (analysis.headings || []).slice(0, 6),
+    services: (analysis.services || []).slice(0, 8),
+    keywords: (analysis.keywords || []).slice(0, 8),
+    addresses: (analysis.addresses || []).slice(0, 2),
+    phones: (analysis.phones || []).slice(0, 3),
+    emails: (analysis.emails || []).slice(0, 3),
+    platform: analysis.platform,
+    lastCopyrightYear: analysis.lastCopyrightYear,
+    looksOutdated: analysis.looksOutdated,
+  };
+}
+
+function compactSiteAnalysisForLead(analysis) {
+  if (!analysis || !analysis.ok) {
+    return {
+      ok: false,
+      reason: analysis?.reason || analysis?.error || 'unknown',
+      url: analysis?.url || '',
+      updatedAt: analysis?.updatedAt || new Date().toISOString(),
+    };
+  }
+  return {
+    ok: true,
+    url: analysis.url,
+    finalUrl: analysis.finalUrl,
+    status: analysis.status,
+    title: analysis.title,
+    description: analysis.description,
+    headings: (analysis.headings || []).slice(0, 8),
+    services: (analysis.services || []).slice(0, 10),
+    keywords: (analysis.keywords || []).slice(0, 10),
+    phones: (analysis.phones || []).slice(0, 3),
+    emails: (analysis.emails || []).slice(0, 3),
+    addresses: (analysis.addresses || []).slice(0, 2),
+    platform: analysis.platform,
+    lastCopyrightYear: analysis.lastCopyrightYear,
+    looksOutdated: analysis.looksOutdated,
+    updatedAt: analysis.updatedAt,
+  };
 }
 
 export async function evaluatePitch(lead) {
@@ -151,12 +213,28 @@ function normalizeDiagnosis(data, lead, niche) {
   const bodyParagraphs = Array.isArray(data.bodyParagraphs)
     ? data.bodyParagraphs.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 5)
     : [];
+  const variantsRaw = Array.isArray(data.subjectVariants) ? data.subjectVariants : [];
+  const subjectVariants = variantsRaw
+    .map((variant) => {
+      if (typeof variant === 'string') return { text: variant.trim().slice(0, 120), angle: '' };
+      if (variant && typeof variant === 'object') {
+        return { text: String(variant.text || '').trim().slice(0, 120), angle: String(variant.angle || '').trim().slice(0, 40) };
+      }
+      return null;
+    })
+    .filter((variant) => variant && variant.text)
+    .slice(0, 4);
+  const subject = data.subject || fallback.subject;
+  if (subject && !subjectVariants.some((variant) => variant.text === subject)) {
+    subjectVariants.unshift({ text: subject, angle: 'primary' });
+  }
   return {
     diagnosis: data.diagnosis || fallback.diagnosis,
     angle: data.angle || fallback.angle,
     tone: data.tone || fallback.tone,
     message: data.message || fallback.message,
-    subject: data.subject || fallback.subject,
+    subject,
+    subjectVariants: subjectVariants.length ? subjectVariants : fallback.subjectVariants,
     bodyParagraphs: bodyParagraphs.length ? bodyParagraphs : fallback.bodyParagraphs,
     ctaText: data.ctaText || niche.ctaPrimary || fallback.ctaText,
     postscript: data.postscript || fallback.postscript,
@@ -182,12 +260,23 @@ function fallbackDiagnosis(lead, niche = {}) {
   const subject = lead.name
     ? `${lead.name}: ${niche.heroAngle || 'короткое превью под вашу нишу'}`.slice(0, 60)
     : `Сделали превью сайта под ${niche.label || 'вашу нишу'}`.slice(0, 60);
+  const businessShort = (lead.name || 'компании').slice(0, 30);
+  const cityShort = (lead.city || '').slice(0, 20);
+  const subjectVariants = [
+    { angle: 'primary', text: subject },
+    { angle: 'question', text: `${businessShort}: ${niche.ctaPrimary?.toLowerCase() || 'оставить заявку'} прямо с первого экрана?`.slice(0, 60) },
+    { angle: 'benefit', text: `Превью сайта под ${niche.label?.toLowerCase() || 'вашу нишу'} для ${businessShort}`.slice(0, 60) },
+    cityShort
+      ? { angle: 'city', text: `${businessShort} в ${cityShort}: один вариант сайта на пробу`.slice(0, 60) }
+      : { angle: 'rating', text: lead.rating ? `${businessShort}: ${lead.rating}★ и сайт под этот уровень`.slice(0, 60) : `${businessShort}: вариант сайта под вашу нишу`.slice(0, 60) },
+  ];
   return {
     diagnosis: `${lead.name || 'Компания'} уже получает доверие через карты: рейтинг ${lead.rating ?? '4+'}, отзывов ${lead.reviews ?? 'немного'}. Если сайта нет или он слабее карточки, часть клиентов не видит услуги, цены и понятный первый шаг — лендинг под нишу может забрать этот теплый спрос.`,
     angle: niche.heroAngle || `${lead.niche || 'ваш бизнес'}: быстро показать доверие и ясную заявку с первого экрана.`,
     tone: niche.typography?.mood || 'конкретный, спокойный, без давления',
     message: `Здравствуйте. Подготовили первый вариант сайта для ${lead.name || 'вашей компании'} под ${niche.label || 'вашу нишу'}: ${niche.ctaPrimary?.toLowerCase() || 'оставить заявку'} с первого экрана. Если направление интересно — посмотрите превью и скажите, что заменить.`,
     subject,
+    subjectVariants,
     bodyParagraphs: [
       `${lead.name ? `${lead.name},` : 'Здравствуйте.'} мы из 1Lab. У вас уже сильная карточка ${lead.city ? `в ${lead.city}` : 'в картах'}${lead.rating ? `, рейтинг ${lead.rating}` : ''}${lead.reviews ? `, ${lead.reviews} отзывов` : ''}. Этот теплый спрос можно превращать в заявки через сайт.`,
       `${niche.emailHook || 'Карточка в картах уже даёт доверие, но без сильного сайта поток заявок тонет.'} ${niche.emailProofIdea || 'Превью покажет оффер, услуги и быстрый шаг к заявке.'}`,
