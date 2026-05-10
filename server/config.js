@@ -12,7 +12,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(8787),
   WEB_ORIGIN: z.string().default('http://127.0.0.1:5173'),
   AUTONOMY_ENABLED: boolFromEnv,
-  AUTONOMY_CRON: z.string().default('*/30 * * * *'),
+  AUTONOMY_CRON: z.string().default('*/15 * * * *'),
   AUTONOMY_TOP_ACTIONS_LIMIT: z.coerce.number().default(12),
   AUTONOMY_MAX_ACTIONS_PER_TICK: z.coerce.number().default(3),
   AUTONOMY_MAX_LOVABLE_BUILDS_PER_TICK: z.coerce.number().default(1),
