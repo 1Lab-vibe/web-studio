@@ -192,7 +192,10 @@ app.get('/api/outreach-queue', (req, res) => res.json({ ok: true, data: store.li
 app.get('/api/jobs', (req, res) =>
   res.json({
     ok: true,
-    data: store.listJobs({ status: req.query.status, type: req.query.type, leadId: req.query.leadId }).map(publicJob),
+    data: store
+      .listJobs({ status: req.query.status, type: req.query.type, leadId: req.query.leadId })
+      .slice(0, Math.max(1, Math.min(500, Number(req.query.limit ?? 250) || 250)))
+      .map(publicJob),
   }),
 );
 app.get('/api/orchestrator/runs', (req, res) => res.json({ ok: true, data: store.listOrchestratorRuns(Number(req.query.limit ?? 50)) }));
@@ -431,7 +434,6 @@ function publicState() {
     processedA1EventsCount: Object.keys(store.state.processedA1Events ?? {}).length,
     jobsCount: store.state.jobs?.length ?? 0,
     orchestratorRunsCount: store.state.orchestratorRuns?.length ?? 0,
-    leads: publicLeads(),
   };
 }
 

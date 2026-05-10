@@ -42,6 +42,15 @@ function apiFetch(url, options = {}) {
     },
   });
 }
+
+async function jsonOrThrow(response, label) {
+  if (!response.ok) {
+    const error = new Error(`${label} failed: ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
 const agentMeta = {
   Scout: { role: 'ищет лиды в Яндекс/Google Maps', icon: Radar, tone: 'red' },
   Diagnoser: { role: 'готовит диагноз, hero angle и pitch', icon: ClipboardCheck, tone: 'blue' },
@@ -186,48 +195,59 @@ function App() {
 
   const loadBackend = async () => {
     try {
-      const [healthResponse, stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse, jobsResponse, runsResponse] = await Promise.all([
+      const [healthResponse, stateResponse, leadsResponse] = await Promise.all([
         apiFetch('/api/health', { credentials: 'include' }),
         apiFetch('/api/state', { credentials: 'include' }),
         apiFetch('/api/leads', { credentials: 'include' }),
-        apiFetch('/api/events', { credentials: 'include' }),
-        apiFetch('/api/approvals', { credentials: 'include' }),
-        apiFetch('/api/orchestrator/top-actions?limit=8', { credentials: 'include' }),
-        apiFetch('/api/outreach-queue', { credentials: 'include' }),
-        apiFetch('/api/jobs', { credentials: 'include' }),
-        apiFetch('/api/orchestrator/runs?limit=10', { credentials: 'include' }),
       ]);
-      if ([stateResponse, leadsResponse, eventsResponse, approvalsResponse, actionsResponse, queueResponse, jobsResponse, runsResponse].some((response) => response.status === 401)) {
+      if ([stateResponse, leadsResponse].some((response) => response.status === 401)) {
         setAuth((current) => ({ ...current, authenticated: false }));
         return;
       }
-      const [health, state, leadData, eventData, approvalData, actionData, queueData, jobsData, runsData] = await Promise.all([
-        healthResponse.json(),
-        stateResponse.json(),
-        leadsResponse.json(),
-        eventsResponse.json(),
-        approvalsResponse.json(),
-        actionsResponse.json(),
-        queueResponse.json(),
-        jobsResponse.json(),
-        runsResponse.json(),
+      const [health, state, leadData] = await Promise.all([
+        jsonOrThrow(healthResponse, 'health'),
+        jsonOrThrow(stateResponse, 'state'),
+        jsonOrThrow(leadsResponse, 'leads'),
       ]);
       const leads = Array.isArray(leadData.data) ? leadData.data : [];
-      setBackend({
+      const baseBackend = {
         status: health.ok ? 'online' : 'degraded',
         integrations: health.integrations ?? {},
         leads,
         metrics: state.data?.metrics ?? {},
-        events: Array.isArray(eventData.data) ? eventData.data : [],
-        approvals: Array.isArray(approvalData.data) ? approvalData.data : [],
-        topActions: Array.isArray(actionData.data) ? actionData.data : [],
-        outreachQueue: Array.isArray(queueData.data) ? queueData.data : [],
-        jobs: Array.isArray(jobsData.data) ? jobsData.data : [],
-        orchestratorRuns: Array.isArray(runsData.data) ? runsData.data : [],
         autonomy: { enabled: Boolean(health.autonomyEnabled), ...(health.autonomy ?? {}) },
-      });
+      };
+      setBackend((current) => ({ ...current, ...baseBackend }));
       setActiveLeadId((current) => current || leads[0]?.id || null);
-    } catch {
+
+      const optional = await Promise.allSettled([
+        apiFetch('/api/events', { credentials: 'include', signal: AbortSignal.timeout(12000) }).then((response) => jsonOrThrow(response, 'events')),
+        apiFetch('/api/approvals', { credentials: 'include', signal: AbortSignal.timeout(12000) }).then((response) => jsonOrThrow(response, 'approvals')),
+        apiFetch('/api/orchestrator/top-actions?limit=8', { credentials: 'include', signal: AbortSignal.timeout(12000) }).then((response) => jsonOrThrow(response, 'top-actions')),
+        apiFetch('/api/outreach-queue', { credentials: 'include', signal: AbortSignal.timeout(12000) }).then((response) => jsonOrThrow(response, 'outreach-queue')),
+        apiFetch('/api/jobs?limit=250', { credentials: 'include', signal: AbortSignal.timeout(12000) }).then((response) => jsonOrThrow(response, 'jobs')),
+        apiFetch('/api/orchestrator/runs?limit=10', { credentials: 'include', signal: AbortSignal.timeout(12000) }).then((response) => jsonOrThrow(response, 'runs')),
+      ]);
+      const [eventData, approvalData, actionData, queueData, jobsData, runsData] = optional.map((result) => (result.status === 'fulfilled' ? result.value : null));
+      const authExpired = optional.some((result) => result.status === 'rejected' && result.reason?.status === 401);
+      if (authExpired) {
+        setAuth((current) => ({ ...current, authenticated: false }));
+        return;
+      }
+      optional
+        .filter((result) => result.status === 'rejected')
+        .forEach((result) => console.warn('Optional backend block failed', result.reason));
+      setBackend((current) => ({
+        ...current,
+        events: Array.isArray(eventData?.data) ? eventData.data : current.events,
+        approvals: Array.isArray(approvalData?.data) ? approvalData.data : current.approvals,
+        topActions: Array.isArray(actionData?.data) ? actionData.data : current.topActions,
+        outreachQueue: Array.isArray(queueData?.data) ? queueData.data : current.outreachQueue,
+        jobs: Array.isArray(jobsData?.data) ? jobsData.data : current.jobs,
+        orchestratorRuns: Array.isArray(runsData?.data) ? runsData.data : current.orchestratorRuns,
+      }));
+    } catch (error) {
+      console.error('Backend load failed', error);
       setBackend((current) => ({ ...current, status: 'offline' }));
     }
   };
