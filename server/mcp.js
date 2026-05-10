@@ -66,6 +66,8 @@ function landingBrief(lead) {
       'First viewport must include a relevant hero image or media block for this exact business; do not use a plain text-only hero.',
       'Use several distinct contextual images across the page; never repeat the same image for multiple sections.',
       'Add one lightweight inline SVG animation or animated process visual that makes the preview feel custom, without decorative gradient blobs.',
+      'If an address is provided, use that exact address only; never invent another city, street, rating, review count, or map location.',
+      'If adding Yandex Maps, embed a concrete point/address widget, not a generic maps link.',
       'Sections: proof/reviews, services, before-after or portfolio, process, price/request form, contacts.',
       'Mobile-first, fast, easy to edit in Lovable.',
     ],

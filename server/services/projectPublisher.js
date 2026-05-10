@@ -1380,6 +1380,7 @@ function extractExplicitMapAddress(value) {
   const text = String(value || '');
   const patterns = [
     /(?:адрес|address)(?:\s+[\p{L}\d_-]+){0,4}\s*[:\-–]\s*([^\n;]+)/iu,
+    /(?:адрес|address)\s+([^\n;]+)/iu,
     /(?:по адресу|находимся по адресу|точка на карте)\s+([^\n;]+)/iu,
   ];
   for (const pattern of patterns) {
