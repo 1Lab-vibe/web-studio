@@ -16,7 +16,8 @@ function ensureMetricsBucket(store) {
 
 function statsFor(store, id) {
   const bucket = ensureMetricsBucket(store);
-  bucket[id] ??= { sent: 0, replied: 0, lastSentAt: '', lastRepliedAt: '' };
+  bucket[id] ??= { sent: 0, clicks: 0, replied: 0, lastSentAt: '', lastClickedAt: '', lastRepliedAt: '' };
+  if (typeof bucket[id].clicks !== 'number') bucket[id].clicks = 0;
   return bucket[id];
 }
 
@@ -76,5 +77,13 @@ export async function recordSubjectReply(store, id) {
   const stats = statsFor(store, id);
   stats.replied += 1;
   stats.lastRepliedAt = new Date().toISOString();
+  await store.save();
+}
+
+export async function recordSubjectClick(store, id) {
+  if (!id) return;
+  const stats = statsFor(store, id);
+  stats.clicks += 1;
+  stats.lastClickedAt = new Date().toISOString();
   await store.save();
 }

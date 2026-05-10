@@ -34,6 +34,8 @@ const envSchema = z.object({
   EMAIL_MIN_CONFIDENCE_FOR_LOVABLE: z.coerce.number().default(0.6),
   QUALITY_GATE_CACHE_MINUTES: z.coerce.number().default(30),
   BROWSER_POOL_IDLE_MINUTES: z.coerce.number().default(5),
+  CLICK_TRACKING_SECRET: z.string().optional().default(''),
+  CLICK_TRACKING_ENABLED: boolFromEnv.default('true'),
   YANDEX_MAPS_API_KEY: z.string().optional().default(''),
   YANDEX_MAPS_LANG: z.string().default('ru_RU'),
   YANDEX_MAPS_RESULTS: z.coerce.number().default(25),

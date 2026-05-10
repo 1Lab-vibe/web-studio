@@ -275,6 +275,30 @@ export class Store {
     return this.state.leads.find((lead) => lead.publicLeadToken === token);
   }
 
+  async recordLeadClick(leadId, info = {}) {
+    if (!leadId) return null;
+    const lead = this.getLead(leadId);
+    if (!lead) return null;
+    const tracking = lead.tracking ?? {};
+    const clicks = Array.isArray(tracking.clicks) ? tracking.clicks.slice() : [];
+    const entry = {
+      at: new Date().toISOString(),
+      kind: info.kind || 'link',
+      target: info.target || '',
+      variantId: info.variantId || '',
+      stage: Number(info.stage) || 0,
+      ip: info.ip || '',
+      ua: String(info.ua || '').slice(0, 200),
+    };
+    clicks.unshift(entry);
+    tracking.clicks = clicks.slice(0, 50);
+    tracking.totalClicks = Number(tracking.totalClicks || 0) + 1;
+    tracking.lastClickAt = entry.at;
+    Object.assign(lead, { tracking, updatedAt: new Date().toISOString() });
+    await this.save();
+    return entry;
+  }
+
   findLeadByA1Ref({ externalId, dedupeKey, a1LeadId, a1DealId } = {}) {
     return this.state.leads.find((lead) => {
       const leadDedupeKey = lead.a1?.dedupeKey || lead.a1Crm?.dedupeKey || `webstudio:${lead.id}`;

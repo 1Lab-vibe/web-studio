@@ -13,6 +13,8 @@ import { enrichLeadScore, isLovableEligible, topLovableCandidates } from './serv
 import { applySimpleRevisionToSourceProject, deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
 import { ensureQualityGate, runPreviewQualityGate } from './services/qualityGate.js';
 import { listSubjectVariants, pickSubjectVariant, recordSubjectSend, variantId } from './services/subjectAB.js';
+import { discoverLeadSite } from './services/siteFinder.js';
+import { trackingUrl } from './services/clickTracker.js';
 
 const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
 
@@ -274,6 +276,19 @@ export class Orchestrator {
     if (!lead) throw new Error('Lead not found');
     const gate = await this.checkGates(lead);
     if (!gate.ok) throw new Error(gate.reason || gate.error || 'Gate failed');
+    if (!lead.url || !/^https?:\/\//i.test(lead.url)) {
+      const discovery = await discoverLeadSite(lead).catch((error) => ({ ok: false, reason: error.message }));
+      if (discovery?.ok && discovery.url) {
+        lead = await this.store.updateLead(lead.id, {
+          url: discovery.url,
+          site: 'сайт есть',
+          siteDiscovery: discovery,
+        });
+        await this.store.addEvent(lead.id, 'site.discovered', `Site discovered via ${discovery.source}: ${discovery.url}`);
+      } else if (discovery && !discovery.skipped) {
+        await this.store.updateLead(lead.id, { siteDiscovery: discovery });
+      }
+    }
     Object.assign(lead, await diagnoseLead(lead));
     enrichLeadScore(lead);
     lead = await this.store.updateLead(lead.id, lead);
@@ -732,12 +747,15 @@ export class Orchestrator {
     const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
     if (reserved.reserved < 1) throw new Error('Daily send limit reached');
     const botLink = customerBotLink(lead);
-    const siteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
-    const videoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
-    const message = outboundEmailBody(lead, { botLink, siteUrl, videoUrl });
+    const rawSiteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
+    const rawVideoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
     const variant = pickSubjectVariant(lead, this.store);
     const subject = (variant?.text || '').trim() || outboundEmailSubject(lead);
     const subjectVariantId = variant?.id || variantId(subject);
+    const siteUrl = rawSiteUrl ? trackingUrl({ leadId: lead.id, kind: 'preview', target: rawSiteUrl, variantId: subjectVariantId, stage: 0 }) : '';
+    const videoUrl = rawVideoUrl ? trackingUrl({ leadId: lead.id, kind: 'video', target: rawVideoUrl, variantId: subjectVariantId, stage: 0 }) : '';
+    const trackedBotLink = botLink ? trackingUrl({ leadId: lead.id, kind: 'bot', target: botLink, variantId: subjectVariantId, stage: 0 }) : '';
+    const message = outboundEmailBody(lead, { botLink: trackedBotLink, siteUrl, videoUrl });
     const outbound = await outboundQueueMessage({
       a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
       externalId: lead.id,
@@ -751,7 +769,7 @@ export class Orchestrator {
       attachments: [
         siteUrl ? { type: 'link', url: siteUrl, title: 'Превью сайта' } : null,
         videoUrl ? { type: 'link', url: videoUrl, title: 'Видео-превью' } : null,
-        botLink ? { type: 'link', url: botLink, title: 'Бот для правок и ТЗ' } : null,
+        trackedBotLink ? { type: 'link', url: trackedBotLink, title: 'Бот для правок и ТЗ' } : null,
       ].filter(Boolean),
       deliveryPolicy: {
         workingHoursOnly: true,
@@ -771,6 +789,7 @@ export class Orchestrator {
       a1Outbound: outbound,
       subjectVariantId,
       subjectVariantAngle: variant?.angle || '',
+      trackedLinks: { preview: siteUrl, video: videoUrl, bot: trackedBotLink },
     });
     const sentNow = outboundWasSent(outbound);
     lead = await this.store.updateLead(lead.id, {
@@ -871,9 +890,13 @@ export class Orchestrator {
     }
     const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
     if (reserved.reserved < 1) throw new Error('Daily send limit reached');
-    const botLink = customerBotLink(lead);
-    const siteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
-    const videoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
+    const subjectVariantIdForFollowup = lead.subjectVariantId || lead.pitch?.subjectVariantId || '';
+    const rawBotLink = customerBotLink(lead);
+    const rawSiteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
+    const rawVideoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
+    const siteUrl = rawSiteUrl ? trackingUrl({ leadId: lead.id, kind: 'preview', target: rawSiteUrl, variantId: subjectVariantIdForFollowup, stage }) : '';
+    const videoUrl = rawVideoUrl ? trackingUrl({ leadId: lead.id, kind: 'video', target: rawVideoUrl, variantId: subjectVariantIdForFollowup, stage }) : '';
+    const botLink = rawBotLink ? trackingUrl({ leadId: lead.id, kind: 'bot', target: rawBotLink, variantId: subjectVariantIdForFollowup, stage }) : '';
     const subject = followupSubject(lead, stage);
     const body = followupEmailBody(lead, stage, { botLink, siteUrl, videoUrl });
     const outbound = await outboundQueueMessage({
@@ -908,6 +931,8 @@ export class Orchestrator {
       fitScore: lead.fitScore ?? 0,
       a1Outbound: outbound,
       followupStage: stage,
+      subjectVariantId: subjectVariantIdForFollowup,
+      trackedLinks: { preview: siteUrl, video: videoUrl, bot: botLink },
     });
     const sentNow = outboundWasSent(outbound);
     followupsState[key] = {
