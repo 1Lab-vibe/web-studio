@@ -505,6 +505,8 @@ async function repairAndBuildSourceProject(sourceRoot, publicRoot, basePath = ''
   if (visualRepair.ok) repairs.push(visualRepair);
   const mapRepair = await ensureRequestedYandexMapBlock(sourceRoot, lead);
   if (mapRepair.ok) repairs.push(mapRepair);
+  const addressTextRepair = await ensureExactAddressText(sourceRoot, lead);
+  if (addressTextRepair.ok) repairs.push(addressTextRepair);
   const externalImageRepair = await materializeExternalImageLiterals(sourceRoot, lead);
   if (externalImageRepair.ok) repairs.push(externalImageRepair);
   let build = await buildSourceProject(sourceRoot, publicRoot, basePath);
@@ -709,6 +711,27 @@ async function ensureRequestedYandexMapBlock(sourceRoot, lead = {}) {
   if (next === content) return { ok: false, reason: 'could_not_inject_yandex_map' };
   await writeFile(target, next, 'utf8');
   return { ok: true, strategy: 'injected_requested_yandex_map', file: path.relative(sourceRoot, target), mapUrl };
+}
+
+async function ensureExactAddressText(sourceRoot, lead = {}) {
+  const address = normalizeLeadAddress(lead);
+  if (!address) return { ok: false, reason: 'no_known_address' };
+  const city = String(lead.city || address.split(',')[0] || '').trim();
+  if (!city) return { ok: false, reason: 'no_known_city' };
+  const files = await listSourceCodeFiles(path.join(sourceRoot, 'src'));
+  const repaired = [];
+  for (const file of files.filter((item) => /\.(tsx|jsx|ts|js)$/.test(item))) {
+    const content = await readFile(file, 'utf8').catch(() => '');
+    let next = content
+      .replace(/Санкт-Петербург\s*·\s*ул\.[^"`<\n]+/g, address.replace(',', ' ·'))
+      .replace(/Санкт-Петербург/g, city)
+      .replace(/\bСПб\b/g, city);
+    if (next !== content) {
+      await writeFile(file, next, 'utf8');
+      repaired.push(path.relative(sourceRoot, file));
+    }
+  }
+  return repaired.length ? { ok: true, strategy: 'normalized_known_address_text', files: repaired } : { ok: false, reason: 'no_address_text_replacements' };
 }
 
 async function materializeRepairImage(sourceRoot, importerFile, variableName, url, fallbackUrl = url) {
