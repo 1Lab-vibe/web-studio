@@ -1,0 +1,39 @@
+{
+  "slug": "ac",
+  "label": "Кондиционеры и климат",
+  "match": ["кондиционер", "сплит", "климат", "вентиляц", "ac install"],
+  "palette": {
+    "background": "#eaf4fb",
+    "surface": "#ffffff",
+    "primary": "#0f6fb3",
+    "accent": "#0ec0a4",
+    "text": "#0c1d29"
+  },
+  "typography": {
+    "headlineFont": "Manrope, system-ui, sans-serif",
+    "bodyFont": "Inter, system-ui, sans-serif",
+    "mood": "техничный, прохладный, спокойный"
+  },
+  "heroAngle": "подбор по площади и бюджету за минуту, монтаж под ключ с гарантией",
+  "sections": [
+    "Hero с конфигуратором: площадь → 3 модели → ориентир цены",
+    "Каталог моделей: фото, BTU, шум, цена с монтажом",
+    "Услуги: монтаж, чистка, заправка, демонтаж",
+    "Этапы: выезд → подбор → установка → запуск",
+    "Гарантия на монтаж и оборудование",
+    "Отзывы и фото объектов: квартиры, офисы, серверные",
+    "Сезонные акции (если уместно)",
+    "Форма заявки на бесплатный замер и подбор"
+  ],
+  "ctaPrimary": "Подобрать кондиционер",
+  "ctaSecondary": "Бесплатный выезд замерщика",
+  "trustSignals": ["официальный сервис брендов", "гарантия на монтаж", "договор", "сертифицированные мастера"],
+  "imageHints": [
+    "modern split system air conditioner mounted neatly above living room window, clean minimalist apartment interior, realistic interior photography, no people, no text",
+    "professional HVAC technician installing wall-mounted AC unit, tools and ladder, realistic photo, hands and uniform only, no faces",
+    "outdoor compressor unit installed on balcony rail, neat refrigerant lines, realistic close-up photo, no text"
+  ],
+  "emailHook": "Клиенты по кондиционерам выбирают по площади и шуму, а не по слогану — на сайте нужен короткий конфигуратор и понятный прайс с монтажом.",
+  "emailProofIdea": "Соберём конфигуратор площади и бюджета, реальные фото монтажа, гарантию и прозрачную цену с установкой.",
+  "emailRiskIfIgnored": "В сезон клиенты решают за день и идут к компании, которая показала цену и сроки прямо на первом экране."
+}

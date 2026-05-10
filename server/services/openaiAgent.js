@@ -1,23 +1,70 @@
 import OpenAI from 'openai';
 import { config, hasSecret } from '../config.js';
+import { loadNicheConfig } from './niches.js';
 
 const client = hasSecret(config.OPENAI_API_KEY) ? new OpenAI({ apiKey: config.OPENAI_API_KEY }) : null;
 
+function diagnoserModel() {
+  return config.OPENAI_DIAGNOSER_MODEL || config.OPENAI_MODEL;
+}
+
+function checkerModel() {
+  return config.OPENAI_CHECKER_MODEL || config.OPENAI_MODEL;
+}
+
 export async function diagnoseLead(lead) {
-  if (!client) return fallbackDiagnosis(lead);
+  const niche = await loadNicheConfig(lead);
+  if (!client) return fallbackDiagnosis(lead, niche);
 
   const response = await client.responses.create({
-    model: config.OPENAI_MODEL,
+    model: diagnoserModel(),
     input: [
       {
         role: 'system',
-        content:
-          'Ты Diagnoser агент российской solo web-agency. Верни строго JSON без markdown: diagnosis, angle, tone, message, channel, deal, replyRate. diagnosis около 50 слов. message меньше 70 слов, персонализированное холодное сообщение на русском без AI-маркеров и buzzwords. Важно: к моменту отправки Web Studio уже подготовит превью сайта, поэтому message не должен обещать "могу прислать превью"; пиши в логике "подготовили один вариант превью, можно обсудить и поменять под ваши идеи". deal оценивай в рублях как потенциальный чек сайта. replyRate оценивай реалистично в процентах. Для автоотправки приоритетный канал всегда Email; телефон, SMS, WhatsApp и звонки только как ручное решение администратора.',
+        content: [
+          'Ты Diagnoser агент российской solo web-agency.',
+          'Верни строго JSON без markdown с полями: diagnosis, angle, tone, message, channel, deal, replyRate, subject, bodyParagraphs, ctaText, postscript.',
+          'diagnosis около 50 слов — конкретно про этот бизнес, без воды.',
+          'angle одно предложение — главный угол сайта под нишу клиента.',
+          'tone короткое описание тональности.',
+          'message короткое холодное сообщение менее 70 слов на случай SMS/Telegram (резерв).',
+          'subject — тема email до 60 символов, без капса, без спам-маркеров, желательно с упоминанием названия бизнеса или конкретной выгоды (без шаблона "Сделали превью сайта для X").',
+          'bodyParagraphs — массив 3–4 коротких абзацев на русском, под нишу. Каждый абзац максимум 2–3 предложения. Структура: 1) персональный крюк под бизнес и нишу, со ссылкой на их карточку в Яндексе если уместно (рейтинг, отзывы, годы); 2) что именно слабого/упускаемого на текущем этапе и что превью предлагает иначе (используй данные nicheConfig.heroAngle, sections, trustSignals); 3) конкретное соц-доказательство или risk-of-inaction под нишу; 4) опционально — мягкий CTA-абзац перед кнопкой.',
+          'ctaText — текст для CTA-строки, что-то вроде «Посмотреть превью» или из nicheConfig.ctaPrimary.',
+          'postscript — короткий P.S. с альтернативой или мягким опт-аутом ("если не актуально, просто ответьте: не интересно").',
+          'deal оценивай в рублях как потенциальный чек сайта.',
+          'replyRate оценивай реалистично в процентах.',
+          'Письмо НЕ шаблонное. Не пиши «Здравствуйте! Меня зовут…», не используй «уникальное предложение», «революционный», «AI-powered», «мы команда профессионалов».',
+          'К моменту отправки превью уже подготовлено — пиши в логике "подготовили один вариант превью под вас, можно обсудить и поменять".',
+          'Для автоотправки приоритетный канал всегда Email; телефон, SMS, WhatsApp и звонки только как ручное решение администратора.',
+        ].join(' '),
       },
       {
         role: 'user',
         content: JSON.stringify({
-          lead,
+          lead: {
+            name: lead.name,
+            city: lead.city,
+            niche: lead.niche,
+            rating: lead.rating,
+            reviews: lead.reviews,
+            yearsOnMap: lead.years,
+            currentSite: lead.site,
+            address: lead.address,
+            phone: lead.phone,
+          },
+          nicheConfig: {
+            slug: niche.slug,
+            label: niche.label,
+            heroAngle: niche.heroAngle,
+            sections: niche.sections,
+            ctaPrimary: niche.ctaPrimary,
+            ctaSecondary: niche.ctaSecondary,
+            trustSignals: niche.trustSignals,
+            emailHook: niche.emailHook,
+            emailProofIdea: niche.emailProofIdea,
+            emailRiskIfIgnored: niche.emailRiskIfIgnored,
+          },
           market: 'Россия',
           source: lead.source === 'google_places' ? 'Google Places' : 'Яндекс Карты',
           offer: 'готовый сайт/лендинг в Lovable с быстрым запуском',
@@ -28,9 +75,9 @@ export async function diagnoseLead(lead) {
 
   const text = response.output_text?.trim() || '{}';
   try {
-    return normalizeDiagnosis(JSON.parse(text), lead);
+    return normalizeDiagnosis(JSON.parse(text), lead, niche);
   } catch {
-    return { ...fallbackDiagnosis(lead), rawModelOutput: text };
+    return { ...fallbackDiagnosis(lead, niche), rawModelOutput: text };
   }
 }
 
@@ -41,7 +88,7 @@ export async function evaluatePitch(lead) {
   const maxWords = mode === 'scout_email' ? 320 : 70;
 
   const response = await client.responses.create({
-    model: config.OPENAI_MODEL,
+    model: checkerModel(),
     input: [
       {
         role: 'system',
@@ -99,14 +146,22 @@ export async function evaluatePitch(lead) {
   }
 }
 
-function normalizeDiagnosis(data, lead) {
-  const fallback = fallbackDiagnosis(lead);
+function normalizeDiagnosis(data, lead, niche) {
+  const fallback = fallbackDiagnosis(lead, niche);
+  const bodyParagraphs = Array.isArray(data.bodyParagraphs)
+    ? data.bodyParagraphs.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 5)
+    : [];
   return {
     diagnosis: data.diagnosis || fallback.diagnosis,
     angle: data.angle || fallback.angle,
     tone: data.tone || fallback.tone,
     message: data.message || fallback.message,
-    channel: chooseChannel(lead),
+    subject: data.subject || fallback.subject,
+    bodyParagraphs: bodyParagraphs.length ? bodyParagraphs : fallback.bodyParagraphs,
+    ctaText: data.ctaText || niche.ctaPrimary || fallback.ctaText,
+    postscript: data.postscript || fallback.postscript,
+    nicheSlug: niche.slug,
+    channel: chooseChannel(),
     deal: Number.isFinite(Number(data.deal)) ? Number(data.deal) : estimateDeal(lead),
     replyRate: Number.isFinite(Number(data.replyRate)) ? Number(data.replyRate) : 14,
   };
@@ -123,13 +178,26 @@ function estimateDeal(lead) {
   return 140000;
 }
 
-function fallbackDiagnosis(lead) {
+function fallbackDiagnosis(lead, niche = {}) {
+  const subject = lead.name
+    ? `${lead.name}: ${niche.heroAngle || 'короткое превью под вашу нишу'}`.slice(0, 60)
+    : `Сделали превью сайта под ${niche.label || 'вашу нишу'}`.slice(0, 60);
   return {
-    diagnosis: `${lead.name} уже получает доверие через карты: рейтинг ${lead.rating ?? '4+'}, отзывов ${lead.reviews ?? 'немного'}. Если сайта нет или он слабее карточки, часть людей не видит услуги, цены, примеры работ и удобный первый шаг. Лендинг может забрать этот теплый спрос и вести к заявке.`,
-    angle: `${lead.niche}: быстро показать доверие, услуги и заявку с первого экрана.`,
-    tone: 'конкретный, спокойный, без давления',
-    message: `Здравствуйте. Подготовили первый вариант сайта для ${lead.name}: с упором на услуги, доверие и быстрый запрос. Если направление интересно, можно посмотреть превью и сказать, что заменить под вашу компанию.`,
-    channel: chooseChannel(lead),
+    diagnosis: `${lead.name || 'Компания'} уже получает доверие через карты: рейтинг ${lead.rating ?? '4+'}, отзывов ${lead.reviews ?? 'немного'}. Если сайта нет или он слабее карточки, часть клиентов не видит услуги, цены и понятный первый шаг — лендинг под нишу может забрать этот теплый спрос.`,
+    angle: niche.heroAngle || `${lead.niche || 'ваш бизнес'}: быстро показать доверие и ясную заявку с первого экрана.`,
+    tone: niche.typography?.mood || 'конкретный, спокойный, без давления',
+    message: `Здравствуйте. Подготовили первый вариант сайта для ${lead.name || 'вашей компании'} под ${niche.label || 'вашу нишу'}: ${niche.ctaPrimary?.toLowerCase() || 'оставить заявку'} с первого экрана. Если направление интересно — посмотрите превью и скажите, что заменить.`,
+    subject,
+    bodyParagraphs: [
+      `${lead.name ? `${lead.name},` : 'Здравствуйте.'} мы из 1Lab. У вас уже сильная карточка ${lead.city ? `в ${lead.city}` : 'в картах'}${lead.rating ? `, рейтинг ${lead.rating}` : ''}${lead.reviews ? `, ${lead.reviews} отзывов` : ''}. Этот теплый спрос можно превращать в заявки через сайт.`,
+      `${niche.emailHook || 'Карточка в картах уже даёт доверие, но без сильного сайта поток заявок тонет.'} ${niche.emailProofIdea || 'Превью покажет оффер, услуги и быстрый шаг к заявке.'}`,
+      niche.emailRiskIfIgnored || 'Без современного сайта клиенты уходят к компаниям, которые показали оффер и цены сразу.',
+      'Подготовили один рабочий вариант превью под вас. Можно посмотреть и сказать, что поменять — мы доведем под ваши тексты, фото и контакты.',
+    ],
+    ctaText: niche.ctaPrimary || 'Посмотреть превью',
+    postscript: 'Если сейчас не актуально, просто ответьте «не интересно».',
+    nicheSlug: niche.slug || '_default',
+    channel: chooseChannel(),
     deal: estimateDeal(lead),
     replyRate: 14,
   };

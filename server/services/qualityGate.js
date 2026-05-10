@@ -1,10 +1,34 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { chromium } from 'playwright';
 import { config } from '../config.js';
+import { withBrowserContext } from './browserPool.js';
+
+function cacheTtlMs() {
+  return Math.max(60_000, Number(config.QUALITY_GATE_CACHE_MINUTES ?? 30) * 60_000);
+}
+
+function currentPreviewUrl(lead) {
+  return absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || lead.mockup?.url || '');
+}
+
+export function isQualityGateFresh(lead) {
+  const gate = lead?.qualityGate;
+  if (!gate?.checkedAt) return false;
+  const checkedAt = Date.parse(gate.checkedAt);
+  if (!Number.isFinite(checkedAt)) return false;
+  if (Date.now() - checkedAt > cacheTtlMs()) return false;
+  const expectedUrl = currentPreviewUrl(lead);
+  if (expectedUrl && gate.url && gate.url !== expectedUrl) return false;
+  return true;
+}
+
+export async function ensureQualityGate(lead, options = {}) {
+  if (!options.force && isQualityGateFresh(lead)) return lead.qualityGate;
+  return runPreviewQualityGate(lead, options);
+}
 
 export async function runPreviewQualityGate(lead, { outputDir = path.resolve(config.DATA_DIR, 'renders') } = {}) {
-  const url = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || lead.mockup?.url || '');
+  const url = currentPreviewUrl(lead);
   const checkedAt = new Date().toISOString();
   const issues = [];
   const warnings = [];
@@ -23,9 +47,8 @@ export async function runPreviewQualityGate(lead, { outputDir = path.resolve(con
   await mkdir(outputDir, { recursive: true });
   const badAssets = [];
   const consoleErrors = [];
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true });
+  return withBrowserContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true }, async (context) => {
+    const page = await context.newPage();
     page.on('console', (message) => {
       if (message.type() === 'error') consoleErrors.push(message.text().slice(0, 300));
     });
@@ -39,58 +62,58 @@ export async function runPreviewQualityGate(lead, { outputDir = path.resolve(con
       }
     });
 
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
-    const status = response?.status() || 0;
-    if (status !== 200) issues.push(`preview_status_${status || 'missing'}`);
+    try {
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+      await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
+      const status = response?.status() || 0;
+      if (status !== 200) issues.push(`preview_status_${status || 'missing'}`);
 
-    const bodyText = (await page.locator('body').innerText({ timeout: 10_000 }).catch(() => '')).trim();
-    if (bodyText.length < 80) issues.push('empty_or_too_short_body');
-    if (/404|not found|page not found|react router/i.test(bodyText.slice(0, 1500))) issues.push('possible_router_404');
-    if (isBuildFailurePage(bodyText)) issues.push('build_failed_stub_page');
-    const brokenImages = await page
-      .$$eval('img', (images) =>
-        images
-          .filter((image) => {
-            const rect = image.getBoundingClientRect();
-            return rect.width > 1 && rect.height > 1 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
-          })
-          .filter((image) => !image.complete || image.naturalWidth < 10 || image.naturalHeight < 10)
-          .map((image) => image.getAttribute('src') || '')
-          .slice(0, 10),
-      )
-      .catch(() => []);
-    if (brokenImages.length) issues.push('broken_visible_images');
+      const bodyText = (await page.locator('body').innerText({ timeout: 10_000 }).catch(() => '')).trim();
+      if (bodyText.length < 80) issues.push('empty_or_too_short_body');
+      if (/404|not found|page not found|react router/i.test(bodyText.slice(0, 1500))) issues.push('possible_router_404');
+      if (isBuildFailurePage(bodyText)) issues.push('build_failed_stub_page');
+      const brokenImages = await page
+        .$$eval('img', (images) =>
+          images
+            .filter((image) => {
+              const rect = image.getBoundingClientRect();
+              return rect.width > 1 && rect.height > 1 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+            })
+            .filter((image) => !image.complete || image.naturalWidth < 10 || image.naturalHeight < 10)
+            .map((image) => image.getAttribute('src') || '')
+            .slice(0, 10),
+        )
+        .catch(() => []);
+      if (brokenImages.length) issues.push('broken_visible_images');
 
-    const firstScreen = normalizeTextToken(bodyText.slice(0, 1500));
-    const businessToken = significantToken(lead.name);
-    const nicheToken = significantToken(lead.niche);
-    if (businessToken && nicheToken && !includesTokenOrStem(firstScreen, businessToken) && !includesTokenOrStem(firstScreen, nicheToken)) {
-      issues.push('first_screen_missing_business_or_offer');
+      const firstScreen = normalizeTextToken(bodyText.slice(0, 1500));
+      const businessToken = significantToken(lead.name);
+      const nicheToken = significantToken(lead.niche);
+      if (businessToken && nicheToken && !includesTokenOrStem(firstScreen, businessToken) && !includesTokenOrStem(firstScreen, nicheToken)) {
+        issues.push('first_screen_missing_business_or_offer');
+      }
+      if (badAssets.length) issues.push('broken_or_wrong_mime_assets');
+      if (consoleErrors.length) warnings.push('console_errors');
+
+      const screenshotName = `quality-${lead.id}-mobile.png`;
+      await page.screenshot({ path: path.join(outputDir, screenshotName), fullPage: false });
+      return {
+        ok: issues.length === 0,
+        checkedAt,
+        url,
+        status,
+        bodyLength: bodyText.length,
+        issues,
+        warnings,
+        badAssets: badAssets.slice(0, 10),
+        brokenImages,
+        consoleErrors: consoleErrors.slice(0, 5),
+        screenshotUrl: `/renders/${screenshotName}`,
+      };
+    } catch (error) {
+      return { ok: false, checkedAt, url, issues: [error.message || 'quality_gate_failed'], warnings };
     }
-    if (badAssets.length) issues.push('broken_or_wrong_mime_assets');
-    if (consoleErrors.length) warnings.push('console_errors');
-
-    const screenshotName = `quality-${lead.id}-mobile.png`;
-    await page.screenshot({ path: path.join(outputDir, screenshotName), fullPage: false });
-    return {
-      ok: issues.length === 0,
-      checkedAt,
-      url,
-      status,
-      bodyLength: bodyText.length,
-      issues,
-      warnings,
-      badAssets: badAssets.slice(0, 10),
-      brokenImages,
-      consoleErrors: consoleErrors.slice(0, 5),
-      screenshotUrl: `/renders/${screenshotName}`,
-    };
-  } catch (error) {
-    return { ok: false, checkedAt, url, issues: [error.message || 'quality_gate_failed'], warnings };
-  } finally {
-    await browser.close().catch(() => {});
-  }
+  });
 }
 
 function absolutePublicUrl(url) {

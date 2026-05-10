@@ -11,7 +11,7 @@ import { customerBriefSafetyIssues } from './services/customerTelegram.js';
 import { classifyCustomerRevision, isRevisionPaymentOk, revisionPaymentRequiredText } from './services/revisions.js';
 import { enrichLeadScore, isLovableEligible, topLovableCandidates } from './services/scoring.js';
 import { applySimpleRevisionToSourceProject, deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
-import { runPreviewQualityGate } from './services/qualityGate.js';
+import { ensureQualityGate, runPreviewQualityGate } from './services/qualityGate.js';
 
 const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
 
@@ -537,6 +537,7 @@ export class Orchestrator {
       await sendTelegram(`<b>Preview quality gate failed</b>\n${lead.name}\n${quality.issues.join('; ')}`);
       throw new Error(`Preview quality failed: ${quality.issues.join('; ')}`);
     }
+    lead = this.store.getLead(lead.id);
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'deployed', stageStatus: 'quality_passed', artifactStatus: 'deployed', reason: 'coder_deploy_quality_passed' });
     if (lead.customerTelegram?.pendingPreviewChatId) {
       const previewUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
@@ -562,8 +563,8 @@ export class Orchestrator {
     if (!lead) throw new Error('Lead not found');
     const artifactGate = await this.requireDeployedSite(lead);
     if (!artifactGate.ok) throw new Error(artifactGate.reason || 'No deployed site');
-    const quality = await runPreviewQualityGate(lead);
-    lead = await this.store.updateLead(lead.id, { qualityGate: quality });
+    const quality = await ensureQualityGate(lead);
+    if (quality !== lead.qualityGate) lead = await this.store.updateLead(lead.id, { qualityGate: quality });
     if (!quality.ok) {
       await this.store.updateLead(lead.id, {
         video: { ok: false, reason: 'preview_quality_not_passed_before_filmer', invalidatedAt: new Date().toISOString() },
@@ -624,8 +625,8 @@ export class Orchestrator {
     const artifactGate = await this.requireDeployedSite(lead);
     if (!artifactGate.ok) throw new Error(artifactGate.reason || 'No deployed site');
     if (!lead.qualityGate?.ok) {
-      const quality = await runPreviewQualityGate(lead);
-      lead = await this.store.updateLead(lead.id, { qualityGate: quality });
+      const quality = await ensureQualityGate(lead);
+      if (quality !== lead.qualityGate) lead = await this.store.updateLead(lead.id, { qualityGate: quality });
       if (!quality.ok) {
         const reason = `preview_quality_not_passed: ${quality.issues?.join('; ') || 'unknown'}`;
         await this.store.updateLead(lead.id, {
@@ -708,8 +709,8 @@ export class Orchestrator {
       });
       throw new Error(`Outbound package blocked: ${packageGate.issues.join('; ')}`);
     }
-    const freshQuality = await runPreviewQualityGate(lead);
-    lead = await this.store.updateLead(lead.id, { qualityGate: freshQuality });
+    const freshQuality = await ensureQualityGate(lead);
+    if (freshQuality !== lead.qualityGate) lead = await this.store.updateLead(lead.id, { qualityGate: freshQuality });
     if (!freshQuality.ok) {
       await this.store.updateLead(lead.id, { outboundStatus: 'blocked_quality_failed' });
       await this.store.transitionLead(lead.id, {
@@ -1507,6 +1508,8 @@ function formatRub(value) {
 }
 
 function outboundEmailSubject(lead) {
+  const subject = String(lead.subject || '').trim();
+  if (subject) return subject.slice(0, 120);
   const business = lead.name || 'вашего бизнеса';
   const owner = lead.ownerName || lead.contactName || '';
   return owner ? `${owner}, сделали превью сайта для ${business}` : `Сделали превью сайта для ${business}`;
@@ -1515,6 +1518,34 @@ function outboundEmailSubject(lead) {
 function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } = {}) {
   const owner = lead.ownerName || lead.contactName || '';
   const greeting = owner ? `${owner}, здравствуйте.` : 'Здравствуйте.';
+  const fullPrice = lead.deal || 30000;
+  const firstOrderPrice = Math.round(fullPrice * 0.5);
+  const price = formatRub(firstOrderPrice);
+  const fullPriceText = formatRub(fullPrice);
+  const ctaText = String(lead.ctaText || '').trim() || 'Посмотреть превью';
+  const postscript = String(lead.postscript || 'Если сейчас не актуально, просто ответьте «не интересно».').trim();
+
+  const paragraphs = Array.isArray(lead.bodyParagraphs)
+    ? lead.bodyParagraphs.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+
+  if (paragraphs.length) {
+    const offerLine = `Для первого заказа действует скидка 50%: от ${price} вместо ${fullPriceText}; финальную стоимость фиксируем после согласованного превью.`;
+    return [
+      greeting,
+      '',
+      ...interleave(paragraphs, ''),
+      '',
+      siteUrl ? `${ctaText}: ${siteUrl}` : '',
+      videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
+      botLink ? `Бот для правок и ТЗ: ${botLink}` : '',
+      '',
+      offerLine,
+      '',
+      `P.S. ${postscript}`,
+    ].filter((line) => line !== undefined && line !== null).join('\n').trim();
+  }
+
   const business = lead.name || 'ваша компания';
   const niche = lead.niche || 'ваш бизнес';
   const angle = lead.angle || `первый экран, который быстро показывает пользу ${business} и ведет клиента к заявке`;
@@ -1522,28 +1553,33 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
     ? 'У вас уже есть сайт, но первый экран можно сделать сильнее под заявки.'
     : 'В открытых источниках не нашли рабочий сайт, хотя карточка в картах уже дает доверие и может приводить больше заявок.';
   const proof = [lead.rating ? `рейтинг ${lead.rating}` : '', lead.reviews ? `${lead.reviews} ${reviewWord(lead.reviews)}` : '', lead.city || ''].filter(Boolean).join(', ');
-  const fullPrice = lead.deal || 30000;
-  const firstOrderPrice = Math.round(fullPrice * 0.5);
-  const price = formatRub(firstOrderPrice);
-  const fullPriceText = formatRub(fullPrice);
   return [
     greeting,
     '',
     `Мы из 1Lab собрали для ${business} рабочее превью сайта под направление «${niche}». ${currentSituation}${proof ? ` В основу взяли то, что уже видит клиент: ${proof}.` : ''}`,
     '',
-    `Идея: ${angle}. Не шаблон “на потом”, а быстрый вариант, который можно довести до запуска под ваши тексты, фото, цены и контакты.`,
+    `Идея: ${angle}. Не шаблон "на потом", а быстрый вариант, который можно довести до запуска под ваши тексты, фото, цены и контакты.`,
     '',
-    siteUrl ? `Превью сайта: ${siteUrl}` : '',
+    siteUrl ? `${ctaText}: ${siteUrl}` : '',
     videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
     '',
     `Если идея близка, ответьте на это письмо или откройте бота - там за пару минут можно оставить правки и собрать точное ТЗ. Для первого заказа действует скидка 50%: запуск простого сайта-визитки - от ${price} вместо ${fullPriceText}; финальную стоимость фиксируем после согласованного превью.`,
     botLink ? `Бот для правок и ТЗ: ${botLink}` : '',
     '',
-    'Если сейчас не актуально, просто ответьте «не интересно».',
+    `P.S. ${postscript}`,
   ]
     .filter(Boolean)
     .join('\n')
     .trim();
+}
+
+function interleave(items, separator) {
+  const out = [];
+  items.forEach((item, index) => {
+    out.push(item);
+    if (index < items.length - 1) out.push(separator);
+  });
+  return out;
 }
 
 function reviewWord(value) {

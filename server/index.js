@@ -23,6 +23,7 @@ import {
   refreshLovableOAuthToken,
 } from './services/lovableOfficialMcp.js';
 import { customerBotLink } from './services/a1Client.js';
+import { imagesPublicMount } from './services/imageGenerator.js';
 
 const app = express();
 const store = new Store(config.DATA_DIR);
@@ -59,6 +60,10 @@ registerMcpRoutes(app, store);
 registerAuth(app, store);
 app.use('/renders', express.static(path.resolve(config.DATA_DIR, 'renders')));
 app.use('/projects', express.static(path.resolve(config.DATA_DIR, 'projects')));
+{
+  const mount = imagesPublicMount();
+  app.use(mount.route, express.static(mount.directory));
+}
 registerLegalRoutes(app);
 
 app.get('/privacy', (req, res) => {

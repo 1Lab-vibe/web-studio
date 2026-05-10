@@ -2,8 +2,8 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { chromium } from 'playwright';
 import { config } from '../config.js';
+import { withBrowserContext } from './browserPool.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,11 +35,10 @@ async function captureScrollFrames(lead, url, dir) {
   const screenshotCount = Math.max(1, Math.min(8, Number(config.FILMER_SCREENSHOT_COUNT) || 5));
   const duration = Math.max(2, Number(config.FILMER_VIDEO_SECONDS) || 10);
   const frameCount = Math.max(30, Math.min(180, Math.round(duration * 12)));
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const frames = [];
   const screenshots = [];
-  try {
-    const page = await browser.newPage({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 });
+  await withBrowserContext({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 }, async (context) => {
+    const page = await context.newPage();
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
     await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
     const status = response?.status() ?? 0;
@@ -68,9 +67,7 @@ async function captureScrollFrames(lead, url, dir) {
         screenshots.push(shotPath);
       }
     }
-  } finally {
-    await browser.close();
-  }
+  });
   return { frames, screenshots };
 }
 

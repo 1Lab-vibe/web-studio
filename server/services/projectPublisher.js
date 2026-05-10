@@ -3,11 +3,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { chromium } from 'playwright';
 import { config } from '../config.js';
 import { renderLeadVideo } from './filmer.js';
 import { crmAddEvent, syncA1CrmLead } from './a1Client.js';
 import { publishFilesToGitHub } from './githubPublisher.js';
+import { withBrowserContext } from './browserPool.js';
+import { generateNicheImageUrl } from './imageGenerator.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -134,7 +135,7 @@ function buildFailedHtml({ title, build }) {
 </html>`;
 }
 
-function generatedPreviewHtml(lead) {
+async function generatedPreviewHtml(lead) {
   const brief = lead.customerBrief ?? {};
   const business = lead.name || brief.businessName || 'Ваш бизнес';
   const niche = lead.niche || 'услуги для бизнеса';
@@ -143,7 +144,7 @@ function generatedPreviewHtml(lead) {
   const contacts = brief.contacts || 'форма заявки, телефон, email';
   const style = brief.style || 'современный, аккуратный, быстрый';
   const proof = brief.materials || 'показываем кейсы, подход и понятный следующий шаг';
-  const heroImage = generatedImageUrl(`Russian business landing hero for ${business}, ${niche}, ${style}, cinematic realistic photo, no text`, lead.id || business);
+  const heroImage = await generatedImageUrl(`Russian business landing hero for ${business}, ${niche}, ${style}, cinematic realistic photo, no text`, lead.id || business);
   return `<!doctype html>
 <html lang="ru">
   <head>
@@ -254,9 +255,8 @@ function splitItems(value) {
 }
 
 async function capturePublicPage(sourceUrl) {
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-  try {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1400 }, deviceScaleFactor: 1 });
+  return withBrowserContext({ viewport: { width: 1440, height: 1400 }, deviceScaleFactor: 1 }, async (context) => {
+    const page = await context.newPage();
     const response = await page.goto(sourceUrl, { waitUntil: 'networkidle', timeout: 90000 });
     const status = response?.status() ?? 0;
     const finalUrl = page.url();
@@ -267,9 +267,7 @@ async function capturePublicPage(sourceUrl) {
     await page.waitForTimeout(750);
     const html = await page.content();
     return { ok: true, html: injectBase(html, finalUrl), title, finalUrl, status };
-  } finally {
-    await browser.close();
-  }
+  });
 }
 
 export async function deployLeadPublicUrlProject(store, leadId, options = {}) {
@@ -381,7 +379,7 @@ export async function deployLeadGeneratedPreview(store, leadId, options = {}) {
   await rm(root, { recursive: true, force: true });
   await mkdir(root, { recursive: true });
 
-  const html = generatedPreviewHtml(lead);
+  const html = await generatedPreviewHtml(lead);
   const files = [
     { path: 'index.html', content: html },
     {
@@ -536,7 +534,7 @@ async function repairMissingAssetImports(sourceRoot, buildError, lead = {}) {
     }
     const escapedMissing = escapeRegExp(missingPath.replaceAll('\\', '/').split('/').pop() || '');
     if (!escapedMissing) continue;
-    const replacementUrl = imageRepairUrlV2(lead, `${path.basename(missingPath)} ${path.basename(importer)} ${content.slice(0, 300)}`, ordinal);
+    const replacementUrl = await imageRepairUrlV2(lead, `${path.basename(missingPath)} ${path.basename(importer)} ${content.slice(0, 300)}`, ordinal);
     const next = content.replace(
       new RegExp(`import\\s+([A-Za-z_$][\\w$]*)\\s+from\\s+["'][^"']*${escapedMissing}["'];?`, 'g'),
       `const $1 = "${replacementUrl}";`,
@@ -567,7 +565,7 @@ async function repairDuplicateRemoteImageConstants(sourceRoot, lead = {}) {
     ];
     for (const match of matches) {
       const [statement, variableName] = match;
-      const url = imageRepairUrlV2(lead, `${variableName} ${path.basename(file)}`, ordinal);
+      const url = await imageRepairUrlV2(lead, `${variableName} ${path.basename(file)}`, ordinal);
       const asset = await materializeRepairImage(sourceRoot, file, variableName, url);
       ordinal += 1;
       repaired.push({ file: path.relative(sourceRoot, file), variableName, strategy: asset.ok ? 'generated_local_image_asset' : 'generated_remote_image_url', url: asset.url });
@@ -590,7 +588,7 @@ async function materializeExternalImageLiterals(sourceRoot, lead = {}) {
     for (const match of matches) {
       const [literal, , url] = match;
       const context = `${path.basename(file)} external image ${ordinal} ${content.slice(Math.max(0, match.index - 120), match.index + 120)}`;
-      const fallbackUrl = imageRepairUrlV2(lead, context, ordinal);
+      const fallbackUrl = await imageRepairUrlV2(lead, context, ordinal);
       const asset = await materializeRepairImage(sourceRoot, file, `external-${ordinal}`, url, fallbackUrl);
       ordinal += 1;
       repaired.push({ file: path.relative(sourceRoot, file), strategy: asset.ok ? 'materialize_external_image_url' : 'external_image_generation_fallback_url', sourceUrl: url, url: asset.url });
@@ -618,7 +616,7 @@ async function ensureVisualMediaBlock(sourceRoot, lead = {}) {
   if (!target) return { ok: false, reason: 'no_visual_target_file' };
   const content = await readFile(target, 'utf8').catch(() => '');
   if (!content || content.includes('webstudio-visual-hero')) return { ok: false, reason: 'visual_block_already_present' };
-  const block = visualMediaBlockForFile(target, lead);
+  const block = await visualMediaBlockForFile(target, lead);
   const next = injectVisualMediaBlock(content, block, target);
   if (next === content) return { ok: false, reason: 'could_not_inject_visual_block' };
   await writeFile(target, next, 'utf8');
@@ -633,8 +631,8 @@ function readFileSyncSafe(filePath) {
   }
 }
 
-function visualMediaBlockForFile(filePath, lead = {}) {
-  const imageUrl = imageRepairUrlV2(lead, 'hero cover banner first visual media block', 0);
+async function visualMediaBlockForFile(filePath, lead = {}) {
+  const imageUrl = await imageRepairUrlV2(lead, 'hero cover banner first visual media block', 0);
   const title = lead.name || 'Web Studio preview';
   if (filePath.endsWith('.html')) {
     return [
@@ -833,45 +831,45 @@ function imageRepairUrl(lead = {}) {
   return 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1800&q=80';
 }
 
-function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
+async function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
   const key = imageRepairContextKey(lead, context);
   const roleKey = String(context || '').toLowerCase();
   const seed = stableImageSeed(lead, context, ordinal);
   const paperPackaging = [
-    ['production|factory|manufactur|machine|roll|workshop|stanok|proizvod|ceh|цех|станок|производ', generatedImageUrl('clean paper drinking straw production line, rolls of kraft paper, cutting and packing equipment, stacks of paper tubes, sustainable packaging factory, realistic industrial commercial photo, no people, no office desk, no mountains, no road, no computer', seed + 11)],
-    ['variety|catalog|assort|product|range|straws-variety|services|feature|colors|diameter|ассортимент|каталог|цвет|диаметр', generatedImageUrl('studio tabletop product catalog photo of eco paper cocktail straws in different colors and diameters, kraft boxes, clean seamless light background, horeca sustainable packaging assortment, commercial product photography, no landscape, no horizon, no mountains, no road, no people, no office desk', seed + 12)],
-    ['delivery|box|warehouse|wholesale|order|request|contact|zayavka|price|payment|опт|короб|склад|доставка|заявк|цена', generatedImageUrl('wholesale boxes of eco paper drinking straws ready for delivery to cafes and coffee shops, kraft packaging labels, clean warehouse shelf, sustainable horeca supplies, realistic commercial photo, no people, no office desk, no mountains, no road', seed + 13)],
-    ['detail|close|material|quality|eco|leaf|kraft|bio|качество|материал|крафт|эко', generatedImageUrl('close-up macro of biodegradable kraft paper drinking straws, paper texture and recyclable packaging detail, clean product photo for sustainable horeca supplier, realistic, no plastic, no people, no office desk, no mountains, no road', seed + 14)],
-    ['hero|cover|banner|first|hero-straws|main-image|главн', generatedImageUrl('premium commercial product photo of eco paper drinking straws for cafes, kraft paper straws arranged with recyclable packaging, clean bright background, sustainable horeca supplier brand, realistic, no plastic straws, no people, no office desk, no mountains, no road', seed + 15)],
+    ['production|factory|manufactur|machine|roll|workshop|stanok|proizvod|ceh|цех|станок|производ', 'clean paper drinking straw production line, rolls of kraft paper, cutting and packing equipment, stacks of paper tubes, sustainable packaging factory, realistic industrial commercial photo, no people, no office desk, no mountains, no road, no computer', 11],
+    ['variety|catalog|assort|product|range|straws-variety|services|feature|colors|diameter|ассортимент|каталог|цвет|диаметр', 'studio tabletop product catalog photo of eco paper cocktail straws in different colors and diameters, kraft boxes, clean seamless light background, horeca sustainable packaging assortment, commercial product photography, no landscape, no horizon, no mountains, no road, no people, no office desk', 12],
+    ['delivery|box|warehouse|wholesale|order|request|contact|zayavka|price|payment|опт|короб|склад|доставка|заявк|цена', 'wholesale boxes of eco paper drinking straws ready for delivery to cafes and coffee shops, kraft packaging labels, clean warehouse shelf, sustainable horeca supplies, realistic commercial photo, no people, no office desk, no mountains, no road', 13],
+    ['detail|close|material|quality|eco|leaf|kraft|bio|качество|материал|крафт|эко', 'close-up macro of biodegradable kraft paper drinking straws, paper texture and recyclable packaging detail, clean product photo for sustainable horeca supplier, realistic, no plastic, no people, no office desk, no mountains, no road', 14],
+    ['hero|cover|banner|first|hero-straws|main-image|главн', 'premium commercial product photo of eco paper drinking straws for cafes, kraft paper straws arranged with recyclable packaging, clean bright background, sustainable horeca supplier brand, realistic, no plastic straws, no people, no office desk, no mountains, no road', 15],
   ];
   const photoStudio = [
-    ['loft|brick|industrial', generatedImageUrl('loft photography studio hall, exposed brick wall, large industrial windows, seamless paper backdrops, softbox lighting, wooden floor, realistic interior photo, no mountains, no road, no landscape, no office desk', seed + 21)],
-    ['cyc|cyclorama|white|light', generatedImageUrl('white cyclorama photography studio hall, clean curved wall, bright daylight, professional studio lights, minimal rental studio interior, realistic photo, no bedroom, no mountains, no road, no office desk', seed + 22)],
-    ['cozy|warm|family', generatedImageUrl('cozy warm photography studio hall for family portraits, neutral sofa, textured wall, soft curtains, warm studio lights, realistic interior photo, no wedding couple, no mountains, no road, no office desk', seed + 23)],
-    ['dark|black|contrast', generatedImageUrl('dark gray photography studio rental hall, charcoal backdrop, dramatic portrait lighting, two softbox lights, empty studio interior, realistic architectural photo, no office desk, no computer, no people, no mountains, no road', seed + 24)],
-    ['detail|camera|equipment', generatedImageUrl('close detail of professional photography studio equipment, camera on tripod, softbox lights, backdrops, premium studio rental mood, realistic photo, no office desk, no mountains, no road', seed + 25)],
-    ['hero|cover|banner|studio|first|главн', generatedImageUrl('premium commercial photography studio interior, large cyclorama wall, professional softboxes and camera stands, elegant rental studio atmosphere, realistic architectural photography, no people, no mountains, no road, no office desk', seed + 26)],
+    ['loft|brick|industrial', 'loft photography studio hall, exposed brick wall, large industrial windows, seamless paper backdrops, softbox lighting, wooden floor, realistic interior photo, no mountains, no road, no landscape, no office desk', 21],
+    ['cyc|cyclorama|white|light', 'white cyclorama photography studio hall, clean curved wall, bright daylight, professional studio lights, minimal rental studio interior, realistic photo, no bedroom, no mountains, no road, no office desk', 22],
+    ['cozy|warm|family', 'cozy warm photography studio hall for family portraits, neutral sofa, textured wall, soft curtains, warm studio lights, realistic interior photo, no wedding couple, no mountains, no road, no office desk', 23],
+    ['dark|black|contrast', 'dark gray photography studio rental hall, charcoal backdrop, dramatic portrait lighting, two softbox lights, empty studio interior, realistic architectural photo, no office desk, no computer, no people, no mountains, no road', 24],
+    ['detail|camera|equipment', 'close detail of professional photography studio equipment, camera on tripod, softbox lights, backdrops, premium studio rental mood, realistic photo, no office desk, no mountains, no road', 25],
+    ['hero|cover|banner|studio|first|главн', 'premium commercial photography studio interior, large cyclorama wall, professional softboxes and camera stands, elegant rental studio atmosphere, realistic architectural photography, no people, no mountains, no road, no office desk', 26],
   ];
   const beauty = [
-    ['interior|room|work', generatedImageUrl('beauty salon treatment room, mirrors, styling chairs, warm lighting, clean premium interior, realistic photo, no office desk, no mountains, no road', seed + 31)],
-    ['detail|service', generatedImageUrl('beauty salon service detail, professional cosmetics and tools on clean counter, elegant spa mood, realistic close-up photo, no computer, no mountains, no road', seed + 32)],
-    ['hero|cover|banner|first|главн', generatedImageUrl('modern beauty salon interior, reception and styling chairs, soft natural light, premium calm atmosphere, realistic architectural photography, no office desk, no mountains, no road', seed + 33)],
+    ['interior|room|work', 'beauty salon treatment room, mirrors, styling chairs, warm lighting, clean premium interior, realistic photo, no office desk, no mountains, no road', 31],
+    ['detail|service', 'beauty salon service detail, professional cosmetics and tools on clean counter, elegant spa mood, realistic close-up photo, no computer, no mountains, no road', 32],
+    ['hero|cover|banner|first|главн', 'modern beauty salon interior, reception and styling chairs, soft natural light, premium calm atmosphere, realistic architectural photography, no office desk, no mountains, no road', 33],
   ];
   const aiStudio = [
-    ['hero|cover|banner|first|главн', generatedImageUrl('premium dark AI automation studio workspace, CRM pipeline dashboard on large monitor, neural network workflow diagrams, clean high-end technology office, realistic commercial photo, no people faces, no mountains, no road, no photography studio lights', seed + 36)],
-    ['crm|api|integration|pipeline|ворон|интеграц', generatedImageUrl('close-up of CRM automation dashboard, API integration nodes, sales pipeline analytics on screen, dark premium SaaS interface, realistic technology photo, no mountains, no road, no photography studio', seed + 37)],
-    ['bot|chat|support|sales|продаж|поддерж', generatedImageUrl('AI chatbot conversation dashboard for sales and support, messenger automation interface, clean dark control room mood, realistic technology workspace photo, no people faces, no mountains, no road', seed + 38)],
-    ['process|workflow|agent|операцион|автоматизац', generatedImageUrl('AI agent workflow map on a large screen, connected business process blocks, automation operations center, premium dark technology interior, realistic photo, no mountains, no road, no photography studio', seed + 39)],
+    ['hero|cover|banner|first|главн', 'premium dark AI automation studio workspace, CRM pipeline dashboard on large monitor, neural network workflow diagrams, clean high-end technology office, realistic commercial photo, no people faces, no mountains, no road, no photography studio lights', 36],
+    ['crm|api|integration|pipeline|ворон|интеграц', 'close-up of CRM automation dashboard, API integration nodes, sales pipeline analytics on screen, dark premium SaaS interface, realistic technology photo, no mountains, no road, no photography studio', 37],
+    ['bot|chat|support|sales|продаж|поддерж', 'AI chatbot conversation dashboard for sales and support, messenger automation interface, clean dark control room mood, realistic technology workspace photo, no people faces, no mountains, no road', 38],
+    ['process|workflow|agent|операцион|автоматизац', 'AI agent workflow map on a large screen, connected business process blocks, automation operations center, premium dark technology interior, realistic photo, no mountains, no road, no photography studio', 39],
   ];
   const construction = [
-    ['detail|tool', generatedImageUrl('close-up of construction tools, measuring tape, level and materials on renovation site, clean realistic commercial photo, no mountains, no road', seed + 41)],
-    ['interior|finish', generatedImageUrl('finished renovated apartment interior, fresh walls, modern flooring, clean daylight, realistic interior photography, no people, no mountains, no road', seed + 42)],
-    ['hero|cover|banner|first|главн', generatedImageUrl('professional home renovation crew working in modern apartment interior, clean construction site, tools and finished walls, realistic photo, no office desk, no mountains, no road', seed + 43)],
+    ['detail|tool', 'close-up of construction tools, measuring tape, level and materials on renovation site, clean realistic commercial photo, no mountains, no road', 41],
+    ['interior|finish', 'finished renovated apartment interior, fresh walls, modern flooring, clean daylight, realistic interior photography, no people, no mountains, no road', 42],
+    ['hero|cover|banner|first|главн', 'professional home renovation crew working in modern apartment interior, clean construction site, tools and finished walls, realistic photo, no office desk, no mountains, no road', 43],
   ];
   const generic = [
-    ['detail|team', generatedImageUrl('professional local business workspace detail, documents and service tools, realistic commercial photo, no mountains, no road', seed + 51)],
-    ['interior|office', generatedImageUrl('clean modern service business office interior, warm light, realistic architectural photo, no mountains, no road', seed + 52)],
-    ['hero|cover|banner|first|главн', generatedImageUrl('modern local business interior, clean reception area, premium commercial photography, realistic, no mountains, no road', seed + 53)],
+    ['detail|team', 'professional local business workspace detail, documents and service tools, realistic commercial photo, no mountains, no road', 51],
+    ['interior|office', 'clean modern service business office interior, warm light, realistic architectural photo, no mountains, no road', 52],
+    ['hero|cover|banner|first|главн', 'modern local business interior, clean reception area, premium commercial photography, realistic, no mountains, no road', 53],
   ];
   const set = /paper\s*straw|straw|drinking\s*straw|cocktail\s*straw|kraft|horeca|packag|eco|biodegrad|трубоч|коктейл|бумажн|крафт|упаков|эко|биоразлага/.test(key)
     ? paperPackaging
@@ -884,8 +882,9 @@ function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
       : /ремонт|стро|кров|дом/.test(key)
         ? construction
         : generic;
-  const matched = set.find(([pattern]) => new RegExp(pattern, 'i').test(roleKey));
-  return (matched || set[Math.abs(Number(ordinal) || 0) % set.length])[1];
+  const matched = set.find(([pattern]) => new RegExp(pattern, 'i').test(roleKey)) || set[Math.abs(Number(ordinal) || 0) % set.length];
+  const [, prompt, seedDelta] = matched;
+  return generateNicheImageUrl(prompt, { seed: seed + seedDelta, niche: lead.niche || '' });
 }
 
 function imageRepairContextKey(lead = {}, context = '') {
@@ -915,8 +914,7 @@ function stableImageSeed(lead = {}, context = '', ordinal = 0) {
 }
 
 function generatedImageUrl(prompt, seed) {
-  const encoded = encodeURIComponent(prompt);
-  return `https://image.pollinations.ai/prompt/${encoded}?width=1600&height=1000&seed=${seed}&nologo=true&enhance=true`;
+  return generateNicheImageUrl(prompt, { seed });
 }
 
 function escapeRegExp(value) {

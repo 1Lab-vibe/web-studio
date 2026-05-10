@@ -10,6 +10,7 @@ import { calculateFitScore } from './services/scoring.js';
 import { renderLeadVideo } from './services/filmer.js';
 import { crmAddEvent, syncA1CrmLead } from './services/a1Client.js';
 import { projectSlug } from './services/projectPublisher.js';
+import { loadNicheConfig } from './services/niches.js';
 
 function mcpText(data) {
   return {
@@ -39,7 +40,8 @@ function requireMcpAuth(req, res) {
   return false;
 }
 
-function landingBrief(lead) {
+async function landingBrief(lead) {
+  const niche = await loadNicheConfig(lead);
   return {
     leadId: lead.id,
     business: {
@@ -55,9 +57,21 @@ function landingBrief(lead) {
     },
     strategy: {
       diagnosis: lead.diagnosis,
-      heroAngle: lead.angle,
+      heroAngle: lead.angle || niche.heroAngle,
       tone: lead.tone,
       coldMessage: lead.message,
+    },
+    nicheConfig: {
+      slug: niche.slug,
+      label: niche.label,
+      heroAngle: niche.heroAngle,
+      sections: niche.sections,
+      ctaPrimary: niche.ctaPrimary,
+      ctaSecondary: niche.ctaSecondary,
+      trustSignals: niche.trustSignals,
+      palette: niche.palette,
+      typography: niche.typography,
+      imageHints: niche.imageHints,
     },
     pageRequirements: [
       'Russian language landing page for a local business.',
@@ -68,7 +82,11 @@ function landingBrief(lead) {
       'Add one lightweight inline SVG animation or animated process visual that makes the preview feel custom, without decorative gradient blobs.',
       'If an address is provided, use that exact address only; never invent another city, street, rating, review count, or map location.',
       'If adding Yandex Maps, embed a concrete point/address widget, not a generic maps link.',
-      'Sections: proof/reviews, services, before-after or portfolio, process, price/request form, contacts.',
+      `Use the niche-specific section list from nicheConfig.sections (in order): ${niche.sections.join(' | ')}.`,
+      `Use niche palette as guidance: background ${niche.palette?.background || 'нейтральный'}, primary ${niche.palette?.primary || 'основной'}, accent ${niche.palette?.accent || 'дополнительный'}; do not produce a generic dark SaaS page if the niche calls for warm/light tones.`,
+      `Typography mood: ${niche.typography?.mood || 'практичный'}; use ${niche.typography?.headlineFont || 'Manrope'} for headlines and ${niche.typography?.bodyFont || 'Inter'} for body.`,
+      `Primary CTA copy: "${niche.ctaPrimary}". Secondary CTA copy: "${niche.ctaSecondary}".`,
+      `Trust signals to include where natural: ${niche.trustSignals.join(', ')}.`,
       'Mobile-first, fast, easy to edit in Lovable.',
     ],
     boundaries: {
@@ -81,21 +99,35 @@ function landingBrief(lead) {
   };
 }
 
-function landingPrompt(lead) {
-  const brief = landingBrief(lead);
+export async function landingPrompt(lead) {
+  const niche = await loadNicheConfig(lead);
+  const brief = await landingBrief(lead);
   const customerBrief = lead.customerBrief || {};
   const revision = lead.revision?.text ? `Customer revision request: ${lead.revision.text}` : '';
   return [
     `Build a Lovable landing page for Russian local business "${lead.name}".`,
-    `City: ${lead.city}. Niche: ${lead.niche}.`,
-    `Hero angle: ${lead.angle || 'show trust and generate a direct lead request'}.`,
+    `City: ${lead.city}. Niche: ${lead.niche} (resolved profile: ${niche.label}).`,
+    `Hero angle: ${lead.angle || niche.heroAngle}.`,
     `Diagnosis: ${lead.diagnosis || 'The Yandex Maps card is stronger than the current web presence.'}`,
-    `Tone: ${lead.tone || 'specific, calm, practical'}.`,
+    `Tone: ${lead.tone || niche.typography?.mood || 'specific, calm, practical'}.`,
+    '',
+    `Niche profile JSON: ${JSON.stringify({
+      slug: niche.slug,
+      label: niche.label,
+      palette: niche.palette,
+      typography: niche.typography,
+      heroAngle: niche.heroAngle,
+      sections: niche.sections,
+      ctaPrimary: niche.ctaPrimary,
+      ctaSecondary: niche.ctaSecondary,
+      trustSignals: niche.trustSignals,
+      imageHints: niche.imageHints,
+    })}`,
     '',
     'Requirements:',
     ...brief.pageRequirements.map((item) => `- ${item}`),
     '',
-    'Use real Russian UI copy. Keep the design practical for this exact industry.',
+    'Use real Russian UI copy. Keep the design practical for this exact industry — do not produce a generic dark SaaS landing.',
     Object.keys(customerBrief).length ? `Customer brief JSON: ${JSON.stringify(customerBrief)}` : '',
     revision,
     lead.mockup?.publicUrl ? `Existing Web Studio preview URL: ${lead.mockup.publicUrl}` : '',
@@ -105,7 +137,7 @@ function landingPrompt(lead) {
     `Call attach_lovable_url with leadId "${lead.id}", url or publishedUrl, projectName, and short notes.`,
     'Web Studio Coder will deploy that public URL under /projects/<slug>, then Filmer will create screenshots/video from our domain.',
     'If a real public GitHub repository is available, attach_lovable_repo is also supported, but do not use Lovable internal code storage URLs.',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 export function registerMcpRoutes(app, store) {
@@ -166,7 +198,7 @@ export function registerMcpRoutes(app, store) {
       async ({ leadId }) => {
         let lead = store.getLead(leadId);
         if (!lead) return mcpText({ error: 'Lead not found' });
-        return mcpText(landingBrief(lead));
+        return mcpText(await landingBrief(lead));
       },
     );
 
@@ -181,7 +213,7 @@ export function registerMcpRoutes(app, store) {
       async ({ leadId }) => {
         let lead = store.getLead(leadId);
         if (!lead) return mcpText({ error: 'Lead not found' });
-        return mcpText({ leadId, prompt: landingPrompt(lead) });
+        return mcpText({ leadId, prompt: await landingPrompt(lead) });
       },
     );
 
@@ -464,4 +496,4 @@ export function registerMcpRoutes(app, store) {
   app.delete('/mcp', sessionHandler);
 }
 
-export { landingPrompt, landingBrief };
+export { landingBrief };

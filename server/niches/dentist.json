@@ -1,0 +1,39 @@
+{
+  "slug": "dentist",
+  "label": "Стоматология",
+  "match": ["стомат", "дент", "dent", "клиник", "ортодонт", "имплант"],
+  "palette": {
+    "background": "#f6f9fc",
+    "surface": "#ffffff",
+    "primary": "#0d8a8a",
+    "accent": "#ffb648",
+    "text": "#0c1d29"
+  },
+  "typography": {
+    "headlineFont": "Manrope, system-ui, sans-serif",
+    "bodyFont": "Inter, system-ui, sans-serif",
+    "mood": "чистый, медицинский, доверительный"
+  },
+  "heroAngle": "доверие к врачу, цены без сюрпризов и онлайн-запись на удобное время",
+  "sections": [
+    "Hero с врачом и кнопкой онлайн-записи",
+    "Услуги с ценами от/до и пометкой акций",
+    "Команда врачей: фото, специализация, стаж, сертификаты",
+    "Кейсы до/после с короткой историей пациента",
+    "Отзывы с интеграцией Яндекс/2ГИС",
+    "Блок безопасности: лицензии, оборудование, стерилизация",
+    "Карта проезда + парковка + ближайшее метро",
+    "Форма записи с выбором услуги и удобного времени"
+  ],
+  "ctaPrimary": "Записаться онлайн",
+  "ctaSecondary": "Получить план лечения",
+  "trustSignals": ["лицензия", "сертификаты врачей", "гарантия на работы", "рассрочка 0%"],
+  "imageHints": [
+    "modern bright dental clinic interior, soft daylight, clean medical equipment, calm patient experience, realistic interior photography, no logos, no text",
+    "close-up of dentist hands in gloves with sterile instruments, professional medical macro photo, no faces, realistic",
+    "happy patient smiling in dental chair after procedure, soft warm light, real candid medical photo, no branded uniform"
+  ],
+  "emailHook": "У стоматологии главный канал заявок сегодня — онлайн-запись с ценами и врачами на первом экране, а не телефонный звонок.",
+  "emailProofIdea": "Покажем услуги от/до, врачей с лицензиями и кейсы до/после — клиенты решаются записаться без звонка.",
+  "emailRiskIfIgnored": "Карточка в Яндексе уже даёт доверие, но без сильного сайта поток заявок уходит в клинику с записью в 2 клика."
+}

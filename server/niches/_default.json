@@ -1,0 +1,39 @@
+{
+  "slug": "_default",
+  "label": "Локальный бизнес",
+  "match": [],
+  "palette": {
+    "background": "#0b1018",
+    "surface": "#161e2c",
+    "primary": "#22c5a4",
+    "accent": "#ffcf5a",
+    "text": "#f5f7fa"
+  },
+  "typography": {
+    "headlineFont": "Manrope, system-ui, sans-serif",
+    "bodyFont": "Inter, system-ui, sans-serif",
+    "mood": "практичный, прикладной, без воды"
+  },
+  "heroAngle": "конкретный оффер компании, доверие через карты и быстрая заявка",
+  "sections": [
+    "Hero с оффером и кнопкой заявки",
+    "Услуги или товары компании с ценами/диапазонами",
+    "Кейсы или примеры работ",
+    "Преимущества и доверие: лицензии, гарантии, опыт",
+    "Отзывы из карт и от клиентов",
+    "О компании или команде",
+    "Адрес и контакты с картой",
+    "Форма заявки или онлайн-запись"
+  ],
+  "ctaPrimary": "Оставить заявку",
+  "ctaSecondary": "Получить консультацию",
+  "trustSignals": ["опыт компании", "договор", "гарантия", "отзывы из Яндекс.Карт"],
+  "imageHints": [
+    "modern local business interior, clean reception area, warm light, premium commercial photography, realistic, no people, no text",
+    "professional service detail, hands working with tools or documents, realistic close-up photo, no faces",
+    "happy client receiving service, realistic candid photo, soft daylight, no text"
+  ],
+  "emailHook": "Карточка в Яндекс.Картах уже даёт доверие, но без сильного сайта поток заявок тонет.",
+  "emailProofIdea": "Соберём первый экран с оффером и услугами, кейсы и быстрый шаг к заявке.",
+  "emailRiskIfIgnored": "Без современного сайта клиенты уходят к компаниям, которые показали оффер и цены сразу."
+}
