@@ -14,7 +14,14 @@ Language:
 Russian only. Use polished Russian UI copy. Do not mention implementation vendors, AI model names, internal generators, code hosting, or hidden automation providers.
 
 Visual style:
-Precise, confident, modern, editorial SaaS/product studio. Clean light interface, strong typography, restrained black/teal accent, no generic startup purple gradients, no decorative blobs, no fake crypto-style dashboards. The first viewport must immediately show the product: a live website preview plus a chat-based editing panel.
+Precise, confident, modern, editorial product studio. The page must look like a premium studio portfolio, not a system dashboard. Use strong typography, deep black, clean light surfaces, warm red/orange accents, teal status accents and real website screenshots. No generic startup purple gradients, no decorative blobs, no fake crypto-style dashboards. The first viewport must immediately show the product: a large real website preview, smaller stacked previews, and a short explanation of dialogue-based editing.
+
+Available portfolio screenshot assets:
+- /portfolio/lucky.png — фотостудия, the main hero/portfolio visual.
+- /portfolio/ai.png — dark AI studio example.
+- /portfolio/estate.png — real estate example.
+- /portfolio/dental.png — dental clinic example.
+- /portfolio/renovation.png — renovation/service business example.
 
 Pages/states:
 1. Public landing page at webstudio.1true.ru.
@@ -22,7 +29,9 @@ Pages/states:
 3. Admin cabinet entry point at /admin_cabinet as a private operator area link only.
 
 Landing page sections:
-- First viewport: “Сайт, который можно развивать диалогом”, supporting copy, CTA “Начать проект”, secondary CTA “Посмотреть процесс”, product mockup with website preview and editing dialogue.
+- First viewport: “Сайты, которые выглядят как продукт, а не как шаблон”, supporting copy, CTA “Запустить свой сайт”, secondary CTA “Посмотреть работы”, large hero screenshot from a real preview, 2 smaller stacked screenshots, and proof chips: preview before payment, mobile version, edits through dialogue.
+- Portfolio: “Наши работы”, grid with real screenshot cards for Lucky Studio, 1Lab AI Studio, Nika Estate, Karimoff Clinic and Ремстрой.
+- Testimonials/reactions after demo: short believable client quotes without fake ratings.
 - Process: registration and legal consent, brief from messages, first preview, payment and revisions.
 - Customer cabinet showcase: preview, payment, revision dialogue, legal documents.
 - Pricing: “Старт от 30 000 ₽ за сайт-визитку”, explain final price depends on pages, integrations and content.

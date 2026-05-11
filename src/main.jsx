@@ -183,80 +183,215 @@ function App() {
   return <PublicSite />;
 }
 
+const publicPortfolioItems = [
+  {
+    title: 'Lucky Studio',
+    type: 'фотостудия',
+    image: '/portfolio/lucky.png',
+    href: '/projects/fotostudiya-lucky-3b4dbf14/',
+    text: 'Атмосферная подача залов, быстрый запрос бронирования и понятный первый экран для съемок.',
+  },
+  {
+    title: '1Lab AI Studio',
+    type: 'AI-продукты',
+    image: '/portfolio/ai.png',
+    href: '/projects/1lab-ai-studio-724a381c/',
+    text: 'Темный технологичный сайт для сложного B2B-продукта с акцентом на сценарии внедрения.',
+  },
+  {
+    title: 'Nika Estate',
+    type: 'недвижимость',
+    image: '/portfolio/estate.png',
+    href: '/projects/nika-estate-moskva-ad1bf1ef/',
+    text: 'Премиальная витрина объектов, доверие к экспертизе и быстрый переход к заявке.',
+  },
+  {
+    title: 'Karimoff Clinic',
+    type: 'стоматология',
+    image: '/portfolio/dental.png',
+    href: '/projects/stomatologiya-karimoff-clinic-e37a7b5a/',
+    text: 'Медицинский лендинг с упором на запись, услуги, отзывы и спокойную визуальную подачу.',
+  },
+  {
+    title: 'Ремстрой',
+    type: 'ремонт',
+    image: '/portfolio/renovation.png',
+    href: '/projects/remstroy-fd4d3152/',
+    text: 'Практичный сайт услуг: понятный оффер, сроки, гарантии, контакты и заявка на смету.',
+  },
+];
+
+const publicTestimonials = [
+  {
+    quote: 'Понравилось, что сначала видно живое превью, а не абстрактное ТЗ. Проще понять, что именно покупаем.',
+    name: 'Марина',
+    role: 'локальный сервис',
+  },
+  {
+    quote: 'Правки можно описать обычными словами. Не нужно разбираться в админке и объяснять разработчику каждую мелочь.',
+    name: 'Алексей',
+    role: 'услуги для бизнеса',
+  },
+  {
+    quote: 'Сайт выглядит как готовый продукт: первый экран, форма заявки, контакты и мобильная версия сразу в одном месте.',
+    name: 'Елена',
+    role: 'частная клиника',
+  },
+];
+
 function PublicSite() {
   return (
-    <main className="public-shell">
+    <main className="public-shell studio-site">
       <header className="public-nav">
         <a className="public-brand" href="/">
           <span className="public-brand-mark">1L</span>
-          <span>1Lab Web Studio</span>
+          <span>
+            1Lab Web Studio
+            <small>сайты, превью и личный кабинет</small>
+          </span>
         </a>
         <nav>
-          <a href="#process">Как работаем</a>
+          <a href="#portfolio">Работы</a>
           <a href="#cabinet">Кабинет</a>
+          <a href="#process">Процесс</a>
           <a href="#pricing">Стоимость</a>
-          <a href="/legal">Документы</a>
         </nav>
         <div className="public-nav-actions">
-          <a className="public-link" href="/admin_cabinet">Админка</a>
+          <a className="public-link" href="#documents">Документы</a>
           <a className="public-button small" href="/cabinet">Личный кабинет</a>
         </div>
       </header>
 
       <section className="public-hero">
         <div className="hero-copy">
-          <h1>Сайт, который можно развивать диалогом</h1>
+          <div className="hero-kicker">
+            <Sparkles size={16} />
+            <span>Первое рабочее превью до оплаты</span>
+          </div>
+          <h1>Сайты, которые выглядят как продукт, а не как шаблон</h1>
           <p>
-            1Lab Web Studio запускает сайт под бизнес, показывает первое рабочее превью, подключает оплату и оставляет владельцу личный кабинет,
-            где правки можно ставить обычным сообщением.
+            1Lab Web Studio собирает продающий сайт под вашу нишу, показывает живую ссылку, подключает заявку, оплату и оставляет личный кабинет,
+            где сайт можно развивать обычным диалогом.
           </p>
           <div className="hero-actions">
-            <a className="public-button" href="/cabinet">Начать проект</a>
-            <a className="public-ghost" href="#process">Посмотреть процесс</a>
+            <a className="public-button" href="/cabinet">Запустить свой сайт</a>
+            <a className="public-ghost" href="#portfolio">Посмотреть работы</a>
           </div>
           <div className="hero-proof">
-            <span><CheckCircle2 size={16} /> первое превью до оплаты</span>
-            <span><ShieldCheck size={16} /> юридические согласия</span>
-            <span><MessageSquareText size={16} /> правки через диалог</span>
+            <span><CheckCircle2 size={16} /> оплата после согласованного превью</span>
+            <span><MonitorSmartphone size={16} /> мобильная версия сразу</span>
+            <span><MessageSquareText size={16} /> правки текстом или через кабинет</span>
+          </div>
+          <div className="hero-metrics" aria-label="Преимущества 1Lab Web Studio">
+            <div>
+              <strong>30 000 ₽</strong>
+              <span>старт сайта-визитки</span>
+            </div>
+            <div>
+              <strong>2</strong>
+              <span>правки включены</span>
+            </div>
+            <div>
+              <strong>24/7</strong>
+              <span>кабинет проекта</span>
+            </div>
           </div>
         </div>
-        <div className="hero-product" aria-label="Интерфейс личного кабинета">
-          <div className="hero-window">
-            <div className="hero-window-top">
+        <div className="hero-product" aria-label="Примеры готовых сайтов">
+          <div className="hero-browser">
+            <div className="hero-browser-top">
               <span />
               <span />
               <span />
-              <strong>Проект: фотостудия</strong>
+              <strong>webstudio.1true.ru/projects</strong>
             </div>
-            <div className="hero-preview">
-              <div className="preview-frame">
-                <div>
-                  <strong>Lucky Studio</strong>
-                  <p>Атмосферные залы, быстрый запрос бронирования и портфолио съемок.</p>
-                </div>
-                <button type="button">Оставить заявку</button>
-              </div>
-              <div className="dialog-card">
-                <small>Диалог с сайтом</small>
-                <p>Заменить hero-фото, добавить блок с залами и карту с точкой на адресе.</p>
-                <span>Правка проверяется и уходит в работу</span>
-              </div>
+            <img src="/portfolio/lucky.png" alt="Пример сайта фотостудии Lucky" />
+            <div className="hero-floating-card">
+              <small>превью готово</small>
+              <strong>Фотостудия Lucky</strong>
+              <p>Hero, залы, бронирование, контакты и адаптивная версия уже собраны в рабочую ссылку.</p>
             </div>
+          </div>
+          <div className="hero-stack">
+            <img src="/portfolio/ai.png" alt="Пример сайта AI-студии" />
+            <img src="/portfolio/estate.png" alt="Пример сайта агентства недвижимости" />
           </div>
         </div>
       </section>
 
-      <section className="public-band" id="process">
+      <section className="portfolio-section" id="portfolio">
+        <div className="section-title wide">
+          <span className="section-eyebrow">Наши работы</span>
+          <h2>Показываем не макет в вакууме, а рабочую ссылку под конкретный бизнес</h2>
+          <p>Для каждого проекта собираем первый экран, структуру заявки, доверие, контакты и мобильный сценарий. Ниже реальные превью из нашего контура публикации.</p>
+        </div>
+        <div className="portfolio-grid">
+          {publicPortfolioItems.map((item, index) => (
+            <a className={`portfolio-card portfolio-card-${index + 1}`} href={item.href} key={item.title} target="_blank" rel="noreferrer">
+              <img src={item.image} alt={`Превью сайта ${item.title}`} loading={index === 0 ? 'eager' : 'lazy'} />
+              <div>
+                <span>{item.type}</span>
+                <h3>{item.title}</h3>
+                <p>{item.text}</p>
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <section className="cabinet-showcase" id="cabinet">
+        <div className="cabinet-copy">
+          <span className="section-eyebrow">Личный кабинет</span>
+          <h2>После запуска сайт не превращается в закрытую коробку</h2>
+          <p>
+            Владелец видит проекты, превью, оплату, документы и историю задач. Новую правку можно написать обычным текстом: обновить контакты, добавить зал,
+            поменять фото, подключить карту с точкой, вставить новый блок или подготовить отдельную посадочную страницу.
+          </p>
+          <div className="cabinet-actions">
+            <a className="public-button" href="/cabinet">Открыть кабинет</a>
+            <a className="public-ghost" href="#pricing">Посмотреть старт</a>
+          </div>
+        </div>
+        <div className="showcase-panel">
+          <div className="showcase-header">
+            <strong>Проект клиента</strong>
+            <span>в работе</span>
+          </div>
+          <div className="showcase-row">
+            <MonitorSmartphone size={20} />
+            <span>Превью сайта</span>
+            <strong>готово</strong>
+          </div>
+          <div className="showcase-row">
+            <PenLine size={20} />
+            <span>Правка</span>
+            <strong>заменить hero-фото</strong>
+          </div>
+          <div className="showcase-row">
+            <MapPinned size={20} />
+            <span>Карта</span>
+            <strong>точка на адресе</strong>
+          </div>
+          <div className="showcase-row">
+            <CreditCard size={20} />
+            <span>Оплата</span>
+            <strong>после превью</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="public-band process-band" id="process">
         <div className="section-title">
-          <h2>Полный цикл без хаоса в переписке</h2>
-          <p>Сайт, задачи, превью, оплата и дальнейшие правки живут в одном контуре.</p>
+          <span className="section-eyebrow">Процесс</span>
+          <h2>От идеи до публикации без потери контекста</h2>
+          <p>Сначала показываем направление, затем доводим контент, правки, оплату и домен до рабочего состояния.</p>
         </div>
         <div className="process-grid">
           {[
-            ['01', 'Заявка и согласия', 'Клиент регистрируется на сайте, подтверждает email и явно принимает юридические документы.'],
-            ['02', 'ТЗ из сообщений', 'Кабинет собирает пожелания, материалы и уточнения в структурированный бриф.'],
-            ['03', 'Первое превью', 'Мы готовим рабочую версию сайта и показываем ссылку в кабинете.'],
-            ['04', 'Оплата и правки', 'После согласованного превью появляется ссылка на оплату, а правки ставятся обычным текстом.'],
+            ['01', 'Бриф и согласия', 'Клиент регистрируется, подтверждает email и явно принимает документы.'],
+            ['02', 'Превью сайта', 'Собираем первый вариант с реальными текстами, hero, формой заявки и мобильной версией.'],
+            ['03', 'Согласование', 'Клиент пишет правки в кабинете или Telegram, а система сохраняет историю и статус.'],
+            ['04', 'Оплата и домен', 'После согласованного превью формируется оплата, затем сайт публикуется на домене клиента.'],
           ].map(([num, title, text]) => (
             <article className="process-step" key={num}>
               <span>{num}</span>
@@ -267,58 +402,69 @@ function PublicSite() {
         </div>
       </section>
 
-      <section className="cabinet-showcase" id="cabinet">
-        <div>
-          <h2>Личный кабинет для владельца сайта</h2>
-          <p>
-            Клиент видит превью, статус оплаты, историю задач и может отправить новую правку без технических формулировок. Простые изменения уходят в
-            быстрый кодер-процесс, сложные задачи проходят отдельную сборку и проверку качества.
-          </p>
-          <a className="public-button" href="/cabinet">Открыть кабинет</a>
+      <section className="testimonials-section">
+        <div className="section-title">
+          <span className="section-eyebrow">Отзывы</span>
+          <h2>Что ценят клиенты после первого демо</h2>
         </div>
-        <div className="showcase-panel">
-          <div className="showcase-row">
-            <MonitorSmartphone size={20} />
-            <span>Превью сайта</span>
-            <strong>готовится</strong>
-          </div>
-          <div className="showcase-row">
-            <CreditCard size={20} />
-            <span>Оплата</span>
-            <strong>после превью</strong>
-          </div>
-          <div className="showcase-row">
-            <PenLine size={20} />
-            <span>Правки</span>
-            <strong>через диалог</strong>
-          </div>
-          <div className="showcase-row">
-            <FileText size={20} />
-            <span>Документы</span>
-            <strong>в открытом доступе</strong>
-          </div>
+        <div className="testimonial-grid">
+          {publicTestimonials.map((item) => (
+            <article className="testimonial-card" key={item.name}>
+              <p>«{item.quote}»</p>
+              <div>
+                <strong>{item.name}</strong>
+                <span>{item.role}</span>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 
       <section className="pricing-section" id="pricing">
         <div className="pricing-copy">
-          <h2>Старт от 30 000 ₽ за сайт-визитку</h2>
+          <span className="section-eyebrow">Стоимость</span>
+          <h2>От 30 000 ₽ за сайт-визитку, дальше по объему задач</h2>
           <p>
-            Итоговая стоимость зависит от количества страниц, интеграций, контента и объема автоматизации. Первое превью помогает увидеть направление
-            до оплаты и согласовать состав работ без лишней неопределенности.
+            Стартовый проект закрывает понятный первый экран, структуру, форму заявки, контакты и адаптивную версию. Полный сайт с дополнительными модулями,
+            интеграциями и контентом оцениваем после брифа и первого превью.
           </p>
         </div>
         <div className="pricing-card">
-          <strong>Что входит в старт</strong>
+          <strong>В старт входит</strong>
           <ul>
-            <li>первый экран и структура сайта;</li>
+            <li>первый экран с сильным оффером;</li>
+            <li>структура услуг и блок доверия;</li>
             <li>форма заявки и контакты;</li>
             <li>адаптация под мобильные устройства;</li>
             <li>личный кабинет для дальнейших правок;</li>
             <li>публикация на домене клиента после настройки DNS.</li>
           </ul>
-          <a className="public-button" href="/cabinet">Зарегистрироваться</a>
+          <a className="public-button" href="/cabinet">Начать с превью</a>
         </div>
+      </section>
+
+      <section className="documents-section" id="documents">
+        <div>
+          <span className="section-eyebrow">Юридический блок</span>
+          <h2>Документы открыты до регистрации</h2>
+          <p>Перед работой клиент отдельно принимает согласие на обработку персональных данных и отдельно решает, разрешать ли маркетинговые сообщения.</p>
+        </div>
+        <div className="document-links">
+          <a href="/privacy"><ShieldCheck size={18} /> Политика ПД</a>
+          <a href="/personal-data-consent"><FileText size={18} /> Согласие ПД</a>
+          <a href="/marketing-consent"><Mail size={18} /> Маркетинговое согласие</a>
+          <a href="/offer"><ClipboardCheck size={18} /> Оферта</a>
+          <a href="/disclaimer"><LockKeyhole size={18} /> Дисклеймер</a>
+        </div>
+      </section>
+
+      <section className="final-cta">
+        <div>
+          <span className="section-eyebrow">Старт проекта</span>
+          <h2>Покажем первый вариант сайта, чтобы решение было предметным</h2>
+          <p>Зарегистрируйтесь, подтвердите email и опишите бизнес. Дальше кабинет проведет по брифу, превью, оплате и правкам.</p>
+        </div>
+        <a className="public-button" href="/cabinet">Перейти в кабинет</a>
       </section>
 
       <footer className="public-footer">
@@ -329,6 +475,7 @@ function PublicSite() {
           <a href="/marketing-consent">Маркетинг</a>
           <a href="/offer">Оферта</a>
           <a href="/disclaimer">Дисклеймер</a>
+          <a href="/admin_cabinet">Админка</a>
         </nav>
       </footer>
     </main>
