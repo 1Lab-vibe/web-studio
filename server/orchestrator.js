@@ -138,6 +138,9 @@ export class Orchestrator {
   async tick() {
     const startedAt = Date.now();
     const recovered = await this.store.recoverExpiredJobs({ deadAfterAttempts: config.AUTONOMY_DEAD_AFTER_ATTEMPTS });
+    for (const job of recovered.filter((item) => item.status === 'dead')) {
+      await this.alertJobFailure(job, new Error(job.lastError || 'Job lock expired'), { source: 'lock_recovery' });
+    }
     const stalledLovable = await this.inspectStalledLovableHandoffs();
     const planned = await this.planJobs();
     const claimed = await this.store.claimNextJobs({
@@ -186,11 +189,42 @@ export class Orchestrator {
       console.log('Autonomy job succeeded', { id: job.id, type: job.type, leadId: job.leadId, durationMs });
       return { ok: true, durationMs, result };
     } catch (error) {
-      await this.store.failJob(job.id, error, { retryDelayMs: retryDelayForJob(job) });
+      const failedJob = await this.store.failJob(job.id, error, { retryDelayMs: retryDelayForJob(job) });
+      await this.alertJobFailure(failedJob || job, error, { source: 'job_failure' });
       const durationMs = Date.now() - jobStartedAt;
       console.error('Autonomy job failed', { id: job.id, type: job.type, leadId: job.leadId, durationMs, error });
       return { ok: false, durationMs, error: error.message };
     }
+  }
+
+  async alertJobFailure(job, error, { source = 'job_failure' } = {}) {
+    if (!job) return;
+    const message = job.lastError || error?.message || String(error || 'Job failed');
+    const critical = isCriticalJobError(message);
+    const dead = job.status === 'dead';
+    if (!critical && !dead) return;
+    const lead = job.leadId ? this.store.getLead(job.leadId) : null;
+    const key = critical
+      ? `critical-job:${critical}:${job.type}`
+      : `dead-job:${job.type}:${job.leadId || 'global'}:${message.slice(0, 120)}`;
+    const reserved = await this.store.reserveAdminAlert(key, {
+      cooldownMs: critical ? 2 * 60 * 60 * 1000 : 6 * 60 * 60 * 1000,
+    });
+    if (!reserved?.reserved) return;
+    const alert = await sendTelegram(
+      [
+        critical === 'openai_quota' ? '<b>OpenAI quota exhausted</b>' : '<b>Autonomy job failed</b>',
+        `Job: <code>${escapeHtml(job.type)}</code>`,
+        lead ? `Лид: <b>${escapeHtml(lead.name || lead.id)}</b>` : '',
+        job.leadId ? `Lead ID: <code>${escapeHtml(job.leadId)}</code>` : '',
+        `Status: <code>${escapeHtml(job.status || 'failed')}</code>`,
+        `Attempts: <code>${escapeHtml(`${job.attempts ?? 0}/${job.maxAttempts ?? config.AUTONOMY_DEAD_AFTER_ATTEMPTS}`)}</code>`,
+        `Source: <code>${escapeHtml(source)}</code>`,
+        `Ошибка: <code>${escapeHtml(message.slice(0, 800))}</code>`,
+        critical === 'openai_quota' ? 'Автономия не сможет выполнять LLM-этапы, пока не пополнить/проверить billing OpenAI или не сменить ключ/модель.' : '',
+      ].filter(Boolean).join('\n'),
+    );
+    if (!alert?.ok) console.error('Telegram job failure alert failed', alert);
   }
 
   async planJobs() {
@@ -1667,6 +1701,21 @@ function outboundWorkingWindow(now = new Date()) {
   const nextRunAt = hour < start ? new Date(moscowStartUtc) : new Date(moscowStartUtc + 24 * 60 * 60 * 1000);
   if (nextRunAt <= now) nextRunAt.setUTCDate(nextRunAt.getUTCDate() + 1);
   return { open: false, hour, nextRunAt: nextRunAt.toISOString() };
+}
+
+function isCriticalJobError(message = '') {
+  const text = String(message || '').toLowerCase();
+  if (text.includes('insufficient_quota') || text.includes('exceeded your current quota')) return 'openai_quota';
+  if (text.includes('rate limit') || /\b429\b/.test(text)) return 'rate_limit';
+  if (text.includes('invalid_grant') || text.includes('oauth')) return 'oauth';
+  return '';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 function retryDelayForJob(job) {

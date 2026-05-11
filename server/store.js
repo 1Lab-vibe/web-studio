@@ -12,6 +12,7 @@ const initialState = {
   outreachQueue: [],
   integrationInbox: [],
   processedA1Events: {},
+  adminAlerts: {},
   authSecurity: {
     clients: {},
     attempts: [],
@@ -240,6 +241,7 @@ export class Store {
     this.state.outreachQueue ??= [];
     this.state.integrationInbox ??= [];
     this.state.processedA1Events ??= {};
+    this.state.adminAlerts ??= {};
     this.state.metrics ??= structuredClone(initialState.metrics);
     this.state.locks ??= {};
     this.state.scheduler ??= structuredClone(initialState.scheduler);
@@ -804,6 +806,23 @@ export class Store {
     this.state.processedA1Events = Object.fromEntries(entries);
     await this.save();
     return this.state.processedA1Events[eventId];
+  }
+
+  async reserveAdminAlert(key, { cooldownMs = 60 * 60 * 1000 } = {}) {
+    if (!key) return { ok: false, skipped: true, reason: 'missing_key' };
+    this.state.adminAlerts ??= {};
+    const now = Date.now();
+    const existing = this.state.adminAlerts[key];
+    const lastSentAt = Date.parse(existing?.sentAt || '');
+    if (Number.isFinite(lastSentAt) && now - lastSentAt < Number(cooldownMs)) {
+      return { ok: true, reserved: false, lastSentAt: existing.sentAt };
+    }
+    const value = { sentAt: new Date(now).toISOString(), count: Number(existing?.count || 0) + 1 };
+    this.state.adminAlerts[key] = value;
+    const entries = Object.entries(this.state.adminAlerts).slice(-500);
+    this.state.adminAlerts = Object.fromEntries(entries);
+    await this.save();
+    return { ok: true, reserved: true, ...value };
   }
 
   async addIntegrationInboxItem(input) {
