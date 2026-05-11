@@ -96,7 +96,7 @@ function outboundPreview(lead) {
   const diagnosis = lead?.diagnosis || 'Сейчас часть клиентов может уходить к тем, кого проще найти, понять и быстро оставить заявку онлайн.';
   const simplePrice = 30000;
   const fullPrice = Math.max(simplePrice, Number(lead?.deal || 0));
-  const offer = `По стоимости: простой сайт-визитка стоит от ${formatRub(simplePrice)}, а на первый заказ со скидкой 50% - от ${formatRub(Math.round(simplePrice * 0.5))}. Вариант с полным функционалом под вашу задачу агент оценил в ${formatRub(fullPrice)}; на первый заказ такая конфигурация также идет со скидкой 50% - ориентир ${formatRub(Math.round(fullPrice * 0.5))}.`;
+  const offer = `По стоимости: разработка начинается от ${formatRub(simplePrice)} за простой сайт-визитку. Вариант с полным функционалом и дополнительными модулями под вашу задачу агент предварительно оценил в ${formatRub(fullPrice)}. Финальную стоимость фиксируем после согласованного превью и ТЗ.`;
   const body = [
     greeting,
     '',

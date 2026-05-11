@@ -1710,6 +1710,8 @@ function followupEmailBody(lead, stage, { botLink = '', siteUrl = '', videoUrl =
       siteUrl ? `${ctaText}: ${siteUrl}` : '',
       videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
       '',
+      followupDiscountText(lead),
+      '',
       'Если стоит передвинуть встречу или пообсуждать позже - скажите, когда удобно. Если не актуально, просто ответьте «не интересно», и я больше не пишу.',
       '',
       emailSignature(),
@@ -1805,10 +1807,15 @@ function firstOrderPrice(value) {
 function salesOfferText(lead = {}) {
   const fullPrice = Math.max(SIMPLE_SITE_PRICE_RUB, Number(lead.deal || 0));
   const simplePrice = formatRub(SIMPLE_SITE_PRICE_RUB);
-  const simpleDiscountPrice = formatRub(firstOrderPrice(SIMPLE_SITE_PRICE_RUB));
   const fullPriceText = formatRub(fullPrice);
+  return `По стоимости: разработка начинается от ${simplePrice} за простой сайт-визитку. Вариант с полным функционалом и дополнительными модулями под вашу задачу агент предварительно оценил в ${fullPriceText}. Финальную стоимость фиксируем после согласованного превью и ТЗ.`;
+}
+
+function followupDiscountText(lead = {}) {
+  const fullPrice = Math.max(SIMPLE_SITE_PRICE_RUB, Number(lead.deal || 0));
+  const simpleDiscountPrice = formatRub(firstOrderPrice(SIMPLE_SITE_PRICE_RUB));
   const fullDiscountText = formatRub(firstOrderPrice(fullPrice));
-  return `По стоимости: простой сайт-визитка стоит от ${simplePrice}, а на первый заказ со скидкой 50% - от ${simpleDiscountPrice}. Вариант с полным функционалом под вашу задачу агент оценил в ${fullPriceText}; на первый заказ такая конфигурация также идет со скидкой 50% - ориентир ${fullDiscountText}. Финальную стоимость фиксируем после согласованного превью и ТЗ.`;
+  return `Для первого заказа можем дать скидку 50%: простой сайт-визитка получится от ${simpleDiscountPrice}, а вариант с полным функционалом под вашу задачу - ориентировочно ${fullDiscountText}.`;
 }
 
 function emailSignature() {
