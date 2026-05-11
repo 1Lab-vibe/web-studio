@@ -767,7 +767,16 @@ export class Store {
   async addOutreachQueueItem(input) {
     this.state.outreachQueue ??= [];
     const existing = this.state.outreachQueue.find((item) => item.leadId === input.leadId && ['queued', 'sent', 'succeeded'].includes(item.status));
-    if (existing) return existing;
+    if (existing) {
+      const stable = { id: existing.id, createdAt: existing.createdAt };
+      const nextStatus = ['sent', 'succeeded'].includes(existing.status) ? existing.status : (input.status || existing.status);
+      Object.assign(existing, input, stable, {
+        status: nextStatus,
+        updatedAt: new Date().toISOString(),
+      });
+      await this.save();
+      return existing;
+    }
     const item = {
       id: randomUUID(),
       status: 'queued',

@@ -783,8 +783,10 @@ export class Orchestrator {
       },
       idempotencyKey: stableOutboundKey(lead),
     });
+    const sentNow = outboundWasSent(outbound);
     const item = await this.store.addOutreachQueueItem({
       leadId: lead.id,
+      status: sentNow ? 'sent' : 'queued',
       channel: 'Email',
       to: emailChannel.value,
       subject,
@@ -795,7 +797,6 @@ export class Orchestrator {
       subjectVariantAngle: variant?.angle || '',
       trackedLinks: { preview: siteUrl, video: videoUrl, bot: trackedBotLink },
     });
-    const sentNow = outboundWasSent(outbound);
     lead = await this.store.updateLead(lead.id, {
       contacts: lead.contacts,
       pitch: { ok: outbound.ok, queued: !sentNow, sent: sentNow, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound, subjectVariantId, subjectVariantAngle: variant?.angle || '' },
@@ -988,8 +989,10 @@ export class Orchestrator {
       idempotencyKey: `webstudio:${lead.id}:followup:${stage}:v1`,
     });
     if (!outbound.ok) throw new Error(outbound.error || outbound.reason || `Followup ${stage} A1 outbound failed`);
+    const sentNow = outboundWasSent(outbound);
     const item = await this.store.addOutreachQueueItem({
       leadId: lead.id,
+      status: sentNow ? 'sent' : 'queued',
       channel: 'Email',
       to: emailChannel.value,
       subject,
@@ -1000,7 +1003,6 @@ export class Orchestrator {
       subjectVariantId: subjectVariantIdForFollowup,
       trackedLinks: { preview: siteUrl, video: videoUrl, bot: botLink },
     });
-    const sentNow = outboundWasSent(outbound);
     followupsState[key] = {
       ...(followupsState[key] || {}),
       sentAt: sentNow ? new Date().toISOString() : '',
@@ -1249,17 +1251,19 @@ export class Orchestrator {
           },
           idempotencyKey: stableOutboundKey(lead),
         });
+        const sentNow = outboundWasSent(outbound);
         const item = await this.store.addOutreachQueueItem({
           leadId: lead.id,
+          status: sentNow ? 'sent' : 'queued',
           channel: 'Email',
           subject,
           message,
           fitScore: lead.fitScore ?? 0,
           a1Outbound: outbound,
         });
-        lead.pitch = { ok: outbound.ok, queued: true, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound };
-        await this.store.addEvent(lead.id, 'pitch.queued', `Pitcher поставил сообщение в очередь: ${item.channel}`);
-        await this.addA1Event(lead, 'outbound.queued', 'Pitcher queued outbound email in A1', { queueItem: item, outbound });
+        lead.pitch = { ok: outbound.ok, queued: !sentNow, sent: sentNow, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound };
+        await this.store.addEvent(lead.id, sentNow ? 'pitch.sent' : 'pitch.queued', sentNow ? `Pitcher sent message via A1: ${item.channel}` : `Pitcher поставил сообщение в очередь: ${item.channel}`);
+        await this.addA1Event(lead, sentNow ? 'outbound.sent' : 'outbound.queued', sentNow ? 'Pitcher sent outbound email via A1' : 'Pitcher queued outbound email in A1', { queueItem: item, outbound });
       }
 
       const next = nextLane[lead.lane];
