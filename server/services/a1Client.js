@@ -181,6 +181,33 @@ export async function crmAddEvent(input) {
   });
 }
 
+export async function crmCreateManagerTask(input) {
+  const leadId = input?.leadId || input?.a1LeadId || input?.entityId;
+  if (!leadId) return { ok: false, skipped: true, reason: 'Missing A1 lead reference' };
+  return callA1McpTool(config.A1_MANAGER_TASK_TOOL || 'crm_create_task', {
+    companyId: config.A1_COMPANY_ID,
+    entityType: 'lead',
+    entityId: leadId,
+    leadId,
+    source: 'webstudio',
+    channel: 'webstudio',
+    title: input.title,
+    description: input.description,
+    taskType: input.taskType || 'manager_email_request',
+    assignedRole: input.assignedRole || 'manager',
+    priority: input.priority || 'normal',
+    dueAt: input.dueAt,
+    payload: {
+      externalId: input.externalId,
+      dedupeKey: input.dedupeKey,
+      reason: input.reason,
+      actor: input.actor || config.A1_MCP_ACTOR_ID,
+      idempotencyKey: input.idempotencyKey,
+      ...(input.payload || {}),
+    },
+  });
+}
+
 export async function crmConvertLeadToDeal(input) {
   const leadId = input?.leadId || input?.a1LeadId;
   if (!leadId) return { ok: false, skipped: true, reason: 'Missing A1 lead reference', input };

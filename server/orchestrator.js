@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { scoutYandexMaps } from './services/yandexMaps.js';
 import { scoutGooglePlaces } from './services/googlePlaces.js';
 import { diagnoseLead, evaluatePitch } from './services/openaiAgent.js';
-import { crmAddEvent, customerBotLink, outboundQueueMessage, parsedToolData, syncA1CrmLead } from './services/a1Client.js';
+import { crmAddEvent, crmCreateManagerTask, crmMoveLeadStage, customerBotLink, outboundQueueMessage, parsedToolData, syncA1CrmLead } from './services/a1Client.js';
 import { prepareLovableMockup } from './services/lovableMcp.js';
 import { renderLeadVideo } from './services/filmer.js';
 import { enrichContacts } from './services/contactEnrichment.js';
@@ -869,7 +869,7 @@ export class Orchestrator {
     const lead = this.store.getLead(leadId);
     if (!lead) throw new Error('Lead not found');
     if (!isScoutLane(lead)) return { ok: true, skipped: true, reason: 'not_scout_lane', lead };
-    if (lead.status === 'contact_hold' || ['invalid_email_hold', 'no_verified_email_hold', 'no_contacts'].includes(String(lead.stageStatus || ''))) {
+    if (lead.status === 'contact_hold' || ['invalid_email_hold', 'no_verified_email_hold', 'awaiting_a1_email', 'a1_email_task_created', 'no_contacts'].includes(String(lead.stageStatus || ''))) {
       return { ok: true, skipped: true, reason: 'contact_gate_already_done', lead };
     }
     const result = await this.prepareScoutLeadForDiagnosis(lead);
@@ -930,6 +930,10 @@ export class Orchestrator {
       return { ok: false, skipped: true, reason: 'no_contacts', lead: failed };
     }
 
+    if (hasPhone) {
+      return this.handoffPhoneOnlyLeadToA1(lead, contacts, contactReview, hasAnyEmail);
+    }
+
     const held = await this.store.updateLead(lead.id, enrichLeadScore({
       ...lead,
       contacts,
@@ -943,6 +947,99 @@ export class Orchestrator {
     await this.store.addEvent(held.id, hasAnyEmail ? 'contacts.invalid_email_hold' : 'contacts.no_email_hold', hasAnyEmail ? 'Email candidates failed validation; lead left in Scout with lower score' : 'No verified email found; lead left in Scout with lower score');
     await this.addA1Event(held, hasAnyEmail ? 'contacts.invalid_email_hold' : 'contacts.no_email_hold', hasAnyEmail ? 'Scout lead held: email candidates failed validation' : 'Scout lead held: no verified email found', { contacts });
     return { ok: false, skipped: true, reason: hasAnyEmail ? 'invalid_email' : 'no_verified_email', lead: held };
+  }
+
+  async handoffPhoneOnlyLeadToA1(lead, contacts, contactReview, hasAnyEmail = false) {
+    const now = new Date().toISOString();
+    let handedOff = await this.store.updateLead(lead.id, enrichLeadScore({
+      ...lead,
+      contacts,
+      contactReview: {
+        ...contactReview,
+        status: hasAnyEmail ? 'invalid_email_phone_handoff' : 'phone_only_a1_handoff',
+        handedOffToA1At: now,
+      },
+      priority: Math.max(0, Number(lead.priority ?? 50) - 8),
+      pipelineStage: 'scouted',
+      stageStatus: 'awaiting_a1_email',
+      status: 'a1_email_lookup',
+      lastTransitionReason: hasAnyEmail ? 'invalid_email_manager_lookup' : 'phone_only_manager_lookup',
+      a1EmailLookup: {
+        status: 'pending',
+        requestedAt: now,
+        reason: hasAnyEmail ? 'invalid_email_with_phone' : 'phone_only_no_email',
+      },
+    }));
+
+    handedOff = await this.syncLeadWithA1(handedOff, 'phone_only_email_lookup');
+    const a1LeadId = handedOff.a1LeadId || handedOff.a1?.leadId || handedOff.id;
+    const stageMove = await crmMoveLeadStage({
+      a1LeadId,
+      externalId: handedOff.id,
+      dedupeKey: `webstudio:${handedOff.id}`,
+      stage: 'qualification',
+      status: 'open',
+      reason: 'phone_only_email_lookup',
+      actor: 'web-studio-orchestrator',
+      idempotencyKey: `webstudio:${handedOff.id}:stage:qualification:phone-email-lookup:v1`,
+      payload: {
+        webstudioStageStatus: 'awaiting_a1_email',
+        phone: handedOff.phone || contacts.phone,
+      },
+    });
+    const title = `Уточнить email: ${handedOff.name}`;
+    const description = [
+      `Лид из Web Studio: ${handedOff.name}`,
+      `Город: ${handedOff.city || 'не указан'}`,
+      `Ниша: ${handedOff.niche || 'не указана'}`,
+      `Телефон: ${handedOff.phone || contacts.phone || 'не указан'}`,
+      `Адрес: ${handedOff.address || 'не указан'}`,
+      '',
+      'Задача: связаться с клиентом только для уточнения рабочей почты и согласия на дальнейшую коммуникацию по email.',
+      'Если email получен, отправьте webhook lead.contact_updated / lead.email_found с externalId и email.',
+      'Если клиент отказался, переведите лид в отказ/провал в A1, чтобы Web Studio получила webhook и закрыла его локально.',
+    ].join('\n');
+    const task = await crmCreateManagerTask({
+      a1LeadId,
+      externalId: handedOff.id,
+      dedupeKey: `webstudio:${handedOff.id}`,
+      title,
+      description,
+      reason: 'phone_only_email_lookup',
+      priority: Number(handedOff.fitScore || handedOff.priority || 0) >= 70 ? 'high' : 'normal',
+      idempotencyKey: `webstudio:${handedOff.id}:manager-email-task:v1`,
+      payload: {
+        webstudioLead: {
+          id: handedOff.id,
+          name: handedOff.name,
+          city: handedOff.city,
+          niche: handedOff.niche,
+          phone: handedOff.phone || contacts.phone,
+          address: handedOff.address,
+          score: handedOff.fitScore ?? handedOff.priority ?? 0,
+        },
+        contacts,
+        contactReview,
+      },
+    });
+    await this.addA1Event(handedOff, 'manager.email_required', 'Phone-only Scout lead handed to A1 manager to obtain email', {
+      contacts,
+      contactReview,
+      managerTask: task,
+    });
+    const updated = await this.store.updateLead(handedOff.id, {
+      a1EmailLookup: {
+        ...(handedOff.a1EmailLookup || {}),
+        status: task.ok ? 'task_created' : 'event_created',
+        task,
+        stageMove,
+        taskCreatedAt: task.ok ? new Date().toISOString() : '',
+        lastError: task.ok ? '' : task.error || task.reason || '',
+      },
+      stageStatus: task.ok ? 'a1_email_task_created' : 'awaiting_a1_email',
+    });
+    await this.store.addEvent(updated.id, task.ok ? 'a1.manager.email_task_created' : 'a1.manager.email_task_event_only', task.ok ? 'A1 manager task created to obtain email' : 'A1 manager task tool unavailable; timeline event emitted for email lookup');
+    return { ok: false, skipped: true, reason: 'awaiting_a1_email', lead: updated, a1Task: task };
   }
 
   async scheduleFollowups(lead) {
@@ -1513,7 +1610,7 @@ function actionForLead(lead, topLovableIds) {
   }
   if (lead.status === 'waiting_approval') return { action: 'approve_or_reject', label: 'Ждет approval', score: 100, autoRunnable: false };
   if (lead.status === 'failed' || lead.pipelineStage === 'failed') return { action: 'none', label: 'Failed', score: 0, autoRunnable: false };
-  if (isScoutLane(lead) && (lead.status === 'contact_hold' || ['invalid_email_hold', 'no_verified_email_hold', 'no_contacts'].includes(String(lead.stageStatus || '')))) {
+  if (isScoutLane(lead) && (lead.status === 'contact_hold' || ['invalid_email_hold', 'no_verified_email_hold', 'awaiting_a1_email', 'a1_email_task_created', 'no_contacts'].includes(String(lead.stageStatus || '')))) {
     return { action: 'none', label: 'Scout contact hold', score: 0, autoRunnable: false };
   }
   if (lead.mockup?.status === 'export_ready' || lead.status === 'export_ready') {
@@ -1543,7 +1640,7 @@ function scoutEnrichmentCandidates(leads = [], limit = 50) {
   return leads
     .filter((lead) => isScoutLane(lead))
     .filter((lead) => !['failed', 'paused', 'contact_hold', 'ready_for_diagnosis'].includes(String(lead.status || '')))
-    .filter((lead) => !['email_verified', 'invalid_email_hold', 'no_verified_email_hold', 'no_contacts'].includes(String(lead.stageStatus || '')))
+    .filter((lead) => !['email_verified', 'invalid_email_hold', 'no_verified_email_hold', 'awaiting_a1_email', 'a1_email_task_created', 'no_contacts'].includes(String(lead.stageStatus || '')))
     .filter((lead) => !lead.contactReview?.checkedAt)
     .map((lead) => enrichLeadScore({ ...lead }))
     .sort((a, b) => (b.fitScore ?? b.priority ?? 0) - (a.fitScore ?? a.priority ?? 0))

@@ -74,6 +74,7 @@ const envSchema = z.object({
   A1_MCP_ROLE: z.string().default('operator'),
   A1_MCP_ENVIRONMENT: z.string().default('production'),
   A1_MCP_ACTOR_ID: z.string().default('web-studio-orchestrator'),
+  A1_MANAGER_TASK_TOOL: z.string().optional().default('crm_create_task'),
   A1_AGENT_ENVIRONMENT: z.string().default('local'),
   A1_CRM_LEADS_WORKFLOW_ID: z.string().optional().default(''),
   A1_OUT_DELIVERY_WORKFLOW_ID: z.string().optional().default(''),

@@ -1,4 +1,5 @@
 import { crmAddEvent, crmConvertLeadToDeal } from './a1Client.js';
+import { enrichLeadScore } from './scoring.js';
 import { recordSubjectReply } from './subjectAB.js';
 
 const LANES = {
@@ -14,6 +15,11 @@ const LANES = {
 const SUPPORTED_EVENTS = new Set([
   'lead.stage_changed',
   'lead.replied',
+  'lead.contact_updated',
+  'lead.email_found',
+  'lead.email_not_obtained',
+  'lead.disqualified',
+  'lead.failed',
   'lead.converted_to_deal',
   'deal.stage_changed',
   'deal.payment_link_created',
@@ -52,7 +58,30 @@ export async function handleA1Webhook(store, envelope, idempotencyKey = '') {
   }
 
   const patch = patchForA1Event(lead, envelope);
-  const updatedLead = Object.keys(patch).length ? await store.updateLead(lead.id, patch) : lead;
+  let updatedLead = Object.keys(patch).length ? await store.updateLead(lead.id, patch) : lead;
+  if (isEmailUpdateEvent(envelope)) {
+    const email = extractEmail(envelope.payload);
+    if (email) {
+      await store.enqueueJob({
+        type: 'enrich_lead',
+        leadId: updatedLead.id,
+        priority: 440,
+        idempotencyKey: `enrich:${updatedLead.id}:a1-email:${eventId}`,
+        payload: { source: 'a1_email_found', eventId, email },
+      });
+      await crmAddEvent({
+        entityType: 'lead',
+        entityId: updatedLead.a1LeadId || updatedLead.a1?.leadId || updatedLead.id,
+        eventType: 'webstudio.email_rescore_queued',
+        text: 'Web Studio queued contact validation and rescore after A1 returned email',
+        payload: { webstudioLeadId: updatedLead.id, email },
+        idempotencyKey: `webstudio:${updatedLead.id}:a1-email-rescore:${eventId}`,
+      });
+    }
+  }
+  if (isFailureEvent(envelope)) {
+    await store.cancelLeadJobs(updatedLead.id, ['enrich_lead', 'diagnose_lead', 'lovable_build', 'checker_eval', 'outbound_queue'], 'a1_lead_failed');
+  }
   if (envelope.eventType === 'lead.replied') {
     const subjectVariantId = updatedLead.subjectVariantId || updatedLead.pitch?.subjectVariantId || lead.subjectVariantId || lead.pitch?.subjectVariantId;
     if (subjectVariantId) await recordSubjectReply(store, subjectVariantId);
@@ -126,11 +155,76 @@ function patchForA1Event(lead, envelope) {
     },
   };
 
+  if (isEmailUpdateEvent(envelope)) {
+    const email = extractEmail(payload);
+    if (!email) return { ...base, status: 'a1_contact_updated_without_email' };
+    const contacts = mergeEmailIntoContacts(lead.contacts, email, payload);
+    return enrichLeadScore({
+      ...lead,
+      ...base,
+      contacts,
+      lane: LANES.scout,
+      pipelineStage: 'scouted',
+      stageStatus: 'a1_email_received',
+      status: 'new',
+      owner: 'Scout',
+      contactReview: {
+        ...(lead.contactReview || {}),
+        status: 'a1_email_received',
+        emailReceivedAt: envelope.occurredAt || new Date().toISOString(),
+        source: payload.source || 'a1_manager',
+      },
+      a1EmailLookup: {
+        ...(lead.a1EmailLookup || {}),
+        status: 'email_received',
+        email,
+        receivedAt: envelope.occurredAt || new Date().toISOString(),
+      },
+    });
+  }
   if (envelope.eventType === 'lead.stage_changed' || envelope.eventType === 'deal.stage_changed') {
+    if (isFailureStage(payload)) {
+      return {
+        ...base,
+        lane: LANES.scout,
+        pipelineStage: 'failed',
+        stageStatus: 'a1_disqualified',
+        status: 'failed',
+        owner: 'A1',
+        contactReview: {
+          ...(lead.contactReview || {}),
+          status: 'a1_disqualified',
+          failedAt: envelope.occurredAt || new Date().toISOString(),
+          reason: payload.reason || payload.status || payload.stage || payload.toStage || '',
+        },
+      };
+    }
     return {
       ...base,
       lane: payload.webstudioLane || localLaneForA1Stage(payload.stage || payload.toStage),
       status: payload.status || 'in_progress',
+    };
+  }
+  if (isFailureEvent(envelope)) {
+    return {
+      ...base,
+      lane: LANES.scout,
+      pipelineStage: 'failed',
+      stageStatus: 'a1_email_not_obtained',
+      status: 'failed',
+      owner: 'A1',
+      contactReview: {
+        ...(lead.contactReview || {}),
+        status: 'a1_email_not_obtained',
+        failedAt: envelope.occurredAt || new Date().toISOString(),
+        reason: payload.reason || payload.text || payload.message || 'A1 marked lead as failed',
+      },
+      a1EmailLookup: {
+        ...(lead.a1EmailLookup || {}),
+        status: 'failed',
+        failedAt: envelope.occurredAt || new Date().toISOString(),
+        reason: payload.reason || payload.text || payload.message || '',
+      },
     };
   }
   if (envelope.eventType === 'lead.replied') {
@@ -188,6 +282,71 @@ function patchForA1Event(lead, envelope) {
     return { ...base, revision: { requestedAt: envelope.occurredAt || new Date().toISOString(), text: payload.text || '' }, status: 'revision_requested' };
   }
   return base;
+}
+
+function isEmailUpdateEvent(envelope = {}) {
+  const eventType = String(envelope.eventType || '');
+  return ['lead.contact_updated', 'lead.email_found'].includes(eventType) || (eventType === 'lead.stage_changed' && Boolean(extractEmail(envelope.payload || {})));
+}
+
+function isFailureEvent(envelope = {}) {
+  const eventType = String(envelope.eventType || '');
+  return ['lead.email_not_obtained', 'lead.disqualified', 'lead.failed'].includes(eventType) || (eventType === 'lead.stage_changed' && isFailureStage(envelope.payload || {}));
+}
+
+function isFailureStage(payload = {}) {
+  const values = [
+    payload.stage,
+    payload.toStage,
+    payload.status,
+    payload.result,
+    payload.reason,
+  ].map((value) => String(value || '').toLowerCase());
+  return values.some((value) => ['lost', 'failed', 'failure', 'refused', 'declined', 'rejected', 'disqualified', 'not_interested', 'email_not_obtained'].includes(value));
+}
+
+function extractEmail(payload = {}) {
+  const direct = [payload.email, payload.contactEmail, payload.customerEmail, payload?.contact?.email].find(Boolean);
+  const fromContacts = Array.isArray(payload.contacts?.emails) ? payload.contacts.emails.find(Boolean) : '';
+  const fromEmails = Array.isArray(payload.emails) ? payload.emails.find(Boolean) : '';
+  return normalizeEmail(direct || fromContacts || fromEmails);
+}
+
+function mergeEmailIntoContacts(existing = {}, email, payload = {}) {
+  const normalized = normalizeEmail(email);
+  const emails = unique([...(existing.emails || []), normalized]);
+  const channels = Array.isArray(existing.channels) ? existing.channels.filter(Boolean) : [];
+  if (!channels.some((channel) => channel.type === 'email' && normalizeEmail(channel.value) === normalized)) {
+    channels.push({
+      type: 'email',
+      value: normalized,
+      confidence: Number(payload.confidence ?? 0.9),
+      source: payload.source || 'a1_manager',
+    });
+  }
+  return {
+    ...existing,
+    ...payload.contacts,
+    emails,
+    channels,
+    emailValidation: {
+      ...(existing.emailValidation || {}),
+      best: {
+        value: normalized,
+        confidence: Number(payload.confidence ?? 0.9),
+        source: payload.source || 'a1_manager',
+      },
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function unique(values = []) {
+  return [...new Set(values.map(normalizeEmail).filter(Boolean))];
 }
 
 function localLaneForA1Stage(stage) {
