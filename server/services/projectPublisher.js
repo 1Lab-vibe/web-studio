@@ -465,12 +465,18 @@ async function writeSourceFiles(root, files) {
   await mkdir(root, { recursive: true });
   const written = [];
   for (const file of files) {
-    if (file.binary || typeof file.content !== 'string') continue;
+    const hasTextContent = typeof file.content === 'string';
+    const hasBinaryContent = file.binary && typeof file.contentBase64 === 'string';
+    if (!hasTextContent && !hasBinaryContent) continue;
     if (!isPublishableSourceFile(file.path)) continue;
     const target = safeProjectPath(root, file.path);
     if (!target) throw new Error(`Unsafe project file path: ${file.path}`);
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, file.content, 'utf8');
+    if (hasBinaryContent) {
+      await writeFile(target, Buffer.from(file.contentBase64, 'base64'));
+    } else {
+      await writeFile(target, file.content, 'utf8');
+    }
     written.push(file.path);
   }
   return written;
@@ -552,6 +558,9 @@ async function repairMissingAssetImports(sourceRoot, buildError, lead = {}) {
 }
 
 async function repairDuplicateRemoteImageConstants(sourceRoot, lead = {}) {
+  if (!config.OPENAI_IMAGE_GENERATION_ENABLED) {
+    return { ok: false, reason: 'remote_image_replacement_disabled' };
+  }
   const files = await listSourceCodeFiles(path.join(sourceRoot, 'src'));
   const repaired = [];
   for (const file of files) {
@@ -587,15 +596,24 @@ async function materializeExternalImageLiterals(sourceRoot, lead = {}) {
     const matches = [...content.matchAll(/(["'])(https:\/\/(?:images\.unsplash\.com|image\.pollinations\.ai)\/[^"']+)\1/g)];
     for (const match of matches) {
       const [literal, , url] = match;
-      const context = `${path.basename(file)} external image ${ordinal} ${content.slice(Math.max(0, match.index - 120), match.index + 120)}`;
-      const fallbackUrl = await imageRepairUrlV2(lead, context, ordinal);
-      const asset = await materializeRepairImage(sourceRoot, file, `external-${ordinal}`, fallbackUrl, url);
+      const asset = await materializeRepairImage(sourceRoot, file, `external-${ordinal}`, url, url);
+      let finalAsset = asset;
+      if (!asset.ok) {
+        const context = `${path.basename(file)} external image ${ordinal} ${content.slice(Math.max(0, match.index - 120), match.index + 120)}`;
+        const fallbackUrl = await imageRepairUrlV2(lead, context, ordinal);
+        finalAsset = await materializeRepairImage(sourceRoot, file, `external-${ordinal}`, fallbackUrl, url);
+      }
       ordinal += 1;
-      repaired.push({ file: path.relative(sourceRoot, file), strategy: asset.ok ? 'materialize_external_image_url' : 'external_image_generation_fallback_url', sourceUrl: url, url: asset.url });
+      repaired.push({
+        file: path.relative(sourceRoot, file),
+        strategy: finalAsset.ok && finalAsset.url === url ? 'materialize_existing_external_image_url' : finalAsset.ok ? 'materialize_external_image_fallback_url' : 'external_image_left_remote',
+        sourceUrl: url,
+        url: finalAsset.url,
+      });
       const prefix = content.slice(Math.max(0, (match.index ?? 0) - 24), match.index ?? 0);
       const replacement = /\.(tsx|jsx)$/.test(file) && /\b(?:src|poster)\s*=\s*$/.test(prefix)
-        ? `{${asset.expression}}`
-        : asset.expression;
+        ? `{${finalAsset.expression}}`
+        : finalAsset.expression;
       next = next.replace(literal, replacement);
     }
     if (next !== content) await writeFile(file, next, 'utf8');

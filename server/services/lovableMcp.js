@@ -12,6 +12,9 @@ export async function prepareLovableMockup(lead) {
     if (result.ok) {
       const files = Array.isArray(result.files) ? result.files : [];
       const hasExport = files.length > 0;
+      const skippedBinaryNote = result.binaryAssetsSkipped
+        ? ` ${result.binaryAssetsSkipped} binary asset(s) were listed by Lovable but cannot be transferred through read_file; image repair will use non-paid fallback unless a public asset URL is available.`
+        : '';
       return {
         ok: Boolean(hasExport || result.publishedUrl || result.previewUrl),
         skipped: false,
@@ -24,9 +27,11 @@ export async function prepareLovableMockup(lead) {
         publishedUrl: result.publishedUrl || '',
         latestRef: result.latestRef || '',
         files,
+        binaryAssetsSkipped: result.binaryAssetsSkipped || 0,
+        binaryAssetsSkippedPaths: result.binaryAssetsSkippedPaths || [],
         handoffStatus: hasExport ? 'files_received' : result.publishedUrl ? 'url_received' : 'preview_received',
         reason: hasExport
-          ? `Lovable official MCP created the project and exported ${files.length} source file(s).`
+          ? `Lovable official MCP created the project and exported ${files.length} source file(s).${skippedBinaryNote}`
           : result.publishedUrl
           ? 'Lovable official MCP created and deployed the project.'
           : 'Lovable official MCP created the project. Deployment is disabled or did not return a public URL.',

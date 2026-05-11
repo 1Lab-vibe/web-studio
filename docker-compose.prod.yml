@@ -13,6 +13,10 @@ services:
       PORT: 8787
       PUBLIC_BASE_URL: https://webstudio.1true.ru
       WEB_ORIGIN: https://webstudio.1true.ru
+      OPENAI_IMAGE_GENERATION_ENABLED: ${OPENAI_IMAGE_GENERATION_ENABLED:-false}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-1-mini}
+      OPENAI_IMAGE_SIZE: ${OPENAI_IMAGE_SIZE:-1024x1024}
+      OPENAI_IMAGE_QUALITY: ${OPENAI_IMAGE_QUALITY:-low}
       A1_API_URL: ${A1_API_URL:-https://api.1lab.one}
       A1_MCP_URL: ${A1_MCP_URL:-https://mcp.1lab.one/mcp}
       LOVABLE_STORAGE_STATE: /app/data/lovable-storage-state.json

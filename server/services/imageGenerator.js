@@ -4,7 +4,7 @@ import path from 'node:path';
 import OpenAI from 'openai';
 import { config, hasSecret } from '../config.js';
 
-const openai = hasSecret(config.OPENAI_API_KEY) ? new OpenAI({ apiKey: config.OPENAI_API_KEY }) : null;
+const openai = hasSecret(config.OPENAI_API_KEY) && config.OPENAI_IMAGE_GENERATION_ENABLED ? new OpenAI({ apiKey: config.OPENAI_API_KEY }) : null;
 
 const inFlight = new Map();
 

@@ -253,6 +253,7 @@ export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
     const project = parseToolContent(projectResult);
     const latestRef = latestRefFrom(project) || latestRefFrom(create);
     const exportedFiles = latestRef ? await exportLovableFiles(client, projectId, latestRef) : [];
+    const binaryAssetsSkipped = Number(exportedFiles.binaryAssetsSkipped ?? 0);
     return {
       ok: true,
       projectId,
@@ -262,6 +263,8 @@ export async function createAndMaybeDeployLovableProject({ lead, prompt }) {
       latestRef,
       createMessageId,
       files: exportedFiles,
+      binaryAssetsSkipped,
+      binaryAssetsSkippedPaths: exportedFiles.binaryAssetsSkippedPaths || [],
       create,
       deploy: { skipped: true, reason: 'Web Studio deploys exported source under /projects/<slug>; Lovable publishing is disabled.' },
       project,
@@ -282,6 +285,10 @@ function normalizeFilesList(data) {
     .filter((file) => file.path && !file.path.endsWith('/'));
 }
 
+function isTextLikeLovableFile(filePath = '') {
+  return /\.(svg|txt|md|json|html|css|js|jsx|ts|tsx|mjs|cjs|xml|yml|yaml|toml|lock)$/i.test(filePath);
+}
+
 function contentFromReadFileResult(result) {
   const content = Array.isArray(result?.content) ? result.content : [];
   const text = content
@@ -297,17 +304,21 @@ function contentFromReadFileResult(result) {
 export async function exportLovableFiles(client, projectId, ref) {
   const listResult = await client.callTool({ name: 'list_files', arguments: { project_id: projectId, ref } }, undefined, LOVABLE_SHORT_REQUEST);
   const listed = normalizeFilesList(parseToolContent(listResult));
+  const skippedBinaryAssets = listed.filter((file) => file.binary && !isTextLikeLovableFile(file.path));
   const wanted = listed.filter((file) => {
     const base = file.path.split('/').pop()?.toLowerCase() || '';
-    return !file.binary && !/^(node_modules|dist|build|\.git)\//.test(file.path) && base !== '.env' && !base.startsWith('.env.');
+    return (!file.binary || isTextLikeLovableFile(file.path)) && !/^(node_modules|dist|build|\.git)\//.test(file.path) && base !== '.env' && !base.startsWith('.env.');
   });
   const files = [];
   for (const file of wanted) {
     const readResult = await client.callTool({ name: 'read_file', arguments: { project_id: projectId, path: file.path, ref } }, undefined, LOVABLE_SHORT_REQUEST);
     files.push({
       ...file,
+      binary: false,
       content: contentFromReadFileResult(readResult),
     });
   }
+  files.binaryAssetsSkipped = skippedBinaryAssets.length;
+  files.binaryAssetsSkippedPaths = skippedBinaryAssets.map((file) => file.path);
   return files;
 }
