@@ -422,13 +422,15 @@ async function lovableTokenHeartbeat() {
   }
 }
 
-if (config.LOVABLE_TOKEN_HEARTBEAT_ENABLED) {
+if (config.LOVABLE_TOKEN_HEARTBEAT_ENABLED && config.AUTONOMY_ENABLED) {
   cron.schedule(config.LOVABLE_TOKEN_HEARTBEAT_CRON, () => {
     lovableTokenHeartbeat().catch((error) => console.error('Lovable token heartbeat crashed', error));
   });
   setTimeout(() => {
     lovableTokenHeartbeat().catch((error) => console.error('Lovable token startup heartbeat crashed', error));
   }, 15000);
+} else if (config.LOVABLE_TOKEN_HEARTBEAT_ENABLED) {
+  console.log('Lovable token heartbeat skipped because autonomy is disabled for this instance');
 }
 
 function publicState() {
