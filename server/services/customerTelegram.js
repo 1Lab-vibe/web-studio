@@ -95,6 +95,52 @@ function hasPersonalDataConsent(lead) {
   return lead?.consentSummary?.personal_data?.granted === true;
 }
 
+function personalDataConsentText() {
+  const links = legalLinks();
+  return [
+    '<b>Согласие на обработку персональных данных</b>',
+    '',
+    'Чтобы зарегистрировать заявку, принять email, собрать ТЗ, подготовить превью сайта, выставить счет и сопровождать проект, нам нужно ваше явное согласие на обработку персональных данных.',
+    '',
+    `Политика обработки ПД: ${links.privacy}`,
+    `Согласие на обработку ПД: ${links.personalDataConsent}`,
+  ].join('\n');
+}
+
+function marketingConsentText() {
+  const links = legalLinks();
+  return [
+    '<b>Информационные и маркетинговые сообщения</b>',
+    '',
+    'Отдельно по требованиям закона о рекламе просим разрешение присылать полезные материалы, предложения 1Lab, исследования по сайтам, кейсы, скидки и идеи улучшений. Это не обязательно для работы над текущей заявкой: можно нажать «Нет», и мы продолжим только сервисные сообщения по проекту.',
+    '',
+    `Согласие на рассылки: ${links.marketingConsent}`,
+  ].join('\n');
+}
+
+function consentDecisionKeyboard(type) {
+  return {
+    inline_keyboard: [[
+      { text: 'Да', callback_data: `customer:consent:${type}:granted` },
+      { text: 'Нет', callback_data: `customer:consent:${type}:declined` },
+    ]],
+  };
+}
+
+async function sendConsentPrompts(chatId, lead, { includeMarketing = true } = {}) {
+  if (!hasPersonalDataConsent(lead)) {
+    await sendTelegramTo(chatId, personalDataConsentText(), consentDecisionKeyboard('personal_data'));
+  }
+  if (includeMarketing) {
+    await sendTelegramTo(chatId, marketingConsentText(), consentDecisionKeyboard('marketing'));
+  }
+}
+
+async function blockUntilPersonalConsent(chatId, lead) {
+  await sendTelegramTo(chatId, 'Извините, для продолжения нужно сначала принять согласие на обработку персональных данных. Без него я не могу регистрировать заявку, принимать ТЗ, email или запускать превью.');
+  await sendConsentPrompts(chatId, lead, { includeMarketing: false });
+}
+
 const RESETTABLE_JOB_TYPES = [
   'customer_preview_build',
   'customer_revision_triage',
@@ -247,8 +293,12 @@ export async function handleCustomerTelegramMessage(store, message) {
     return { ok: true, lead };
   }
   if (command === '/consent') {
-    await sendTelegramTo(chatId, consentPromptText(), consentKeyboard(lead));
+    await sendConsentPrompts(chatId, lead);
     return { ok: true, lead };
+  }
+  if (!hasPersonalDataConsent(lead) && command !== '/legal' && command !== '/start') {
+    await blockUntilPersonalConsent(chatId, lead);
+    return { ok: true, lead, waitingForConsent: true };
   }
   if (command === '/start') return resumeExistingCustomer(store, lead, chatId);
   if (command === '/reset' || isResetBriefText(text)) return resetCustomerBrief(store, lead, chatId, 'customer_requested_reset');
@@ -284,8 +334,8 @@ export async function handleCustomerTelegramMessage(store, message) {
   }
 
   const pendingEmail = extractEmail(text);
-  if (!hasPersonalDataConsent(lead) && ['registration_email', 'email_code'].includes(String(lead.customerTelegram?.mode || ''))) {
-    await sendTelegramTo(chatId, consentPromptText(), consentKeyboard(lead));
+  if (!hasPersonalDataConsent(lead) && command !== '/legal' && command !== '/consent') {
+    await blockUntilPersonalConsent(chatId, lead);
     return { ok: true, lead, waitingForConsent: true };
   }
   if (lead.customerTelegram?.mode === 'registration_email') {
@@ -401,7 +451,7 @@ export async function handleCustomerTelegramCallback(store, callback) {
     const updated = await recordTelegramConsent(store, lead, callback, type, decision);
     const label = type === 'personal_data' ? 'обработку персональных данных' : 'маркетинговые рассылки';
     if (decision === 'granted') {
-      await sendTelegramTo(chatId, `Сохранил: согласие на ${label}.`, consentKeyboard(updated));
+      await sendTelegramTo(chatId, `Сохранил: согласие на ${label}.`);
       if (type === 'personal_data' && String(updated.customerTelegram?.mode || '') === 'registration_email') {
         await sendTelegramTo(chatId, 'Теперь пришлите, пожалуйста, рабочий email. Я отправлю на него код подтверждения.', emailEntryKeyboard());
       }
@@ -411,10 +461,9 @@ export async function handleCustomerTelegramCallback(store, callback) {
         type === 'personal_data'
           ? 'Зафиксировал отказ. Без согласия на обработку ПД я не смогу зарегистрировать заявку, собрать ТЗ и подготовить превью. Согласие можно дать позже командой /consent.'
           : 'Зафиксировал отказ от маркетинговых рассылок. По текущей заявке сервисные сообщения останутся доступными.',
-        consentKeyboard(updated),
       );
     } else {
-      await sendTelegramTo(chatId, `Сохранил отзыв согласия на ${label}.`, consentKeyboard(updated));
+      await sendTelegramTo(chatId, `Сохранил отзыв согласия на ${label}.`);
     }
     return { ok: true, lead: updated, consent: { type, decision }, userId };
   }
@@ -506,7 +555,7 @@ async function startCustomerLead(store, chatId, from, token) {
     onboardingText(lead, true),
   );
   if (!hasPersonalDataConsent(lead)) {
-    await sendTelegramTo(chatId, consentPromptText(), consentKeyboard(lead));
+    await sendConsentPrompts(chatId, lead);
   } else if (customerTelegram.emailVerified) await startBriefCapture(store, lead, chatId);
   else if (customerTelegram.email) await requestEmailVerification(store, lead, chatId, customerTelegram.email);
   else await sendTelegramTo(chatId, 'Для начала регистрации пришлите, пожалуйста, рабочий email. Я отправлю на него код подтверждения.', emailEntryKeyboard());
@@ -554,7 +603,7 @@ async function startInboundCustomer(store, chatId, from, text, options = {}) {
   await store.addEvent(lead.id, 'customer.telegram_started', `Inbound customer opened bot: ${from?.username || chatId}`);
   await notifyAdminCustomerStarted(lead, customerTelegram);
   await sendTelegramTo(chatId, onboardingText(lead, false));
-  await sendTelegramTo(chatId, consentPromptText(), consentKeyboard(lead));
+  await sendConsentPrompts(chatId, lead);
   return { ok: true, lead };
 }
 
@@ -905,7 +954,7 @@ async function collectBriefAnswer(store, lead, chatId, text, message = {}) {
 async function resumeExistingCustomer(store, lead, chatId) {
   await sendTelegramTo(chatId, onboardingText(lead, hasReadyPreview(lead)));
   if (!hasPersonalDataConsent(lead)) {
-    await sendTelegramTo(chatId, consentPromptText(), consentKeyboard(lead));
+    await sendConsentPrompts(chatId, lead);
     return { ok: true, lead };
   }
   if (!lead.customerTelegram?.emailVerified) {

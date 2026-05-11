@@ -230,9 +230,17 @@ export class Orchestrator {
   async planJobs() {
     const planned = [];
     const now = new Date();
+    const planningLimit = Math.max(50, Number(config.AUTONOMY_TOP_ACTIONS_LIMIT) || 12);
     const scoutKey = `scout:${now.toISOString().slice(0, 13)}`;
     planned.push(await this.enqueueJob('scout_sources', '', { idempotencyKey: scoutKey, priority: 10 }));
-    const planningLimit = Math.max(50, Number(config.AUTONOMY_TOP_ACTIONS_LIMIT) || 12);
+    for (const lead of scoutEnrichmentCandidates(this.store.listLeads(), planningLimit)) {
+      planned.push(
+        await this.enqueueJob('enrich_lead', lead.id, {
+          idempotencyKey: `enrich:${lead.id}:contact-gate:v1`,
+          priority: pipelineJobPriority(lead, 350),
+        }),
+      );
+    }
     for (const action of this.topActions(planningLimit).filter((item) => item.autoRunnable)) {
       const lead = action.lead;
       const jobType = jobTypeForAction(action.action);
@@ -272,6 +280,8 @@ export class Orchestrator {
     switch (job.type) {
       case 'scout_sources':
         return this.runScoutJob();
+      case 'enrich_lead':
+        return this.runEnrichLeadJob(job.leadId);
       case 'diagnose_lead':
         return this.runDiagnoseJob(job.leadId);
       case 'lovable_build':
@@ -782,8 +792,6 @@ export class Orchestrator {
       throw new Error(`Preview quality gate is not passed: ${freshQuality.issues?.join('; ') || 'unknown'}`);
     }
     if (!lead.checker?.passed) throw new Error('Checker is not passed');
-    const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
-    if (reserved.reserved < 1) throw new Error('Daily send limit reached');
     const botLink = customerBotLink(lead);
     const rawSiteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
     const rawVideoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
@@ -857,6 +865,23 @@ export class Orchestrator {
     return { ok: true, lead: syncedLead };
   }
 
+  async runEnrichLeadJob(leadId) {
+    const lead = this.store.getLead(leadId);
+    if (!lead) throw new Error('Lead not found');
+    if (!isScoutLane(lead)) return { ok: true, skipped: true, reason: 'not_scout_lane', lead };
+    if (lead.status === 'contact_hold' || ['invalid_email_hold', 'no_verified_email_hold', 'no_contacts'].includes(String(lead.stageStatus || ''))) {
+      return { ok: true, skipped: true, reason: 'contact_gate_already_done', lead };
+    }
+    const result = await this.prepareScoutLeadForDiagnosis(lead);
+    if (result.ok && result.lead) {
+      await this.enqueueJob('diagnose_lead', result.lead.id, {
+        idempotencyKey: `diagnose:${result.lead.id}:v1`,
+        priority: pipelineJobPriority(result.lead, 420),
+      });
+    }
+    return result;
+  }
+
   async prepareScoutLeadForDiagnosis(lead) {
     if (!isScoutLane(lead)) return { ok: true, lead };
     const contacts = await enrichContacts(lead);
@@ -865,6 +890,7 @@ export class Orchestrator {
       const updated = await this.store.updateLead(lead.id, enrichLeadScore({
         ...lead,
         contacts,
+        status: 'ready_for_diagnosis',
         stageStatus: 'email_verified',
         lastContactGateAt: new Date().toISOString(),
       }));
@@ -989,8 +1015,6 @@ export class Orchestrator {
       });
       return { ok: true, skipped: true, reason: 'outside_working_hours', nextRunAt: workingWindow.nextRunAt };
     }
-    const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
-    if (reserved.reserved < 1) throw new Error('Daily send limit reached');
     const subjectVariantIdForFollowup = lead.subjectVariantId || lead.pitch?.subjectVariantId || '';
     const rawBotLink = customerBotLink(lead);
     const rawSiteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
@@ -1255,8 +1279,6 @@ export class Orchestrator {
           await this.store.save();
           return { ok: false, held: true, reason: 'No compliant outbound channel found', lead };
         }
-        const reserved = await this.store.reserveSends(config.DAILY_SEND_LIMIT, 1);
-        if (reserved.reserved < 1) return { ok: false, held: true, reason: 'Daily send limit reached', lead };
         const emailChannel = lead.contacts.channels.find((channel) => channel.type === 'email');
         const botLink = customerBotLink(lead);
         const siteUrl = absolutePublicUrl(lead.mockup?.publishedUrl || lead.mockup?.deployedUrl || lead.mockup?.publicUrl || '');
@@ -1515,6 +1537,17 @@ function actionForLead(lead, topLovableIds) {
   if (lead.lane === 'Проверка') return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Отправка') return { action: 'queue_pitch', label: 'Поставить в очередь отправки', score: lead.fitScore ?? 0, autoRunnable: true };
   return { action: 'none', label: 'Нет действия', score: 0, autoRunnable: false };
+}
+
+function scoutEnrichmentCandidates(leads = [], limit = 50) {
+  return leads
+    .filter((lead) => isScoutLane(lead))
+    .filter((lead) => !['failed', 'paused', 'contact_hold', 'ready_for_diagnosis'].includes(String(lead.status || '')))
+    .filter((lead) => !['email_verified', 'invalid_email_hold', 'no_verified_email_hold', 'no_contacts'].includes(String(lead.stageStatus || '')))
+    .filter((lead) => !lead.contactReview?.checkedAt)
+    .map((lead) => enrichLeadScore({ ...lead }))
+    .sort((a, b) => (b.fitScore ?? b.priority ?? 0) - (a.fitScore ?? a.priority ?? 0))
+    .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
 }
 
 function isScoutLane(lead = {}) {
