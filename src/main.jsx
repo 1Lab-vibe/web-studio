@@ -8,15 +8,20 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
+  CreditCard,
   Film,
+  FileText,
   Gauge,
   Globe2,
+  LayoutDashboard,
   LockKeyhole,
   LogOut,
   Mail,
   MapPinned,
   MessageSquareText,
+  MonitorSmartphone,
   PauseCircle,
+  PenLine,
   PhoneCall,
   Radar,
   RefreshCcw,
@@ -25,6 +30,7 @@ import {
   ShieldCheck,
   Smartphone,
   Sparkles,
+  UserRound,
   Wand2,
   X,
 } from 'lucide-react';
@@ -164,6 +170,489 @@ function shortId(value) {
 }
 
 function App() {
+  const [path, setPath] = useState(() => window.location.pathname);
+
+  useEffect(() => {
+    const syncPath = () => setPath(window.location.pathname);
+    window.addEventListener('popstate', syncPath);
+    return () => window.removeEventListener('popstate', syncPath);
+  }, []);
+
+  if (path.startsWith('/admin_cabinet')) return <AdminApp />;
+  if (path.startsWith('/cabinet')) return <CustomerCabinet />;
+  return <PublicSite />;
+}
+
+function PublicSite() {
+  return (
+    <main className="public-shell">
+      <header className="public-nav">
+        <a className="public-brand" href="/">
+          <span className="public-brand-mark">1L</span>
+          <span>1Lab Web Studio</span>
+        </a>
+        <nav>
+          <a href="#process">Как работаем</a>
+          <a href="#cabinet">Кабинет</a>
+          <a href="#pricing">Стоимость</a>
+          <a href="/legal">Документы</a>
+        </nav>
+        <div className="public-nav-actions">
+          <a className="public-link" href="/admin_cabinet">Админка</a>
+          <a className="public-button small" href="/cabinet">Личный кабинет</a>
+        </div>
+      </header>
+
+      <section className="public-hero">
+        <div className="hero-copy">
+          <h1>Сайт, который можно развивать диалогом</h1>
+          <p>
+            1Lab Web Studio запускает сайт под бизнес, показывает первое рабочее превью, подключает оплату и оставляет владельцу личный кабинет,
+            где правки можно ставить обычным сообщением.
+          </p>
+          <div className="hero-actions">
+            <a className="public-button" href="/cabinet">Начать проект</a>
+            <a className="public-ghost" href="#process">Посмотреть процесс</a>
+          </div>
+          <div className="hero-proof">
+            <span><CheckCircle2 size={16} /> первое превью до оплаты</span>
+            <span><ShieldCheck size={16} /> юридические согласия</span>
+            <span><MessageSquareText size={16} /> правки через диалог</span>
+          </div>
+        </div>
+        <div className="hero-product" aria-label="Интерфейс личного кабинета">
+          <div className="hero-window">
+            <div className="hero-window-top">
+              <span />
+              <span />
+              <span />
+              <strong>Проект: фотостудия</strong>
+            </div>
+            <div className="hero-preview">
+              <div className="preview-frame">
+                <div>
+                  <strong>Lucky Studio</strong>
+                  <p>Атмосферные залы, быстрый запрос бронирования и портфолио съемок.</p>
+                </div>
+                <button type="button">Оставить заявку</button>
+              </div>
+              <div className="dialog-card">
+                <small>Диалог с сайтом</small>
+                <p>Заменить hero-фото, добавить блок с залами и карту с точкой на адресе.</p>
+                <span>Правка проверяется и уходит в работу</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="public-band" id="process">
+        <div className="section-title">
+          <h2>Полный цикл без хаоса в переписке</h2>
+          <p>Сайт, задачи, превью, оплата и дальнейшие правки живут в одном контуре.</p>
+        </div>
+        <div className="process-grid">
+          {[
+            ['01', 'Заявка и согласия', 'Клиент регистрируется на сайте, подтверждает email и явно принимает юридические документы.'],
+            ['02', 'ТЗ из сообщений', 'Кабинет собирает пожелания, материалы и уточнения в структурированный бриф.'],
+            ['03', 'Первое превью', 'Мы готовим рабочую версию сайта и показываем ссылку в кабинете.'],
+            ['04', 'Оплата и правки', 'После согласованного превью появляется ссылка на оплату, а правки ставятся обычным текстом.'],
+          ].map(([num, title, text]) => (
+            <article className="process-step" key={num}>
+              <span>{num}</span>
+              <h3>{title}</h3>
+              <p>{text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="cabinet-showcase" id="cabinet">
+        <div>
+          <h2>Личный кабинет для владельца сайта</h2>
+          <p>
+            Клиент видит превью, статус оплаты, историю задач и может отправить новую правку без технических формулировок. Простые изменения уходят в
+            быстрый кодер-процесс, сложные задачи проходят отдельную сборку и проверку качества.
+          </p>
+          <a className="public-button" href="/cabinet">Открыть кабинет</a>
+        </div>
+        <div className="showcase-panel">
+          <div className="showcase-row">
+            <MonitorSmartphone size={20} />
+            <span>Превью сайта</span>
+            <strong>готовится</strong>
+          </div>
+          <div className="showcase-row">
+            <CreditCard size={20} />
+            <span>Оплата</span>
+            <strong>после превью</strong>
+          </div>
+          <div className="showcase-row">
+            <PenLine size={20} />
+            <span>Правки</span>
+            <strong>через диалог</strong>
+          </div>
+          <div className="showcase-row">
+            <FileText size={20} />
+            <span>Документы</span>
+            <strong>в открытом доступе</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="pricing-section" id="pricing">
+        <div className="pricing-copy">
+          <h2>Старт от 30 000 ₽ за сайт-визитку</h2>
+          <p>
+            Итоговая стоимость зависит от количества страниц, интеграций, контента и объема автоматизации. Первое превью помогает увидеть направление
+            до оплаты и согласовать состав работ без лишней неопределенности.
+          </p>
+        </div>
+        <div className="pricing-card">
+          <strong>Что входит в старт</strong>
+          <ul>
+            <li>первый экран и структура сайта;</li>
+            <li>форма заявки и контакты;</li>
+            <li>адаптация под мобильные устройства;</li>
+            <li>личный кабинет для дальнейших правок;</li>
+            <li>публикация на домене клиента после настройки DNS.</li>
+          </ul>
+          <a className="public-button" href="/cabinet">Зарегистрироваться</a>
+        </div>
+      </section>
+
+      <footer className="public-footer">
+        <span>© 1Lab Web Studio</span>
+        <nav>
+          <a href="/privacy">Политика ПД</a>
+          <a href="/personal-data-consent">Согласие ПД</a>
+          <a href="/marketing-consent">Маркетинг</a>
+          <a href="/offer">Оферта</a>
+          <a href="/disclaimer">Дисклеймер</a>
+        </nav>
+      </footer>
+    </main>
+  );
+}
+
+function CustomerCabinet() {
+  const [session, setSession] = useState({ loading: true, authenticated: false, projects: [] });
+  const [activeProjectId, setActiveProjectId] = useState('');
+  const [message, setMessage] = useState('');
+  const [revision, setRevision] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState('');
+
+  const loadSession = async () => {
+    const response = await apiFetch('/api/customer/session', { credentials: 'include' });
+    const data = await response.json();
+    setSession({ loading: false, authenticated: Boolean(data.authenticated), email: data.email || '', projects: data.projects || [] });
+    setActiveProjectId((current) => current || data.projects?.[0]?.id || '');
+  };
+
+  useEffect(() => {
+    loadSession().catch(() => setSession({ loading: false, authenticated: false, projects: [] }));
+  }, []);
+
+  const runCustomerAction = async (label, request, successText) => {
+    setBusy(label);
+    setNotice('');
+    try {
+      const response = await request();
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false) throw new Error(result.error || 'Не удалось выполнить действие');
+      setNotice(successText);
+      await loadSession();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const logout = async () => {
+    await apiFetch('/api/customer/logout', { method: 'POST', credentials: 'include' });
+    setSession({ loading: false, authenticated: false, projects: [] });
+  };
+
+  if (session.loading) return <main className="customer-shell loading" />;
+  if (!session.authenticated) {
+    return (
+      <main className="customer-shell">
+        <CustomerHeader />
+        <section className="customer-auth-layout">
+          <div>
+            <h1>Личный кабинет 1Lab</h1>
+            <p>Зарегистрируйтесь по email, подтвердите код и ведите проект сайта через понятный диалог: бриф, превью, оплата и правки.</p>
+            <div className="cabinet-benefits">
+              <span><CheckCircle2 size={16} /> превью в одном месте</span>
+              <span><CheckCircle2 size={16} /> оплата после готового направления</span>
+              <span><CheckCircle2 size={16} /> история правок и статусов</span>
+            </div>
+          </div>
+          <CustomerRegistration onVerified={loadSession} />
+        </section>
+      </main>
+    );
+  }
+
+  const activeProject = session.projects.find((project) => project.id === activeProjectId) || session.projects[0] || null;
+  return (
+    <main className="customer-shell">
+      <CustomerHeader email={session.email} onLogout={logout} />
+      {notice && <div className="customer-notice">{notice}</div>}
+      <section className="customer-dashboard">
+        <aside className="project-list">
+          <div className="project-list-head">
+            <LayoutDashboard size={18} />
+            <strong>Мои сайты</strong>
+          </div>
+          {session.projects.length ? (
+            session.projects.map((project) => (
+              <button className={project.id === activeProject?.id ? 'active' : ''} type="button" key={project.id} onClick={() => setActiveProjectId(project.id)}>
+                <strong>{project.businessName || project.name}</strong>
+                <span>{project.stageStatus || project.status || 'в работе'}</span>
+              </button>
+            ))
+          ) : (
+            <div className="empty-customer">Проект появится после регистрации заявки.</div>
+          )}
+        </aside>
+
+        <section className="project-workspace">
+          {activeProject ? (
+            <>
+              <div className="project-hero-card">
+                <div>
+                  <small>Проект</small>
+                  <h1>{activeProject.businessName || activeProject.name}</h1>
+                  <p>Статус: {activeProject.stageStatus || activeProject.status || 'в работе'}</p>
+                </div>
+                <div className="project-actions">
+                  {activeProject.previewUrl ? <a className="public-button small" href={activeProject.previewUrl} target="_blank" rel="noreferrer">Открыть превью</a> : <span className="ghost-status">Превью готовится</span>}
+                  {activeProject.paymentUrl ? <a className="public-button small dark" href={activeProject.paymentUrl} target="_blank" rel="noreferrer">Оплатить</a> : (
+                    <button
+                      type="button"
+                      disabled={Boolean(busy) || !activeProject.previewUrl}
+                      onClick={() => runCustomerAction('payment', () => apiFetch(`/api/customer/projects/${activeProject.id}/payment`, { method: 'POST', credentials: 'include' }), 'Запросили ссылку на оплату')}
+                    >
+                      Получить счет
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="preview-panel">
+                {activeProject.previewUrl ? (
+                  <iframe title="Превью сайта" src={activeProject.previewUrl} />
+                ) : (
+                  <div className="preview-empty">
+                    <MonitorSmartphone size={34} />
+                    <strong>Превью появится здесь</strong>
+                    <span>Утвердите ТЗ, и сборка сайта запустится автоматически.</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="cabinet-grid">
+                <form
+                  className="dialog-panel"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    runCustomerAction(
+                      'brief',
+                      () =>
+                        apiFetch(`/api/customer/projects/${activeProject.id}/brief`, {
+                          method: 'POST',
+                          credentials: 'include',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ text: message, approved: true }),
+                        }),
+                      'ТЗ отправлено и поставлено в работу',
+                    );
+                    setMessage('');
+                  }}
+                >
+                  <strong>Собрать или обновить ТЗ</strong>
+                  <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Напишите, какой сайт нужен, какие разделы, стиль, примеры, контакты и материалы..." />
+                  <button type="submit" disabled={Boolean(busy) || !message.trim()}>Утвердить ТЗ и собрать превью</button>
+                </form>
+
+                <form
+                  className="dialog-panel"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    runCustomerAction(
+                      'revision',
+                      () =>
+                        apiFetch(`/api/customer/projects/${activeProject.id}/revision`, {
+                          method: 'POST',
+                          credentials: 'include',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ text: revision }),
+                        }),
+                      'Правка поставлена в очередь',
+                    );
+                    setRevision('');
+                  }}
+                >
+                  <strong>Правки по сайту</strong>
+                  <textarea value={revision} onChange={(event) => setRevision(event.target.value)} placeholder="Например: заменить фото, добавить карту, изменить телефон, добавить блок с тарифами..." />
+                  <button type="submit" disabled={Boolean(busy) || !revision.trim()}>Отправить правку</button>
+                  <small>Правки запускаются после оплаты проекта. До оплаты можно уточнять ТЗ.</small>
+                </form>
+              </div>
+            </>
+          ) : (
+            <div className="preview-empty">
+              <UserRound size={34} />
+              <strong>Проектов пока нет</strong>
+              <span>Создайте заявку через форму регистрации.</span>
+            </div>
+          )}
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function CustomerHeader({ email, onLogout }) {
+  return (
+    <header className="customer-header">
+      <a className="public-brand" href="/">
+        <span className="public-brand-mark">1L</span>
+        <span>1Lab Web Studio</span>
+      </a>
+      <nav>
+        <a href="/legal">Документы</a>
+        <a href="/admin_cabinet">Админка</a>
+        {email ? <button type="button" onClick={onLogout}>{email} · выйти</button> : <a href="/cabinet">Войти</a>}
+      </nav>
+    </header>
+  );
+}
+
+function CustomerRegistration({ onVerified }) {
+  const [form, setForm] = useState({ name: '', businessName: '', email: '', phone: '', goal: '', personalDataConsent: false, marketingConsent: false });
+  const [phase, setPhase] = useState('form');
+  const [leadId, setLeadId] = useState('');
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  const register = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const response = await apiFetch('/api/customer/register', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false) throw new Error(result.error || 'Не удалось зарегистрироваться');
+      setLeadId(result.leadId);
+      setPhase('code');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verify = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const response = await apiFetch('/api/customer/verify', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId, email: form.email, code }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false) throw new Error(result.error || 'Код не подошел');
+      await onVerified?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (phase === 'code') {
+    return (
+      <form className="customer-form" onSubmit={verify}>
+        <strong>Подтвердите email</strong>
+        <p>Мы отправили 6-значный код на {form.email}. Код действует 15 минут.</p>
+        <label>
+          <span>Код из письма</span>
+          <input inputMode="numeric" value={code} onChange={(event) => setCode(event.target.value)} />
+        </label>
+        {error && <p className="auth-error">{error}</p>}
+        <button type="submit" disabled={busy || code.length < 4}>Войти в кабинет</button>
+        <button
+          type="button"
+          className="text-button"
+          disabled={busy}
+          onClick={async () => {
+            await apiFetch('/api/customer/resend-code', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ leadId, email: form.email }),
+            });
+          }}
+        >
+          Отправить код заново
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <form className="customer-form" onSubmit={register}>
+      <strong>Регистрация проекта</strong>
+      <label>
+        <span>Ваше имя</span>
+        <input value={form.name} onChange={(event) => update('name', event.target.value)} required />
+      </label>
+      <label>
+        <span>Название бизнеса</span>
+        <input value={form.businessName} onChange={(event) => update('businessName', event.target.value)} required />
+      </label>
+      <label>
+        <span>Email</span>
+        <input type="email" value={form.email} onChange={(event) => update('email', event.target.value)} required />
+      </label>
+      <label>
+        <span>Телефон</span>
+        <input value={form.phone} onChange={(event) => update('phone', event.target.value)} />
+      </label>
+      <label>
+        <span>Коротко о задаче</span>
+        <textarea value={form.goal} onChange={(event) => update('goal', event.target.value)} placeholder="Например: сайт для студии, услуги, портфолио, форма заявки, карта..." />
+      </label>
+      <label className="checkline">
+        <input type="checkbox" checked={form.personalDataConsent} onChange={(event) => update('personalDataConsent', event.target.checked)} />
+        <span>Я принимаю <a href="/personal-data-consent" target="_blank" rel="noreferrer">согласие на обработку ПД</a> и <a href="/privacy" target="_blank" rel="noreferrer">политику</a></span>
+      </label>
+      <label className="checkline">
+        <input type="checkbox" checked={form.marketingConsent} onChange={(event) => update('marketingConsent', event.target.checked)} />
+        <span>Согласен получать информационные и маркетинговые сообщения о проекте и услугах</span>
+      </label>
+      {error && <p className="auth-error">{error}</p>}
+      <button type="submit" disabled={busy || !form.personalDataConsent}>Получить код и войти</button>
+    </form>
+  );
+}
+
+function AdminApp() {
   const [auth, setAuth] = useState({ loading: true, authenticated: false, authEnabled: true, user: null });
   const [backend, setBackend] = useState({
     status: 'offline',

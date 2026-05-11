@@ -15,6 +15,7 @@ import { handleCustomerTelegramCallback, handleCustomerTelegramMessage, isCustom
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
 import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
 import { registerLegalRoutes } from './services/legalDocs.js';
+import { registerCustomerWebRoutes } from './services/customerWeb.js';
 import {
   listLovableTools,
   lovableOAuthTokenStatus,
@@ -60,6 +61,7 @@ app.use('/api', (req, res, next) => {
 });
 registerMcpRoutes(app, store);
 registerAuth(app, store);
+registerCustomerWebRoutes(app, store);
 app.use('/renders', express.static(path.resolve(config.DATA_DIR, 'renders')));
 app.use('/projects', express.static(path.resolve(config.DATA_DIR, 'projects')));
 {

@@ -360,7 +360,7 @@ export class Orchestrator {
   async runLovableBuildJob(leadId, { skipQuota = false, customerChatId = '', rebuild = false } = {}) {
     let lead = this.store.getLead(leadId);
     if (!lead) throw new Error('Lead not found');
-    if (lead.source === 'telegram_inbound' || customerChatId) {
+    if (['telegram_inbound', 'web_inbound'].includes(lead.source) || customerChatId) {
       const issues = customerBriefSafetyIssues(lead);
       if (issues.length) {
         await this.store.cancelLeadJobs(lead.id, ['customer_preview_build', 'lovable_build', 'coder_deploy', 'filmer_render', 'checker_eval', 'outbound_queue'], 'Customer brief safety gate failed');
@@ -397,7 +397,7 @@ export class Orchestrator {
         outboundStatus: '',
       });
     }
-    const quotaFreeBuild = skipQuota || ['telegram_inbound', 'manual_smoke'].includes(lead.source);
+    const quotaFreeBuild = skipQuota || ['telegram_inbound', 'web_inbound', 'manual_smoke'].includes(lead.source);
     if (!quotaFreeBuild && !isLovableEligible(lead)) {
       await this.store.transitionLead(lead.id, {
         pipelineStage: 'diagnosed',

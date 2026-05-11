@@ -27,7 +27,7 @@
 
 body {
   margin: 0;
-  min-width: 1120px;
+  min-width: 0;
   background: var(--bg);
   color: var(--ink);
 }
@@ -44,7 +44,732 @@ button {
 
 .app-shell {
   min-height: 100vh;
+  min-width: 1120px;
   padding: 16px;
+}
+
+.public-shell,
+.customer-shell {
+  background: #f7f8fb;
+  color: #101217;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.public-shell a,
+.customer-shell a {
+  color: inherit;
+}
+
+.public-nav,
+.customer-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 20px 24px;
+}
+
+.public-brand {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 900;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.public-brand-mark {
+  align-items: center;
+  background: #111318;
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.public-nav nav,
+.customer-header nav,
+.public-nav-actions {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+}
+
+.public-nav nav a,
+.customer-header nav a,
+.public-link,
+.customer-header button {
+  background: transparent;
+  border: 0;
+  color: #5f6877;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.public-button,
+.public-ghost,
+.project-actions button,
+.customer-form button,
+.dialog-panel button {
+  align-items: center;
+  border-radius: 8px;
+  display: inline-flex;
+  font-weight: 900;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 18px;
+  text-decoration: none;
+}
+
+.public-button,
+.customer-form button,
+.dialog-panel button,
+.project-actions button {
+  background: #111318;
+  border: 1px solid #111318;
+  color: #fff;
+}
+
+.public-shell a.public-button,
+.customer-shell a.public-button {
+  color: #fff;
+}
+
+.public-shell a.public-ghost,
+.customer-shell a.public-ghost {
+  color: #111318;
+}
+
+.public-button.small {
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.public-button.dark {
+  background: #0b5d56;
+  border-color: #0b5d56;
+}
+
+.public-ghost {
+  background: #fff;
+  border: 1px solid #d8dde6;
+  color: #111318;
+}
+
+.public-hero {
+  display: grid;
+  gap: 42px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(420px, 1.1fr);
+  margin: 12px auto 0;
+  max-width: 1180px;
+  min-height: 650px;
+  padding: 70px 24px 54px;
+}
+
+.hero-copy {
+  align-self: center;
+}
+
+.hero-copy h1,
+.customer-auth-layout h1,
+.project-hero-card h1 {
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.hero-copy h1 {
+  font-size: 64px;
+  line-height: 0.96;
+  max-width: 680px;
+}
+
+.hero-copy p {
+  color: #4e5968;
+  font-size: 20px;
+  line-height: 1.55;
+  margin: 26px 0 0;
+  max-width: 640px;
+}
+
+.hero-actions,
+.hero-proof {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.hero-proof {
+  color: #536071;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.hero-proof span {
+  align-items: center;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 800;
+  gap: 7px;
+}
+
+.hero-product {
+  align-items: center;
+  display: flex;
+}
+
+.hero-window {
+  background: #15171d;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 32px 90px rgba(17, 19, 24, 0.25);
+  color: #fff;
+  min-height: 520px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.hero-window-top {
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.hero-window-top span {
+  background: #6b7280;
+  border-radius: 999px;
+  height: 10px;
+  width: 10px;
+}
+
+.hero-window-top strong {
+  color: #cdd5e1;
+  font-size: 13px;
+  margin-left: 8px;
+}
+
+.hero-preview {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 1fr 0.78fr;
+  padding: 24px;
+}
+
+.preview-frame {
+  aspect-ratio: 0.78;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.48)),
+    radial-gradient(circle at 30% 15%, #ffd7b2, transparent 28%),
+    linear-gradient(135deg, #ede3d4 0%, #b7c1c8 42%, #252b31 100%);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 24px;
+}
+
+.preview-frame strong {
+  display: block;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.preview-frame p {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 15px;
+  line-height: 1.45;
+  margin: 12px 0 0;
+}
+
+.preview-frame button {
+  background: #fff;
+  border: 0;
+  border-radius: 8px;
+  color: #111318;
+  font-weight: 900;
+  height: 42px;
+}
+
+.dialog-card {
+  align-self: end;
+  background: #fff;
+  border-radius: 14px;
+  color: #111318;
+  padding: 18px;
+}
+
+.dialog-card small,
+.project-hero-card small {
+  color: #657083;
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.dialog-card p {
+  font-size: 18px;
+  font-weight: 850;
+  line-height: 1.3;
+  margin: 12px 0;
+}
+
+.dialog-card span {
+  color: #0b5d56;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.public-band,
+.cabinet-showcase,
+.pricing-section,
+.public-footer {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 72px 24px;
+}
+
+.section-title {
+  max-width: 720px;
+}
+
+.section-title h2,
+.cabinet-showcase h2,
+.pricing-copy h2 {
+  font-size: 42px;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.section-title p,
+.cabinet-showcase p,
+.pricing-copy p {
+  color: #5d6675;
+  font-size: 18px;
+  line-height: 1.55;
+  margin: 16px 0 0;
+}
+
+.process-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 34px;
+}
+
+.process-step,
+.pricing-card,
+.showcase-panel,
+.prompt-box,
+.customer-form,
+.project-list,
+.project-hero-card,
+.preview-panel,
+.dialog-panel {
+  background: #fff;
+  border: 1px solid #dfe4ec;
+  border-radius: 8px;
+  box-shadow: 0 14px 40px rgba(18, 24, 36, 0.07);
+}
+
+.process-step {
+  min-height: 210px;
+  padding: 22px;
+}
+
+.process-step span {
+  color: #0b5d56;
+  font-weight: 950;
+}
+
+.process-step h3 {
+  font-size: 20px;
+  margin: 22px 0 10px;
+}
+
+.process-step p,
+.pricing-card li {
+  color: #5d6675;
+  line-height: 1.5;
+}
+
+.cabinet-showcase,
+.pricing-section {
+  display: grid;
+  gap: 50px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(360px, 0.65fr);
+}
+
+.showcase-panel,
+.pricing-card,
+.prompt-box {
+  padding: 24px;
+}
+
+.showcase-row {
+  align-items: center;
+  border-bottom: 1px solid #e7ebf1;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 24px 1fr auto;
+  padding: 16px 0;
+}
+
+.showcase-row:last-child {
+  border-bottom: 0;
+}
+
+.showcase-row strong {
+  color: #0b5d56;
+}
+
+.pricing-card strong,
+.prompt-box strong {
+  display: block;
+  font-size: 20px;
+}
+
+.pricing-card ul {
+  margin: 18px 0 24px;
+  padding-left: 20px;
+}
+
+.prompt-box p {
+  color: #465163;
+  line-height: 1.65;
+  margin: 14px 0 0;
+}
+
+.public-footer {
+  align-items: center;
+  border-top: 1px solid #dfe4ec;
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 34px;
+  padding-top: 34px;
+}
+
+.public-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.public-footer a {
+  color: #5f6877;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.customer-shell {
+  padding-bottom: 56px;
+}
+
+.customer-auth-layout {
+  display: grid;
+  gap: 54px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(360px, 460px);
+  margin: 44px auto 0;
+  max-width: 1100px;
+  padding: 0 24px;
+}
+
+.customer-auth-layout h1 {
+  font-size: 56px;
+  line-height: 1;
+}
+
+.customer-auth-layout p {
+  color: #536071;
+  font-size: 20px;
+  line-height: 1.55;
+  margin: 22px 0;
+}
+
+.cabinet-benefits {
+  display: grid;
+  gap: 10px;
+}
+
+.cabinet-benefits span {
+  align-items: center;
+  color: #334155;
+  display: inline-flex;
+  font-weight: 850;
+  gap: 9px;
+}
+
+.customer-form {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+}
+
+.customer-form strong {
+  font-size: 22px;
+}
+
+.customer-form p {
+  color: #5d6675;
+  font-size: 14px;
+  margin: 0;
+}
+
+.customer-form label,
+.dialog-panel {
+  display: grid;
+  gap: 7px;
+}
+
+.customer-form label span {
+  color: #5d6675;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.customer-form input,
+.customer-form textarea,
+.dialog-panel textarea {
+  background: #fbfcfe;
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  color: #111318;
+  min-height: 42px;
+  outline: 0;
+  padding: 11px 12px;
+}
+
+.customer-form textarea,
+.dialog-panel textarea {
+  min-height: 130px;
+  resize: vertical;
+}
+
+.checkline {
+  align-items: start;
+  display: grid;
+  gap: 10px !important;
+  grid-template-columns: 18px 1fr;
+}
+
+.checkline input {
+  min-height: 18px;
+}
+
+.text-button {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: #0b5d56 !important;
+}
+
+.customer-dashboard {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  margin: 18px auto 0;
+  max-width: 1180px;
+  padding: 0 24px;
+}
+
+.customer-notice {
+  background: #fff;
+  border: 1px solid #dfe4ec;
+  border-radius: 8px;
+  color: #334155;
+  margin: 0 auto 12px;
+  max-width: 1132px;
+  padding: 12px 14px;
+}
+
+.project-list {
+  align-self: start;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.project-list-head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  padding: 4px;
+}
+
+.project-list button {
+  background: #f8fafc;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  color: #111318;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  text-align: left;
+}
+
+.project-list button.active {
+  background: #ecf7f5;
+  border-color: #a7d9d0;
+}
+
+.project-list button span {
+  color: #607084;
+  font-size: 12px;
+}
+
+.project-workspace {
+  display: grid;
+  gap: 16px;
+}
+
+.project-hero-card {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 20px;
+}
+
+.project-hero-card h1 {
+  font-size: 32px;
+  margin-top: 6px;
+}
+
+.project-hero-card p {
+  color: #607084;
+  margin: 8px 0 0;
+}
+
+.project-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.project-actions button:disabled,
+.customer-form button:disabled,
+.dialog-panel button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.ghost-status {
+  background: #f2f5f8;
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  color: #607084;
+  font-size: 13px;
+  font-weight: 850;
+  padding: 10px 12px;
+}
+
+.preview-panel {
+  min-height: 430px;
+  overflow: hidden;
+}
+
+.preview-panel iframe {
+  border: 0;
+  height: 620px;
+  transform: scale(0.72);
+  transform-origin: top left;
+  width: 138.8%;
+}
+
+.preview-empty,
+.empty-customer {
+  align-items: center;
+  color: #607084;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+  min-height: 320px;
+  text-align: center;
+}
+
+.preview-empty strong {
+  color: #111318;
+  font-size: 20px;
+}
+
+.cabinet-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.dialog-panel {
+  padding: 18px;
+}
+
+.dialog-panel strong {
+  font-size: 18px;
+}
+
+.dialog-panel small {
+  color: #607084;
+}
+
+@media (max-width: 900px) {
+  .public-nav,
+  .customer-header,
+  .public-footer,
+  .project-hero-card {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .public-nav nav,
+  .customer-header nav,
+  .public-nav-actions,
+  .project-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .public-hero,
+  .cabinet-showcase,
+  .pricing-section,
+  .customer-auth-layout,
+  .customer-dashboard,
+  .cabinet-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .public-hero {
+    min-height: auto;
+    padding-top: 34px;
+  }
+
+  .hero-copy h1,
+  .customer-auth-layout h1 {
+    font-size: 42px;
+  }
+
+  .hero-copy p,
+  .customer-auth-layout p {
+    font-size: 17px;
+  }
+
+  .hero-preview,
+  .process-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-frame {
+    aspect-ratio: 1.12;
+  }
 }
 
 .topbar {

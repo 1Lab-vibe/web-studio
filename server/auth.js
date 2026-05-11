@@ -162,6 +162,7 @@ function publicApiPath(req) {
   const pathname = new URL(req.originalUrl, 'http://localhost').pathname;
   if (pathname === '/api/health') return true;
   if (pathname.startsWith('/api/auth/')) return true;
+  if (pathname.startsWith('/api/customer/')) return true;
   if (pathname === '/api/telegram/webhook') return true;
   if (pathname === '/api/a1/webhook') return true;
   if (pathname.startsWith('/api/consents')) return true;
