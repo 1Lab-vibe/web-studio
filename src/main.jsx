@@ -268,14 +268,14 @@ function PublicSite() {
             <Sparkles size={16} />
             <span>Первое рабочее превью до оплаты</span>
           </div>
-          <h1>Сайты, которые выглядят как продукт, а не как шаблон</h1>
+          <h1>Сайт, который продает, пока вы занимаетесь бизнесом</h1>
           <p>
-            1Lab Web Studio собирает продающий сайт под вашу нишу, показывает живую ссылку, подключает заявку, оплату и оставляет личный кабинет,
-            где сайт можно развивать обычным диалогом.
+            Показываем живое превью до оплаты, доводим первый экран, форму заявки, доверие и мобильную версию, а затем оставляем кабинет,
+            где сайт можно развивать обычным сообщением.
           </p>
           <div className="hero-actions">
-            <a className="public-button" href="/cabinet">Запустить свой сайт</a>
-            <a className="public-ghost" href="#portfolio">Посмотреть работы</a>
+            <a className="public-button" href="/cabinet">Получить превью сайта</a>
+            <a className="public-ghost" href="#portfolio">Смотреть примеры</a>
           </div>
           <div className="hero-proof">
             <span><CheckCircle2 size={16} /> оплата после согласованного превью</span>
@@ -297,24 +297,19 @@ function PublicSite() {
             </div>
           </div>
         </div>
-        <div className="hero-product" aria-label="Примеры готовых сайтов">
-          <div className="hero-browser">
-            <div className="hero-browser-top">
-              <span />
-              <span />
-              <span />
-              <strong>webstudio.1true.ru/projects</strong>
+        <div className="hero-product" aria-label="Визуал 1Lab Web Studio">
+          <div className="hero-image-shell">
+            <img src="/hero/1lab-webstudio-hero.png" alt="1Lab Web Studio: рабочее превью сайта и кабинет проекта" />
+            <div className="hero-visual-card top">
+              <small>из идеи в ссылку</small>
+              <strong>Превью сайта</strong>
+              <span>первый экран, заявка, доверие</span>
             </div>
-            <img src="/portfolio/lucky.png" alt="Пример сайта фотостудии Lucky" />
-            <div className="hero-floating-card">
-              <small>превью готово</small>
-              <strong>Фотостудия Lucky</strong>
-              <p>Hero, залы, бронирование, контакты и адаптивная версия уже собраны в рабочую ссылку.</p>
+            <div className="hero-visual-card bottom">
+              <small>после запуска</small>
+              <strong>Правки диалогом</strong>
+              <span>контент, блоки, карта, формы</span>
             </div>
-          </div>
-          <div className="hero-stack">
-            <img src="/portfolio/ai.png" alt="Пример сайта AI-студии" />
-            <img src="/portfolio/estate.png" alt="Пример сайта агентства недвижимости" />
           </div>
         </div>
       </section>
