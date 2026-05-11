@@ -94,9 +94,9 @@ function outboundPreview(lead) {
   const niche = lead?.niche || 'ваш бизнес';
   const angle = lead?.angle || `сделать сайт, который быстро объясняет ценность ${business} и ведет клиента к заявке`;
   const diagnosis = lead?.diagnosis || 'Сейчас часть клиентов может уходить к тем, кого проще найти, понять и быстро оставить заявку онлайн.';
-  const fullPrice = lead?.deal || 30000;
-  const price = formatRub(Math.round(fullPrice * 0.5));
-  const fullPriceText = formatRub(fullPrice);
+  const simplePrice = 30000;
+  const fullPrice = Math.max(simplePrice, Number(lead?.deal || 0));
+  const offer = `По стоимости: простой сайт-визитка стоит от ${formatRub(simplePrice)}, а на первый заказ со скидкой 50% - от ${formatRub(Math.round(simplePrice * 0.5))}. Вариант с полным функционалом под вашу задачу агент оценил в ${formatRub(fullPrice)}; на первый заказ такая конфигурация также идет со скидкой 50% - ориентир ${formatRub(Math.round(fullPrice * 0.5))}.`;
   const body = [
     greeting,
     '',
@@ -108,10 +108,15 @@ function outboundPreview(lead) {
     siteUrl ? `Посмотрите превью: ${siteUrl}` : '',
     videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
     '',
-    `Если направление нравится, мы быстро заменим тексты, фотографии, цены, контакты и форму заявки под вас. На первый заказ действует скидка 50%: старт простого сайта-визитки — от ${price} вместо ${fullPriceText}, оплата после первого согласованного превью.`,
+    `Если направление нравится, мы быстро заменим тексты, фотографии, цены, контакты и форму заявки под вас. ${offer}`,
     botLink ? `Правки и ТЗ можно дать прямо в Telegram-боте: ${botLink}` : '',
     '',
     'Если не актуально, просто ответьте “не интересно”, больше не будем отвлекать.',
+    '',
+    'С уважением,',
+    'студия 1Lab, Иван',
+    'Telegram: @Van_true777',
+    'Телефон: 8-905-777-76-72',
   ]
     .filter(Boolean)
     .join('\n')

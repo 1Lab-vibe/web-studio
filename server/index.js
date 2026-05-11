@@ -108,6 +108,7 @@ app.get('/api/health', (req, res) => {
     },
     autonomy: {
       maxJobsPerTick: config.AUTONOMY_MAX_JOBS_PER_TICK,
+      maxDiagnoseJobsPerTick: config.AUTONOMY_MAX_DIAGNOSE_JOBS_PER_TICK,
       maxLovableJobsPerTick: config.AUTONOMY_MAX_LOVABLE_JOBS_PER_TICK,
       maxFilmerJobsPerTick: config.AUTONOMY_MAX_FILMER_JOBS_PER_TICK,
       jobLockMinutes: config.AUTONOMY_JOB_LOCK_MINUTES,
@@ -320,8 +321,10 @@ app.post('/api/telegram/webhook', async (req, res) => {
     if (got !== config.TELEGRAM_WEBHOOK_SECRET) return res.status(401).json({ ok: false });
   }
 
-  await processTelegramUpdate(req.body);
   res.json({ ok: true });
+  setImmediate(() => {
+    processTelegramUpdate(req.body).catch((error) => console.error('Telegram webhook update handling failed', error));
+  });
 });
 
 if (config.NODE_ENV === 'production') {

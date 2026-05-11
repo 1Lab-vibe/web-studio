@@ -93,7 +93,7 @@ export async function generateNicheImageUrl(prompt, { seed = 0, niche = '', size
   if (!safePrompt) return '';
   if (!openai) return fallbackImageUrl(safePrompt, seed);
 
-  const hash = promptHash([safePrompt, niche, size, config.OPENAI_IMAGE_MODEL, config.OPENAI_IMAGE_QUALITY]);
+  const hash = promptHash([safePrompt, niche, size, seed, config.OPENAI_IMAGE_MODEL, config.OPENAI_IMAGE_QUALITY]);
   const fileName = `${hash}.png`;
   const target = path.join(imagesDir(), fileName);
   if (await fileExists(target)) return publicUrlFor(fileName);

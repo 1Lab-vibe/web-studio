@@ -656,7 +656,7 @@ export class Store {
     return recovered;
   }
 
-  async claimNextJobs({ limit = 3, lockMinutes = 30, maxLovable = 1, maxFilmer = 1 } = {}) {
+  async claimNextJobs({ limit = 3, lockMinutes = 30, maxLovable = 1, maxFilmer = 1, maxDiagnose = Infinity } = {}) {
     this.state.jobs ??= [];
     const now = new Date();
     const runningLeadIds = new Set(
@@ -672,11 +672,13 @@ export class Store {
     const claimed = [];
     let lovableCount = 0;
     let filmerCount = 0;
+    let diagnoseCount = 0;
     for (const job of candidates) {
       if (claimed.length >= Number(limit)) break;
       if (job.leadId && runningLeadIds.has(job.leadId)) continue;
       if (job.type === 'lovable_build' && lovableCount >= Number(maxLovable)) continue;
       if (job.type === 'filmer_render' && filmerCount >= Number(maxFilmer)) continue;
+      if (job.type === 'diagnose_lead' && diagnoseCount >= Number(maxDiagnose)) continue;
       job.status = 'running';
       job.attempts = Number(job.attempts ?? 0) + 1;
       job.startedAt = now.toISOString();
@@ -687,6 +689,7 @@ export class Store {
       if (job.leadId) runningLeadIds.add(job.leadId);
       if (job.type === 'lovable_build') lovableCount += 1;
       if (job.type === 'filmer_render') filmerCount += 1;
+      if (job.type === 'diagnose_lead') diagnoseCount += 1;
     }
     if (claimed.length) await this.save();
     return claimed;

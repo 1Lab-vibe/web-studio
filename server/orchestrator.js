@@ -9,7 +9,7 @@ import { enrichContacts } from './services/contactEnrichment.js';
 import { approvalKeyboard, sendTelegram, sendTelegramTo } from './services/telegram.js';
 import { customerBriefSafetyIssues } from './services/customerTelegram.js';
 import { classifyCustomerRevision, isRevisionPaymentOk, revisionPaymentRequiredText } from './services/revisions.js';
-import { enrichLeadScore, isLovableEligible, topLovableCandidates } from './services/scoring.js';
+import { enrichLeadScore, hasEmailContact, hasValidatedEmailContact, isLovableEligible, topLovableCandidates } from './services/scoring.js';
 import { applySimpleRevisionToSourceProject, deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
 import { ensureQualityGate, runPreviewQualityGate } from './services/qualityGate.js';
 import { listSubjectVariants, pickSubjectVariant, recordSubjectSend, variantId } from './services/subjectAB.js';
@@ -145,6 +145,7 @@ export class Orchestrator {
       lockMinutes: config.AUTONOMY_JOB_LOCK_MINUTES,
       maxLovable: config.AUTONOMY_MAX_LOVABLE_JOBS_PER_TICK || config.AUTONOMY_MAX_LOVABLE_BUILDS_PER_TICK,
       maxFilmer: config.AUTONOMY_MAX_FILMER_JOBS_PER_TICK,
+      maxDiagnose: config.AUTONOMY_MAX_DIAGNOSE_JOBS_PER_TICK,
     });
     const started = [];
     const succeeded = [];
@@ -276,6 +277,9 @@ export class Orchestrator {
     if (!lead) throw new Error('Lead not found');
     const gate = await this.checkGates(lead);
     if (!gate.ok) throw new Error(gate.reason || gate.error || 'Gate failed');
+    const contactGate = await this.prepareScoutLeadForDiagnosis(lead);
+    if (!contactGate.ok) return contactGate;
+    lead = contactGate.lead;
     if (!lead.url || !/^https?:\/\//i.test(lead.url)) {
       const discovery = await discoverLeadSite(lead).catch((error) => ({ ok: false, reason: error.message }));
       if (discovery?.ok && discovery.url) {
@@ -818,6 +822,68 @@ export class Orchestrator {
     return { ok: true, lead: syncedLead };
   }
 
+  async prepareScoutLeadForDiagnosis(lead) {
+    if (!isScoutLane(lead)) return { ok: true, lead };
+    const contacts = await enrichContacts(lead);
+    const hasValidEmail = hasValidatedEmailContact({ ...lead, contacts });
+    if (hasValidEmail) {
+      const updated = await this.store.updateLead(lead.id, enrichLeadScore({
+        ...lead,
+        contacts,
+        stageStatus: 'email_verified',
+        lastContactGateAt: new Date().toISOString(),
+      }));
+      await this.store.addEvent(updated.id, 'contacts.verified_for_diagnosis', `Verified email before diagnosis: ${contacts.emailValidation?.best?.value || contacts.emails?.[0] || 'email'}`);
+      await this.addA1Event(updated, 'contacts.verified_for_diagnosis', 'Scout lead has verified email; diagnosis can run', { contacts });
+      return { ok: true, lead: updated };
+    }
+
+    const hasAnyEmail = hasEmailContact({ ...lead, contacts });
+    const hasPhone = Boolean(lead.phone || contacts.phone);
+    const now = new Date().toISOString();
+    const contactReview = {
+      ...(lead.contactReview ?? {}),
+      checkedAt: now,
+      status: hasAnyEmail ? 'invalid_email' : 'no_email_found',
+      hasAnyEmail,
+      hasPhone,
+      sources: contacts.sources,
+      bestEmail: contacts.emailValidation?.best || null,
+      candidates: contacts.emailValidation?.candidates || [],
+    };
+
+    if (!hasPhone && !hasAnyEmail) {
+      const failed = await this.store.updateLead(lead.id, enrichLeadScore({
+        ...lead,
+        contacts,
+        contactReview: { ...contactReview, status: 'no_contacts' },
+        priority: Math.max(0, Number(lead.priority ?? 50) - 30),
+        fitScore: 0,
+        pipelineStage: 'failed',
+        stageStatus: 'no_contacts',
+        status: 'failed',
+        lastTransitionReason: 'no_phone_no_verified_email_after_enrichment',
+      }));
+      await this.store.addEvent(failed.id, 'contacts.no_contacts_failed', 'No phone and no verified email after Scout enrichment; lead failed as no_contacts');
+      await this.addA1Event(failed, 'contacts.no_contacts_failed', 'Lead failed: no phone and no verified email after enrichment', { contacts });
+      return { ok: false, skipped: true, reason: 'no_contacts', lead: failed };
+    }
+
+    const held = await this.store.updateLead(lead.id, enrichLeadScore({
+      ...lead,
+      contacts,
+      contactReview,
+      priority: Math.max(0, Number(lead.priority ?? 50) - 15),
+      pipelineStage: 'scouted',
+      stageStatus: hasAnyEmail ? 'invalid_email_hold' : 'no_verified_email_hold',
+      status: 'contact_hold',
+      lastTransitionReason: hasAnyEmail ? 'email_not_valid_for_diagnosis' : 'no_verified_email_after_enrichment',
+    }));
+    await this.store.addEvent(held.id, hasAnyEmail ? 'contacts.invalid_email_hold' : 'contacts.no_email_hold', hasAnyEmail ? 'Email candidates failed validation; lead left in Scout with lower score' : 'No verified email found; lead left in Scout with lower score');
+    await this.addA1Event(held, hasAnyEmail ? 'contacts.invalid_email_hold' : 'contacts.no_email_hold', hasAnyEmail ? 'Scout lead held: email candidates failed validation' : 'Scout lead held: no verified email found', { contacts });
+    return { ok: false, skipped: true, reason: hasAnyEmail ? 'invalid_email' : 'no_verified_email', lead: held };
+  }
+
   async scheduleFollowups(lead) {
     const now = new Date();
     const day = 24 * 60 * 60 * 1000;
@@ -1051,6 +1117,9 @@ export class Orchestrator {
       }
 
       if (lead.lane === 'Разведка') {
+        const contactGate = await this.prepareScoutLeadForDiagnosis(lead);
+        if (!contactGate.ok) return contactGate;
+        Object.assign(lead, contactGate.lead);
         Object.assign(lead, await diagnoseLead(lead));
         enrichLeadScore(lead);
         await this.store.addEvent(lead.id, 'diagnosis.created', 'Diagnoser подготовил диагноз, сообщение и fitScore');
@@ -1383,6 +1452,10 @@ function actionForLead(lead, topLovableIds) {
     return { action: 'wait_outbound_status', label: 'Письмо уже в очереди A1', score: lead.fitScore ?? 0, autoRunnable: false };
   }
   if (lead.status === 'waiting_approval') return { action: 'approve_or_reject', label: 'Ждет approval', score: 100, autoRunnable: false };
+  if (lead.status === 'failed' || lead.pipelineStage === 'failed') return { action: 'none', label: 'Failed', score: 0, autoRunnable: false };
+  if (isScoutLane(lead) && (lead.status === 'contact_hold' || ['invalid_email_hold', 'no_verified_email_hold', 'no_contacts'].includes(String(lead.stageStatus || '')))) {
+    return { action: 'none', label: 'Scout contact hold', score: 0, autoRunnable: false };
+  }
   if (lead.mockup?.status === 'export_ready' || lead.status === 'export_ready') {
     return { action: 'deploy_lovable_export', label: 'Деплой Lovable export', score: lead.fitScore ?? 0, autoRunnable: true };
   }
@@ -1404,6 +1477,11 @@ function actionForLead(lead, topLovableIds) {
   if (lead.lane === 'Проверка') return { action: 'check_pitch', label: 'Проверить сообщение', score: lead.fitScore ?? 0, autoRunnable: true };
   if (lead.lane === 'Отправка') return { action: 'queue_pitch', label: 'Поставить в очередь отправки', score: lead.fitScore ?? 0, autoRunnable: true };
   return { action: 'none', label: 'Нет действия', score: 0, autoRunnable: false };
+}
+
+function isScoutLane(lead = {}) {
+  const lane = String(lead.lane || '');
+  return lead.pipelineStage === 'scouted' || lead.pipelineStage === 'enriched' || lane === 'Разведка' || lane === 'Р Р°Р·РІРµРґРєР°';
 }
 
 function shouldReviewCustomerBriefBeforeAction(lead = {}) {
@@ -1632,7 +1710,9 @@ function followupEmailBody(lead, stage, { botLink = '', siteUrl = '', videoUrl =
       siteUrl ? `${ctaText}: ${siteUrl}` : '',
       videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
       '',
-      'Если стоит передвинуть встречу или пообсуждать позже — скажите, когда удобно. Если не актуально, просто ответьте «не интересно», и я больше не пишу.',
+      'Если стоит передвинуть встречу или пообсуждать позже - скажите, когда удобно. Если не актуально, просто ответьте «не интересно», и я больше не пишу.',
+      '',
+      emailSignature(),
     ].filter(Boolean).join('\n').trim();
   }
   return [
@@ -1643,7 +1723,9 @@ function followupEmailBody(lead, stage, { botLink = '', siteUrl = '', videoUrl =
     siteUrl ? `Если соберетесь посмотреть превью — оно по-прежнему здесь: ${siteUrl}` : '',
     botLink ? `И есть бот для правок и ТЗ за пару минут: ${botLink}` : '',
     '',
-    'Если сейчас не до этого — это нормально, просто отвечать необязательно. Спасибо, что прочитали.',
+    'Если сейчас не до этого - это нормально, просто отвечать необязательно. Спасибо, что прочитали.',
+    '',
+    emailSignature(),
   ].filter(Boolean).join('\n').trim();
 }
 
@@ -1713,6 +1795,31 @@ function formatRub(value) {
   return `${Number(value ?? 0).toLocaleString('ru-RU')} ₽`;
 }
 
+const SIMPLE_SITE_PRICE_RUB = 30000;
+const FIRST_ORDER_DISCOUNT = 0.5;
+
+function firstOrderPrice(value) {
+  return Math.round(Number(value || 0) * FIRST_ORDER_DISCOUNT);
+}
+
+function salesOfferText(lead = {}) {
+  const fullPrice = Math.max(SIMPLE_SITE_PRICE_RUB, Number(lead.deal || 0));
+  const simplePrice = formatRub(SIMPLE_SITE_PRICE_RUB);
+  const simpleDiscountPrice = formatRub(firstOrderPrice(SIMPLE_SITE_PRICE_RUB));
+  const fullPriceText = formatRub(fullPrice);
+  const fullDiscountText = formatRub(firstOrderPrice(fullPrice));
+  return `По стоимости: простой сайт-визитка стоит от ${simplePrice}, а на первый заказ со скидкой 50% - от ${simpleDiscountPrice}. Вариант с полным функционалом под вашу задачу агент оценил в ${fullPriceText}; на первый заказ такая конфигурация также идет со скидкой 50% - ориентир ${fullDiscountText}. Финальную стоимость фиксируем после согласованного превью и ТЗ.`;
+}
+
+function emailSignature() {
+  return [
+    'С уважением,',
+    'студия 1Lab, Иван',
+    'Telegram: @Van_true777',
+    'Телефон: 8-905-777-76-72',
+  ].join('\n');
+}
+
 function outboundEmailSubject(lead) {
   const subject = String(lead.subject || '').trim();
   if (subject) return subject.slice(0, 120);
@@ -1724,10 +1831,6 @@ function outboundEmailSubject(lead) {
 function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } = {}) {
   const owner = lead.ownerName || lead.contactName || '';
   const greeting = owner ? `${owner}, здравствуйте.` : 'Здравствуйте.';
-  const fullPrice = lead.deal || 30000;
-  const firstOrderPrice = Math.round(fullPrice * 0.5);
-  const price = formatRub(firstOrderPrice);
-  const fullPriceText = formatRub(fullPrice);
   const ctaText = String(lead.ctaText || '').trim() || 'Посмотреть превью';
   const postscript = String(lead.postscript || 'Если сейчас не актуально, просто ответьте «не интересно».').trim();
 
@@ -1736,7 +1839,6 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
     : [];
 
   if (paragraphs.length) {
-    const offerLine = `Для первого заказа действует скидка 50%: от ${price} вместо ${fullPriceText}; финальную стоимость фиксируем после согласованного превью.`;
     return [
       greeting,
       '',
@@ -1746,9 +1848,11 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
       videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
       botLink ? `Бот для правок и ТЗ: ${botLink}` : '',
       '',
-      offerLine,
+      salesOfferText(lead),
       '',
       `P.S. ${postscript}`,
+      '',
+      emailSignature(),
     ].filter((line) => line !== undefined && line !== null).join('\n').trim();
   }
 
@@ -1769,10 +1873,12 @@ function outboundEmailBody(lead, { botLink = '', siteUrl = '', videoUrl = '' } =
     siteUrl ? `${ctaText}: ${siteUrl}` : '',
     videoUrl ? `Короткое видео-превью: ${videoUrl}` : '',
     '',
-    `Если идея близка, ответьте на это письмо или откройте бота - там за пару минут можно оставить правки и собрать точное ТЗ. Для первого заказа действует скидка 50%: запуск простого сайта-визитки - от ${price} вместо ${fullPriceText}; финальную стоимость фиксируем после согласованного превью.`,
+    `Если идея близка, ответьте на это письмо или откройте бота - там за пару минут можно оставить правки и собрать точное ТЗ. ${salesOfferText(lead)}`,
     botLink ? `Бот для правок и ТЗ: ${botLink}` : '',
     '',
     `P.S. ${postscript}`,
+    '',
+    emailSignature(),
   ]
     .filter(Boolean)
     .join('\n')

@@ -589,7 +589,7 @@ async function materializeExternalImageLiterals(sourceRoot, lead = {}) {
       const [literal, , url] = match;
       const context = `${path.basename(file)} external image ${ordinal} ${content.slice(Math.max(0, match.index - 120), match.index + 120)}`;
       const fallbackUrl = await imageRepairUrlV2(lead, context, ordinal);
-      const asset = await materializeRepairImage(sourceRoot, file, `external-${ordinal}`, url, fallbackUrl);
+      const asset = await materializeRepairImage(sourceRoot, file, `external-${ordinal}`, fallbackUrl, url);
       ordinal += 1;
       repaired.push({ file: path.relative(sourceRoot, file), strategy: asset.ok ? 'materialize_external_image_url' : 'external_image_generation_fallback_url', sourceUrl: url, url: asset.url });
       const prefix = content.slice(Math.max(0, (match.index ?? 0) - 24), match.index ?? 0);
@@ -904,7 +904,18 @@ async function imageRepairUrlV2(lead = {}, context = '', ordinal = 0) {
         : generic;
   const matched = set.find(([pattern]) => new RegExp(pattern, 'i').test(roleKey)) || set[Math.abs(Number(ordinal) || 0) % set.length];
   const [, prompt, seedDelta] = matched;
-  return generateNicheImageUrl(prompt, { seed: seed + seedDelta, niche: lead.niche || '' });
+  const brief = lead.customerBrief || {};
+  const variation = [
+    lead.name,
+    lead.city,
+    lead.niche,
+    brief.businessName,
+    brief.services,
+    brief.style,
+    String(context || '').slice(0, 180),
+    `visual slot ${ordinal}`,
+  ].filter(Boolean).join(', ');
+  return generateNicheImageUrl(`${prompt}. Specific business context: ${variation}. Use a distinct composition for this visual slot; do not repeat the same image across sections.`, { seed: seed + seedDelta, niche: lead.niche || '' });
 }
 
 function imageRepairContextKey(lead = {}, context = '') {
