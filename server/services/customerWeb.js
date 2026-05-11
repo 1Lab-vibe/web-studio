@@ -177,43 +177,51 @@ async function recordCustomerConsent(store, req, lead, email, type, decision) {
   });
 }
 
-async function sendVerificationCode(store, lead, email) {
+async function sendVerificationCode(store, lead, email, { mode = 'registration' } = {}) {
   const code = String(randomInt(100000, 999999));
   const expiresAt = new Date(Date.now() + CODE_TTL_MS).toISOString();
+  const loginMode = mode === 'login';
+  const alreadyVerified = Boolean(
+    lead.customerWeb?.emailVerified ||
+      (lead.contacts?.channels || []).some((channel) => channel.type === 'email' && normalizeEmail(channel.value) === email && channel.verified),
+  );
+  const emailVerified = loginMode ? alreadyVerified : false;
   const updated = await store.updateLead(lead.id, {
     customerWeb: {
       ...(lead.customerWeb || {}),
       email,
-      emailVerified: false,
+      emailVerified,
       emailCode: code,
       emailCodeExpiresAt: expiresAt,
-      mode: 'email_code',
+      mode: loginMode ? 'login_email_code' : 'email_code',
+      loginCodeRequestedAt: loginMode ? new Date().toISOString() : lead.customerWeb?.loginCodeRequestedAt || '',
     },
     contacts: {
       ...(lead.contacts || {}),
       emails: Array.from(new Set([...(lead.contacts?.emails || []), email])),
       channels: [
         ...(lead.contacts?.channels || []).filter((channel) => !(channel.type === 'email' && normalizeEmail(channel.value) === email)),
-        { type: 'email', value: email, confidence: 1, verified: false, source: 'web_registration' },
+        { type: 'email', value: email, confidence: 1, verified: emailVerified, source: loginMode ? 'web_login' : 'web_registration' },
       ],
     },
     payment: { ...(lead.payment || {}), customerEmail: email },
-    status: 'email_verification_sent',
-    stageStatus: 'email_verification_sent',
+    status: loginMode ? lead.status || 'login_email_verification_sent' : 'email_verification_sent',
+    stageStatus: loginMode ? lead.stageStatus || 'login_email_verification_sent' : 'email_verification_sent',
   });
+  const idempotencyKey = `webstudio:${updated.id}:web-email-code:${Date.now()}`;
   const sent = await outboundQueueMessage({
     a1LeadId: updated.a1LeadId || updated.a1?.leadId || '',
     externalId: updated.id,
-    dedupeKey: `webstudio:${updated.id}:web-email-code:${Date.now()}`,
+    dedupeKey: idempotencyKey,
     to: email,
     senderProfile: 'no-reply',
     fromAddress: 'no-reply@1true.ru',
-    purpose: 'email_verification',
-    subject: 'Код подтверждения 1Lab Web Studio',
-    body: `Ваш код подтверждения для личного кабинета 1Lab Web Studio: ${code}\n\nКод действует 15 минут.`,
-    idempotencyKey: `webstudio:${updated.id}:web-email-code:${Date.now()}`,
+    purpose: loginMode ? 'login_code' : 'email_verification',
+    subject: loginMode ? 'Код входа в кабинет 1Lab Web Studio' : 'Код подтверждения 1Lab Web Studio',
+    body: `Ваш код ${loginMode ? 'входа' : 'подтверждения'} для личного кабинета 1Lab Web Studio: ${code}\n\nКод действует 15 минут.`,
+    idempotencyKey,
   });
-  await store.addEvent(updated.id, 'customer.web_email_code_sent', `Web cabinet verification code sent to ${email}`);
+  await store.addEvent(updated.id, loginMode ? 'customer.web_login_code_sent' : 'customer.web_email_code_sent', `Web cabinet code sent to ${email}`);
   return { lead: updated, sent };
 }
 
@@ -291,7 +299,7 @@ export function registerCustomerWebRoutes(app, store) {
     await recordCustomerConsent(store, req, lead, email, 'personal_data', 'granted');
     await recordCustomerConsent(store, req, lead, email, 'marketing', req.body?.marketingConsent === true ? 'granted' : 'declined');
     lead = await syncA1(store, lead, 'web_customer_registered');
-    const { lead: codedLead, sent } = await sendVerificationCode(store, lead, email);
+    const { lead: codedLead, sent } = await sendVerificationCode(store, lead, email, { mode: 'registration' });
     await crmAddEvent({
       entityType: 'lead',
       entityId: codedLead.a1LeadId || codedLead.a1?.leadId || codedLead.id,
@@ -301,6 +309,27 @@ export function registerCustomerWebRoutes(app, store) {
       idempotencyKey: `webstudio:${codedLead.id}:web-registered:${codedLead.updatedAt}`,
     });
     res.status(201).json({ ok: true, leadId: codedLead.id, email, emailSent: sent.ok, emailError: sent.ok ? '' : sent.error || sent.reason || '' });
+  });
+
+  app.post('/api/customer/login-code', async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    if (!validEmail(email)) return res.status(400).json({ ok: false, error: 'Укажите корректный email' });
+    const leads = findCustomerLeads(store, email);
+    if (!leads.length) {
+      return res.status(404).json({ ok: false, error: 'Проект с таким email не найден. Создайте заявку или проверьте адрес.' });
+    }
+    const lead = leads.find((item) => item.customerWeb?.emailVerified) || leads[0];
+    const { lead: codedLead, sent } = await sendVerificationCode(store, lead, email, { mode: 'login' });
+    await store.addEvent(codedLead.id, 'customer.web_login_code_requested', `Web cabinet login code requested for ${email}`);
+    await crmAddEvent({
+      entityType: 'lead',
+      entityId: codedLead.a1LeadId || codedLead.a1?.leadId || codedLead.id,
+      eventType: 'customer.web_login_code_requested',
+      text: 'Customer requested Web Studio cabinet login code',
+      payload: { webstudioLeadId: codedLead.id, email },
+      idempotencyKey: `webstudio:${codedLead.id}:web-login-code:${codedLead.updatedAt}`,
+    });
+    res.json({ ok: true, leadId: codedLead.id, email, emailSent: sent.ok, emailError: sent.ok ? '' : sent.error || sent.reason || '' });
   });
 
   app.post('/api/customer/verify', async (req, res) => {
@@ -339,7 +368,7 @@ export function registerCustomerWebRoutes(app, store) {
     const email = normalizeEmail(req.body?.email);
     const lead = store.getLead(req.body?.leadId) || findCustomerLeads(store, email)[0];
     if (!lead || !leadEmails(lead).includes(email)) return res.status(404).json({ ok: false, error: 'Заявка не найдена' });
-    const result = await sendVerificationCode(store, lead, email);
+    const result = await sendVerificationCode(store, lead, email, { mode: req.body?.mode === 'login' ? 'login' : 'registration' });
     res.json({ ok: true, emailSent: result.sent.ok, error: result.sent.ok ? '' : result.sent.error || result.sent.reason || '' });
   });
 

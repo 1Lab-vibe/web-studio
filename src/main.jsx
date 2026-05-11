@@ -470,7 +470,6 @@ function PublicSite() {
           <a href="/marketing-consent">Маркетинг</a>
           <a href="/offer">Оферта</a>
           <a href="/disclaimer">Дисклеймер</a>
-          <a href="/admin_cabinet">Админка</a>
         </nav>
       </footer>
     </main>
@@ -479,6 +478,7 @@ function PublicSite() {
 
 function CustomerCabinet() {
   const [session, setSession] = useState({ loading: true, authenticated: false, projects: [] });
+  const [adminSession, setAdminSession] = useState({ authenticated: false });
   const [activeProjectId, setActiveProjectId] = useState('');
   const [message, setMessage] = useState('');
   const [revision, setRevision] = useState('');
@@ -492,8 +492,19 @@ function CustomerCabinet() {
     setActiveProjectId((current) => current || data.projects?.[0]?.id || '');
   };
 
+  const loadAdminSession = async () => {
+    try {
+      const response = await apiFetch('/api/auth/session', { credentials: 'include' });
+      const data = await response.json().catch(() => ({}));
+      setAdminSession({ authenticated: Boolean(data.authenticated), user: data.user || '' });
+    } catch {
+      setAdminSession({ authenticated: false });
+    }
+  };
+
   useEffect(() => {
     loadSession().catch(() => setSession({ loading: false, authenticated: false, projects: [] }));
+    loadAdminSession();
   }, []);
 
   const runCustomerAction = async (label, request, successText) => {
@@ -519,6 +530,10 @@ function CustomerCabinet() {
 
   if (session.loading) return <main className="customer-shell loading" />;
   if (!session.authenticated) {
+    const initialAuthMode =
+      typeof window !== 'undefined' && (window.location.pathname.startsWith('/cabinet/login') || new URLSearchParams(window.location.search).get('mode') === 'login')
+        ? 'login'
+        : 'register';
     return (
       <main className="customer-shell">
         <CustomerHeader />
@@ -532,7 +547,7 @@ function CustomerCabinet() {
               <span><CheckCircle2 size={16} /> история правок и статусов</span>
             </div>
           </div>
-          <CustomerRegistration onVerified={loadSession} />
+          <CustomerRegistration initialMode={initialAuthMode} onVerified={loadSession} />
         </section>
       </main>
     );
@@ -541,7 +556,7 @@ function CustomerCabinet() {
   const activeProject = session.projects.find((project) => project.id === activeProjectId) || session.projects[0] || null;
   return (
     <main className="customer-shell">
-      <CustomerHeader email={session.email} onLogout={logout} />
+      <CustomerHeader email={session.email} onLogout={logout} showAdmin={adminSession.authenticated} />
       {notice && <div className="customer-notice">{notice}</div>}
       <section className="customer-dashboard">
         <aside className="project-list">
@@ -658,7 +673,7 @@ function CustomerCabinet() {
   );
 }
 
-function CustomerHeader({ email, onLogout }) {
+function CustomerHeader({ email, onLogout, showAdmin = false }) {
   return (
     <header className="customer-header">
       <a className="public-brand" href="/">
@@ -667,14 +682,32 @@ function CustomerHeader({ email, onLogout }) {
       </a>
       <nav>
         <a href="/legal">Документы</a>
-        <a href="/admin_cabinet">Админка</a>
-        {email ? <button type="button" onClick={onLogout}>{email} · выйти</button> : <a href="/cabinet">Войти</a>}
+        {showAdmin && <a href="/admin_cabinet">Админка</a>}
+        {email ? <button type="button" onClick={onLogout}>{email} · выйти</button> : <a href="/cabinet/login">Войти</a>}
       </nav>
     </header>
   );
 }
 
-function CustomerRegistration({ onVerified }) {
+function AuthSwitch({ mode, onChange }) {
+  return (
+    <div className="auth-switch" aria-label="Режим входа">
+      <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => onChange('register')}>
+        Новый проект
+      </button>
+      <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => onChange('login')}>
+        Войти
+      </button>
+    </div>
+  );
+}
+
+function CustomerRegistration({ onVerified, initialMode = 'register' }) {
+  const initialEmail =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('email') || ''
+      : '';
+  const [mode, setMode] = useState(initialMode === 'login' ? 'login' : 'register');
   const [form, setForm] = useState({ name: '', businessName: '', email: '', phone: '', goal: '', personalDataConsent: false, marketingConsent: false });
   const [phase, setPhase] = useState('form');
   const [leadId, setLeadId] = useState('');
@@ -683,6 +716,20 @@ function CustomerRegistration({ onVerified }) {
   const [busy, setBusy] = useState(false);
 
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  useEffect(() => {
+    if (initialEmail) setForm((current) => ({ ...current, email: initialEmail }));
+  }, [initialEmail]);
+
+  const switchMode = (nextMode) => {
+    setMode(nextMode);
+    setPhase('form');
+    setLeadId('');
+    setCode('');
+    setError('');
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', nextMode === 'login' ? '/cabinet/login' : '/cabinet');
+    }
+  };
 
   const register = async (event) => {
     event.preventDefault();
@@ -707,6 +754,29 @@ function CustomerRegistration({ onVerified }) {
     }
   };
 
+  const requestLoginCode = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const response = await apiFetch('/api/customer/login-code', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false) throw new Error(result.error || 'Не удалось отправить код входа');
+      if (result.emailSent === false) throw new Error(result.emailError || 'Код входа не отправился. Попробуйте еще раз позже.');
+      setLeadId(result.leadId);
+      setPhase('code');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const verify = async (event) => {
     event.preventDefault();
     setBusy(true);
@@ -716,7 +786,7 @@ function CustomerRegistration({ onVerified }) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId, email: form.email, code }),
+        body: JSON.stringify({ leadId, email: form.email, code, mode }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.ok === false) throw new Error(result.error || 'Код не подошел');
@@ -728,10 +798,30 @@ function CustomerRegistration({ onVerified }) {
     }
   };
 
+  const resendCode = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const response = await apiFetch('/api/customer/resend-code', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId, email: form.email, mode }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false || result.emailSent === false) throw new Error(result.error || 'Не удалось отправить код заново');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (phase === 'code') {
     return (
       <form className="customer-form" onSubmit={verify}>
-        <strong>Подтвердите email</strong>
+        <AuthSwitch mode={mode} onChange={switchMode} />
+        <strong>{mode === 'login' ? 'Вход по email-коду' : 'Подтвердите email'}</strong>
         <p>Мы отправили 6-значный код на {form.email}. Код действует 15 минут.</p>
         <label>
           <span>Код из письма</span>
@@ -739,20 +829,30 @@ function CustomerRegistration({ onVerified }) {
         </label>
         {error && <p className="auth-error">{error}</p>}
         <button type="submit" disabled={busy || code.length < 4}>Войти в кабинет</button>
-        <button
-          type="button"
-          className="text-button"
-          disabled={busy}
-          onClick={async () => {
-            await apiFetch('/api/customer/resend-code', {
-              method: 'POST',
-              credentials: 'include',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ leadId, email: form.email }),
-            });
-          }}
-        >
+        <button type="button" className="text-button" disabled={busy} onClick={resendCode}>
           Отправить код заново
+        </button>
+        <button type="button" className="text-button" disabled={busy} onClick={() => setPhase('form')}>
+          Изменить email
+        </button>
+      </form>
+    );
+  }
+
+  if (mode === 'login') {
+    return (
+      <form className="customer-form" onSubmit={requestLoginCode}>
+        <AuthSwitch mode={mode} onChange={switchMode} />
+        <strong>Войти по email-коду</strong>
+        <p className="auth-helper">Пароля нет: если забыли доступ или заходите с нового устройства, отправим одноразовый код на email проекта.</p>
+        <label>
+          <span>Email проекта</span>
+          <input type="email" autoComplete="email" value={form.email} onChange={(event) => update('email', event.target.value)} required />
+        </label>
+        {error && <p className="auth-error">{error}</p>}
+        <button type="submit" disabled={busy || !form.email.trim()}>Получить код входа</button>
+        <button type="button" className="text-button" disabled={busy} onClick={() => switchMode('register')}>
+          Создать новый проект
         </button>
       </form>
     );
@@ -760,6 +860,7 @@ function CustomerRegistration({ onVerified }) {
 
   return (
     <form className="customer-form" onSubmit={register}>
+      <AuthSwitch mode={mode} onChange={switchMode} />
       <strong>Регистрация проекта</strong>
       <label>
         <span>Ваше имя</span>
@@ -791,6 +892,9 @@ function CustomerRegistration({ onVerified }) {
       </label>
       {error && <p className="auth-error">{error}</p>}
       <button type="submit" disabled={busy || !form.personalDataConsent}>Получить код и войти</button>
+      <button type="button" className="text-button" disabled={busy} onClick={() => switchMode('login')}>
+        Уже есть кабинет или забыли доступ? Войти по коду
+      </button>
     </form>
   );
 }
