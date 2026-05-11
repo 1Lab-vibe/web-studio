@@ -555,6 +555,7 @@ function CustomerRegistration({ onVerified }) {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.ok === false) throw new Error(result.error || 'Не удалось зарегистрироваться');
+      if (result.emailSent === false) throw new Error(result.emailError || 'Заявка создана, но код на email не отправился. Попробуйте еще раз позже.');
       setLeadId(result.leadId);
       setPhase('code');
     } catch (err) {
