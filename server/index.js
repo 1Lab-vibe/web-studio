@@ -118,6 +118,8 @@ app.get('/api/health', (req, res) => {
       deadAfterAttempts: config.AUTONOMY_DEAD_AFTER_ATTEMPTS,
       cron: config.AUTONOMY_CRON,
       dailyMockupLimit: config.DAILY_MOCKUP_LIMIT,
+      dailyCoderTemplateLimit: config.DAILY_CODER_TEMPLATE_LIMIT,
+      dailySendLimit: config.DAILY_SEND_LIMIT,
       lovableBuildIntervalHours: config.LOVABLE_BUILD_INTERVAL_HOURS,
       lovableHeartbeatCron: config.LOVABLE_TOKEN_HEARTBEAT_CRON,
     },

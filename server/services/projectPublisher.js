@@ -679,6 +679,26 @@ export async function deployLeadPublicUrlProject(store, leadId, options = {}) {
 export async function deployLeadGeneratedPreview(store, leadId, options = {}) {
   let lead = store.getLead(leadId);
   if (!lead) return { ok: false, error: 'Lead not found' };
+  if (!options.skipCoderTemplateLimit) {
+    const budget = await store.reserveCoderTemplates(config.DAILY_CODER_TEMPLATE_LIMIT, 1);
+    if (!budget.reserved) {
+      await store.addEvent(
+        lead.id,
+        'project.template_preview_skipped',
+        `Coder template daily limit reached: ${budget.used}/${budget.limit}`,
+      );
+      return {
+        ok: false,
+        skipped: true,
+        error: 'coder_template_daily_limit_reached',
+        reason: 'coder_template_daily_limit_reached',
+        limit: budget.limit,
+        used: budget.used,
+        remaining: budget.remaining,
+        lead,
+      };
+    }
+  }
   const slugBase = options.projectName || lead.name || lead.id;
   const slug = projectSlug(`${slugBase}-${lead.id.slice(0, 8)}`, `project-${lead.id.slice(0, 8)}`);
   const root = path.resolve(config.DATA_DIR, 'projects', slug);

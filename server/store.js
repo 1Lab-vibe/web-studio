@@ -21,6 +21,8 @@ const initialState = {
     mockupsToday: 0,
     customerMockupsToday: 0,
     mockupDate: '',
+    coderTemplatesToday: 0,
+    coderTemplateDate: '',
     scannedToday: 0,
     sentToday: 0,
     repliesToday: 0,
@@ -972,6 +974,11 @@ export class Store {
       this.state.metrics.customerMockupsToday = 0;
       await this.save();
     }
+    if (this.state.metrics.coderTemplateDate !== today) {
+      this.state.metrics.coderTemplateDate = today;
+      this.state.metrics.coderTemplatesToday = 0;
+      await this.save();
+    }
     if (this.state.metrics.sendDate !== today) {
       this.state.metrics.sendDate = today;
       this.state.metrics.sentToday = 0;
@@ -1025,6 +1032,21 @@ export class Store {
       reserved,
       used: this.state.metrics.sentToday,
       remaining: Math.max(0, Number(limit) - this.state.metrics.sentToday),
+    };
+  }
+
+  async reserveCoderTemplates(limit, requested) {
+    await this.resetDailyUsageIfNeeded();
+    const used = Number(this.state.metrics.coderTemplatesToday ?? 0);
+    const remaining = Math.max(0, Number(limit) - used);
+    const reserved = Math.min(Math.max(0, Number(requested)), remaining);
+    this.state.metrics.coderTemplatesToday = used + reserved;
+    await this.save();
+    return {
+      reserved,
+      used: this.state.metrics.coderTemplatesToday,
+      limit: Number(limit),
+      remaining: Math.max(0, Number(limit) - this.state.metrics.coderTemplatesToday),
     };
   }
 
