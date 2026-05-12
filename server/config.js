@@ -29,6 +29,7 @@ const envSchema = z.object({
   OPENAI_DIAGNOSER_MODEL: z.string().optional().default(''),
   OPENAI_CHECKER_MODEL: z.string().optional().default(''),
   OPENAI_IMAGE_GENERATION_ENABLED: boolFromEnv.default('false'),
+  OPENAI_IMAGE_GENERATION_SCOPE: z.enum(['hero', 'all']).default('hero'),
   OPENAI_IMAGE_MODEL: z.string().default('gpt-image-1-mini'),
   OPENAI_IMAGE_SIZE: z.string().default('1024x1024'),
   OPENAI_IMAGE_QUALITY: z.enum(['low', 'medium', 'high']).default('low'),

@@ -159,6 +159,7 @@ async function generatedPreviewHtml(lead) {
       generateNicheImageUrl(`${prompt}. Business context: ${imageContext}. Premium Russian landing page visual, realistic commercial photography, no text, no logos, no random office desk, no mountains, no roads.`, {
         seed: stableImageSeed(lead, `coder-template-${profile.id}`, index + 1),
         niche: profile.id,
+        slot: index === 0 ? 'hero' : 'section',
       }),
     ),
   );

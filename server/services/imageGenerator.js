@@ -47,6 +47,12 @@ function fallbackImageUrl(prompt, seed) {
   return `https://image.pollinations.ai/prompt/${encoded}?width=1600&height=1000&seed=${safeSeed}&nologo=true&enhance=true`;
 }
 
+function canUseOpenAiImage(slot) {
+  if (!openai) return false;
+  if (config.OPENAI_IMAGE_GENERATION_SCOPE === 'all') return true;
+  return String(slot || '').toLowerCase() === 'hero';
+}
+
 function promptHash(parts) {
   const hash = createHash('sha256');
   for (const part of parts) hash.update(String(part || '').trim());
@@ -88,12 +94,12 @@ async function generateAndStore({ prompt, fileName }) {
   throw new Error('image_response_missing_data');
 }
 
-export async function generateNicheImageUrl(prompt, { seed = 0, niche = '', size = config.OPENAI_IMAGE_SIZE } = {}) {
+export async function generateNicheImageUrl(prompt, { seed = 0, niche = '', size = config.OPENAI_IMAGE_SIZE, slot = '' } = {}) {
   const safePrompt = String(prompt || '').trim();
   if (!safePrompt) return '';
-  if (!openai) return fallbackImageUrl(safePrompt, seed);
+  if (!canUseOpenAiImage(slot)) return fallbackImageUrl(safePrompt, seed);
 
-  const hash = promptHash([safePrompt, niche, size, seed, config.OPENAI_IMAGE_MODEL, config.OPENAI_IMAGE_QUALITY]);
+  const hash = promptHash([safePrompt, niche, size, seed, slot, config.OPENAI_IMAGE_MODEL, config.OPENAI_IMAGE_QUALITY]);
   const fileName = `${hash}.png`;
   const target = path.join(imagesDir(), fileName);
   if (await fileExists(target)) return publicUrlFor(fileName);
