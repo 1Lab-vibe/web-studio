@@ -217,6 +217,7 @@ function normalizeEmail(value) {
 }
 
 function leadHasInvalidOutboundEmail(lead = {}) {
+  if (/bounce|bounced|invalid_email/i.test(String(lead.outboundStatus || ''))) return true;
   const invalid = new Set(
     [
       ...(lead.contacts?.emailValidation?.invalid || []),
@@ -227,6 +228,7 @@ function leadHasInvalidOutboundEmail(lead = {}) {
       .map(normalizeEmail)
       .filter(Boolean),
   );
+  if (invalid.size > 0 && !(lead.contacts?.emails || []).length) return true;
   const email = normalizeEmail(lead.contacts?.emails?.find?.(Boolean) || lead.email || lead.pitch?.to || '');
   return Boolean(email && invalid.has(email));
 }
