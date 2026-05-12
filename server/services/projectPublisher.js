@@ -192,7 +192,7 @@ async function generatedPreviewHtml(lead) {
       .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .92fr); gap: 46px; align-items: stretch; }
       .eyebrow { color: var(--accent); font-weight: 850; font-size: 14px; }
       .hero-business { margin-top: 16px; color: var(--muted); font-weight: 750; font-size: clamp(16px, 1.8vw, 20px); }
-      h1 { margin: 12px 0 18px; font-size: clamp(36px, 5vw, 58px); line-height: 1.04; letter-spacing: 0; max-width: 760px; overflow-wrap: break-word; }
+      h1 { margin: 12px 0 18px; font-size: clamp(32px, 4vw, 50px); line-height: 1.06; letter-spacing: 0; max-width: 760px; overflow-wrap: break-word; }
       .lead { color: var(--muted); font-size: clamp(18px, 1.8vw, 22px); max-width: 760px; }
       .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
       .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 18px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; font-weight: 800; }
@@ -235,7 +235,7 @@ async function generatedPreviewHtml(lead) {
       input, textarea { width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 14px 16px; font: inherit; }
       textarea { min-height: 120px; resize: vertical; }
       footer { padding: 32px 0; color: var(--muted); }
-      @media (max-width: 820px) { .hero-grid, .grid, .split, .review-grid, .map-block { grid-template-columns: 1fr; } h1 { font-size: 38px; } .nav-note { display: none; } .metric { grid-template-columns: 1fr; } .hero { min-height: auto; padding-top: 36px; } }
+      @media (max-width: 820px) { .hero-grid, .grid, .split, .review-grid, .map-block { grid-template-columns: 1fr; } h1 { font-size: 34px; } .nav-note { display: none; } .metric { grid-template-columns: 1fr; } .hero { min-height: auto; padding-top: 36px; } }
     </style>
   </head>
   <body>
@@ -307,14 +307,14 @@ function cleanBusinessName(value) {
 
 function heroHeadlineForLead(lead = {}, profile = {}) {
   const byProfile = {
-    'photo-studio': 'Бронирование студии без лишней переписки',
-    'ai-studio': 'AI-решения, которые понятны бизнесу',
-    'real-estate': 'Объекты и заявки в одном понятном сайте',
-    'clinic-dental': 'Запись в клинику без лишних звонков',
-    construction: 'Расчет работ без долгой переписки',
-    beauty: 'Запись в салон с первого экрана',
-    hvac: 'Подбор и монтаж без ожидания',
-    'local-service': 'Сайт, который быстро приводит заявки',
+    'photo-studio': 'Бронь студии в пару кликов',
+    'ai-studio': 'AI-решения без сложных слов',
+    'real-estate': 'Объекты, которые ведут к заявке',
+    'clinic-dental': 'Запись без лишних звонков',
+    construction: 'Расчет работ без переписки',
+    beauty: 'Запись в салон за минуту',
+    hvac: 'Монтаж без ожидания',
+    'local-service': 'Заявка с первого экрана',
   };
   return byProfile[profile.id] || byProfile['local-service'];
 }
