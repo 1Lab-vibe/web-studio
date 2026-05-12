@@ -137,15 +137,20 @@ function buildFailedHtml({ title, build }) {
 
 async function generatedPreviewHtml(lead) {
   const brief = lead.customerBrief ?? {};
-  const business = lead.name || brief.businessName || 'Ваш бизнес';
+  const rawBusiness = lead.name || brief.businessName || 'Ваш бизнес';
+  const business = cleanBusinessName(rawBusiness);
   const niche = lead.niche || 'услуги для бизнеса';
   const profile = completeProfile(templateProfile(lead));
+  const heroTitle = heroHeadlineForLead(lead, profile);
   const goal = brief.goal || lead.angle || profile.goal;
   const services = splitItems(brief.services || niche, profile.services);
   const contacts = brief.contacts || lead.phone || 'форма заявки, телефон, email';
   const style = brief.style || profile.style;
   const proof = brief.materials || lead.diagnosis || profile.proof;
   const city = lead.city ? ` в ${lead.city}` : '';
+  const mapUrl = yandexMapUrl('карта адрес', lead);
+  const leadAddress = normalizeLeadAddress(lead);
+  const reviews = reviewProofItems(lead, profile);
   const imageContext = [
     business,
     city,
@@ -186,7 +191,8 @@ async function generatedPreviewHtml(lead) {
       .hero { min-height: 86vh; display: grid; align-items: center; padding: 58px 0 54px; border-bottom: 1px solid var(--line); }
       .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .92fr); gap: 46px; align-items: stretch; }
       .eyebrow { color: var(--accent); font-weight: 850; font-size: 14px; }
-      h1 { margin: 14px 0 18px; font-size: clamp(44px, 6vw, 78px); line-height: .98; letter-spacing: 0; max-width: 900px; }
+      .hero-business { margin-top: 16px; color: var(--muted); font-weight: 750; font-size: clamp(16px, 1.8vw, 20px); }
+      h1 { margin: 12px 0 18px; font-size: clamp(36px, 5vw, 58px); line-height: 1.04; letter-spacing: 0; max-width: 760px; overflow-wrap: break-word; }
       .lead { color: var(--muted); font-size: clamp(18px, 1.8vw, 22px); max-width: 760px; }
       .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
       .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 18px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; font-weight: 800; }
@@ -216,11 +222,20 @@ async function generatedPreviewHtml(lead) {
       .steps { display: grid; gap: 12px; counter-reset: step; }
       .step { display: grid; grid-template-columns: 48px 1fr; gap: 16px; align-items: start; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
       .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 40px; height: 40px; border-radius: 999px; background: var(--accent); color: ${profile.tokens.buttonText}; font-weight: 900; }
+      .review-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+      .review-card { border: 1px solid var(--line); border-radius: 8px; padding: 20px; background: var(--surface); min-height: 136px; }
+      .review-card strong { display: block; font-size: 30px; line-height: 1; color: var(--accent); margin-bottom: 12px; }
+      .map-block { display: grid; grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr); gap: 24px; align-items: stretch; }
+      .map-frame { width: 100%; min-height: 360px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+      .map-frame iframe { width: 100%; height: 100%; min-height: 360px; border: 0; display: block; }
+      .contact-lines { display: grid; gap: 12px; margin-top: 18px; }
+      .contact-line { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; background: var(--surface); }
+      .contact-line span { display: block; color: var(--muted); font-size: 13px; margin-bottom: 4px; }
       form { display: grid; gap: 12px; }
       input, textarea { width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 14px 16px; font: inherit; }
       textarea { min-height: 120px; resize: vertical; }
       footer { padding: 32px 0; color: var(--muted); }
-      @media (max-width: 820px) { .hero-grid, .grid, .split { grid-template-columns: 1fr; } h1 { font-size: 42px; } .nav-note { display: none; } .metric { grid-template-columns: 1fr; } .hero { min-height: auto; padding-top: 36px; } }
+      @media (max-width: 820px) { .hero-grid, .grid, .split, .review-grid, .map-block { grid-template-columns: 1fr; } h1 { font-size: 38px; } .nav-note { display: none; } .metric { grid-template-columns: 1fr; } .hero { min-height: auto; padding-top: 36px; } }
     </style>
   </head>
   <body>
@@ -230,7 +245,8 @@ async function generatedPreviewHtml(lead) {
         <div class="wrap hero-grid">
           <div>
             <div class="eyebrow">${escapeHtml(profile.eyebrow)}</div>
-            <h1>${escapeHtml(profile.headline(business, city))}</h1>
+            <div class="hero-business">${escapeHtml(business)}${escapeHtml(city)}</div>
+            <h1>${escapeHtml(heroTitle)}</h1>
             <p class="lead">${escapeHtml(profile.lead(goal, style))}</p>
             <div class="actions">
               <a class="btn primary" href="${escapeHtml(contactHref)}">${escapeHtml(profile.cta)}</a>
@@ -250,6 +266,8 @@ async function generatedPreviewHtml(lead) {
       </section>
       <section id="services"><div class="wrap"><h2>${escapeHtml(profile.servicesTitle)}</h2><div class="grid">${serviceCards.map((item, index) => `<article class="card image-card">${templateImageTag([detailImage, resultImage, processImage][index] || detailImage, item, '', fallbackImageDataUrl(profile, `card-${index}`))}<div><b>${escapeHtml(item)}</b><p class="muted">${escapeHtml(profile.cardText(item))}</p></div></article>`).join('')}</div></div></section>
       <section><div class="wrap split"><div><h2>${escapeHtml(profile.proofTitle)}</h2><p class="muted">${escapeHtml(proof)}</p><div class="grid">${serviceList.slice(0, 3).map((item) => `<article class="card"><b>${escapeHtml(item)}</b><p class="muted">${escapeHtml(profile.bulletText)}</p></article>`).join('')}</div></div>${templateImageTag(resultImage, `${business}: результат`, '', fallbackImageDataUrl(profile, 'result'))}</div></section>
+      <section><div class="wrap"><h2>Отзывы и доверие</h2><div class="review-grid">${reviews.map((item) => `<article class="review-card"><strong>${escapeHtml(item.value)}</strong><b>${escapeHtml(item.title)}</b><p class="muted">${escapeHtml(item.text)}</p></article>`).join('')}</div></div></section>
+      <section><div class="wrap map-block"><div><h2>Как вас найти</h2><p class="muted">Блок контактов нужен не “для галочки”: он помогает клиенту быстро сверить адрес, позвонить и оставить заявку без поиска по другим сайтам.</p><div class="contact-lines">${leadAddress ? `<div class="contact-line"><span>Адрес</span>${escapeHtml(leadAddress)}</div>` : ''}${lead.phone ? `<div class="contact-line"><span>Телефон</span>${escapeHtml(lead.phone)}</div>` : ''}<div class="contact-line"><span>Следующий шаг</span>Оставить заявку или запросить консультацию</div></div></div><div class="map-frame">${mapUrl ? `<iframe title="Яндекс Карта" src="${escapeHtml(mapUrl)}" loading="lazy"></iframe>` : `<div style="padding:24px"><b>Карта подключается после уточнения адреса</b><p class="muted">В рабочем сайте здесь будет точка на Яндекс Картах и быстрый маршрут для клиентов.</p></div>`}</div></div></section>
       <section><div class="wrap"><h2>${escapeHtml(profile.processTitle)}</h2><div class="steps">${profile.steps.map((step) => `<div class="step"><div><b>${escapeHtml(step[0])}</b><p class="muted">${escapeHtml(step[1])}</p></div></div>`).join('')}</div></div></section>
       <section id="request"><div class="wrap hero-grid"><div><h2>${escapeHtml(profile.requestTitle)}</h2><p class="muted">Контакты и поля формы: ${escapeHtml(contacts)}.</p></div><form><input placeholder="Имя"><input placeholder="Телефон или email"><textarea placeholder="Коротко опишите задачу"></textarea><button class="btn primary" type="button">${escapeHtml(profile.formButton)}</button></form></div></section>
     </main>
@@ -268,6 +286,62 @@ function fallbackImageDataUrl(profile = {}, variant = 'preview') {
   const variantShift = String(variant || '').split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) % 220;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${surface}"/></linearGradient><filter id="blur"><feGaussianBlur stdDeviation="22"/></filter></defs><rect width="1600" height="1000" fill="url(#g)"/><circle cx="${280 + variantShift}" cy="250" r="230" fill="${accent}" opacity=".20" filter="url(#blur)"/><circle cx="${1180 - variantShift}" cy="760" r="280" fill="${accent2}" opacity=".16" filter="url(#blur)"/><rect x="210" y="190" width="1180" height="620" rx="52" fill="${surface}" stroke="${stroke}" stroke-width="4"/><rect x="300" y="290" width="480" height="58" rx="18" fill="${accent}" opacity=".78"/><rect x="300" y="390" width="790" height="34" rx="17" fill="${stroke}" opacity=".70"/><rect x="300" y="450" width="620" height="34" rx="17" fill="${stroke}" opacity=".52"/><rect x="300" y="610" width="220" height="120" rx="26" fill="${accent2}" opacity=".22"/><rect x="560" y="610" width="220" height="120" rx="26" fill="${accent}" opacity=".18"/><rect x="820" y="610" width="220" height="120" rx="26" fill="${accent2}" opacity=".15"/><path d="M1040 520C1120 430 1220 430 1300 520C1220 610 1120 610 1040 520Z" fill="${accent}" opacity=".35"/><circle cx="1170" cy="520" r="48" fill="${accent2}" opacity=".55"/></svg>`;
   return `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`;
+}
+
+function cleanBusinessName(value) {
+  let text = String(value || '')
+    .replace(/[«»“”"']/g, '')
+    .replace(/\b(?:ооо|ип|ао|оао|зао|пк|нко)\b\.?/giu, '')
+    .replace(/\([^)]*(?:предв|запис|взросл|детск|круглосуточ|24\s*ч)[^)]*\)/giu, '')
+    .replace(/\bпредв[.!?\s]*(?:запис[ьи]?|при[её]м)?.*$/giu, '')
+    .replace(/([А-Яа-яЁё])24\s*ч\b/giu, '$1 24/7')
+    .replace(/\s*[-–—]\s*(?:интернет-магазин|магазин|салон|агентство|клиника)\s*/giu, ' ')
+    .replace(/[!?]{2,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) text = 'Ваш бизнес';
+  const words = text.split(/\s+/).filter(Boolean);
+  if (text.length > 44 && words.length > 4) text = words.slice(0, 4).join(' ');
+  return text.replace(/\s+,/g, ',').trim();
+}
+
+function heroHeadlineForLead(lead = {}, profile = {}) {
+  const byProfile = {
+    'photo-studio': 'Бронирование студии без лишней переписки',
+    'ai-studio': 'AI-решения, которые понятны бизнесу',
+    'real-estate': 'Объекты и заявки в одном понятном сайте',
+    'clinic-dental': 'Запись в клинику без лишних звонков',
+    construction: 'Расчет работ без долгой переписки',
+    beauty: 'Запись в салон с первого экрана',
+    hvac: 'Подбор и монтаж без ожидания',
+    'local-service': 'Сайт, который быстро приводит заявки',
+  };
+  return byProfile[profile.id] || byProfile['local-service'];
+}
+
+function reviewProofItems(lead = {}, profile = {}) {
+  const rating = Number(lead.rating || 0);
+  const reviews = Number(lead.reviews || 0);
+  const source = lead.source === 'google_places' ? 'Google Maps' : 'Яндекс/карты';
+  const ratingText = rating ? `${rating.toFixed(1)}★` : 'Доверие';
+  const reviewsText = reviews ? `${reviews}` : 'Отзывы';
+  return [
+    {
+      value: ratingText,
+      title: rating ? 'Рейтинг уже работает на доверие' : 'Доверие нужно показать сразу',
+      text: rating ? `Рейтинг из ${source} стоит вынести в первый сценарий сайта, чтобы посетитель видел подтверждение до заявки.` : 'Даже без открытого рейтинга сайт должен быстро объяснить, почему компании можно доверять.',
+    },
+    {
+      value: reviewsText,
+      title: reviews ? 'Отзывы не должны теряться в картах' : 'Блок отзывов готов к наполнению',
+      text: reviews ? `${reviews} отзывов можно превратить в отдельный блок доверия, а не оставлять только во внешней карточке.` : 'После запуска сюда добавляются реальные отзывы, кейсы или короткие подтверждения от клиентов.',
+    },
+    {
+      value: profile.id === 'clinic-dental' ? 'Запись' : 'Заявка',
+      title: 'Понятный следующий шаг',
+      text: 'После доверия посетитель сразу видит, куда нажать: записаться, оставить заявку или запросить расчет.',
+    },
+  ];
 }
 
 function templateImageTag(src, alt, className = '', fallback = '') {
