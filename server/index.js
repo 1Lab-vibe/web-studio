@@ -13,7 +13,8 @@ import { registerAuth } from './auth.js';
 import { handleA1Webhook } from './services/a1Webhook.js';
 import { handleCustomerTelegramCallback, handleCustomerTelegramMessage, isCustomerTelegramCommand } from './services/customerTelegram.js';
 import { handleAdminTelegramMessage } from './services/adminTelegram.js';
-import { deployLeadExportedProject, deployLeadPublicUrlProject } from './services/projectPublisher.js';
+import { deployLeadExportedProject, deployLeadGeneratedPreview, deployLeadPublicUrlProject } from './services/projectPublisher.js';
+import { runPreviewQualityGate } from './services/qualityGate.js';
 import { registerLegalRoutes } from './services/legalDocs.js';
 import { registerCustomerWebRoutes } from './services/customerWeb.js';
 import {
@@ -172,6 +173,43 @@ app.post('/api/leads/:id/coder/deploy', async (req, res) => {
           projectName: req.body?.projectName,
         });
   res.status(result.ok ? 200 : 409).json(result);
+});
+
+app.post('/api/leads/:id/coder/generated-preview', async (req, res) => {
+  const lead = store.getLead(req.params.id);
+  if (!lead) return res.status(404).json({ ok: false, error: 'Lead not found' });
+  const result = await deployLeadGeneratedPreview(store, req.params.id, {
+    reason: req.body?.reason || 'manual_coder_template_run',
+    projectName: req.body?.projectName || lead.name,
+    renderVideo: false,
+  });
+  const updated = result.lead || store.getLead(req.params.id);
+  const quality = updated ? await runPreviewQualityGate(updated) : { ok: false, issues: ['lead_not_found_after_deploy'] };
+  let finalLead = updated ? await store.updateLead(updated.id, { qualityGate: quality }) : null;
+  if (!result.ok || !quality.ok) {
+    finalLead = finalLead
+      ? await store.transitionLead(finalLead.id, {
+          pipelineStage: 'needs_review',
+          stageStatus: 'template_preview_failed',
+          artifactStatus: 'quality_failed',
+          lane: 'Lovable',
+          owner: 'Builder',
+          reason: quality.issues?.join('; ') || result.error || 'coder_generated_preview_failed',
+        })
+      : finalLead;
+    return res.status(409).json({ ...result, ok: false, quality, lead: finalLead, error: result.error || quality.issues?.join('; ') });
+  }
+  finalLead = await store.transitionLead(finalLead.id, {
+    pipelineStage: 'deployed',
+    stageStatus: 'template_quality_passed',
+    artifactStatus: 'deployed',
+    reason: 'manual_coder_template_quality_passed',
+  });
+  const queued = await orchestrator.enqueueJob('filmer_render', finalLead.id, {
+    idempotencyKey: `filmer:${finalLead.id}:${finalLead.mockup?.publicUrl || finalLead.updatedAt}`,
+    priority: 800,
+  });
+  res.json({ ...result, quality, lead: finalLead, queued });
 });
 
 app.post('/api/orchestrator/scout', async (req, res) => {
