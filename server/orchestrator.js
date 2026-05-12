@@ -1261,6 +1261,7 @@ export class Orchestrator {
     const selected = this.store
       .listLeads()
       .filter((lead) => isDiagnosisLead(lead))
+      .filter((lead) => !['telegram_inbound', 'web_inbound', 'manual_smoke'].includes(String(lead.source || '')))
       .filter((lead) => !activeBuildLeadIds.has(lead.id))
       .filter((lead) => !['done', 'paused', 'waiting_approval', 'needs_review'].includes(String(lead.status || '')))
       .filter((lead) => !lead.pitch?.queued && !['queued', 'sent', 'succeeded'].includes(String(lead.outboundStatus || '').toLowerCase()))
