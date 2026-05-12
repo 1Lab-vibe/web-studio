@@ -1832,6 +1832,7 @@ function LeadInspector({ lead, approval, jobs = [], busy, onAdvance, onDeploy, o
       <TextBlock title={`Сообщение · ${lead.channel || 'канал не выбран'}`} text={lead.message || 'Еще не подготовлено'} />
       <EmailPreview lead={lead} />
       <TextBlock title="Telegram после письма" text={lead.telegramFollowup?.text || 'Сформируется после постановки письма в A1.'} />
+      <TextBlock title="Телефон: запрос email" text={lead.phoneEmailRequest?.text || 'Сформируется для лидов с телефоном, но без email.'} />
       <TextBlock title="Email кандидаты" text={emails.length ? emails.join('\n') : 'не найдены'} />
       {lead.mockup?.handoffPrompt && <TextBlock title="Lovable handoff prompt" text={lead.mockup.handoffPrompt} />}
       {lead.mockup?.buildOpenedAt && <TextBlock title="Lovable open log" text={`Last opened: ${lead.mockup.buildOpenedAt}`} />}

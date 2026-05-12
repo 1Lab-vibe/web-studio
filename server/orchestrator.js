@@ -16,6 +16,7 @@ import { listSubjectVariants, pickSubjectVariant, recordSubjectSend, variantId }
 import { discoverLeadSite } from './services/siteFinder.js';
 import { trackingUrl } from './services/clickTracker.js';
 import { buildTelegramFollowupArtifact, telegramFollowupEventPayload } from './services/telegramFollowup.js';
+import { buildPhoneEmailRequestArtifact, phoneEmailRequestEventPayload } from './services/phoneEmailRequest.js';
 
 const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
 
@@ -400,6 +401,22 @@ export class Orchestrator {
     }
     const quotaFreeBuild = skipQuota || ['telegram_inbound', 'web_inbound', 'manual_smoke'].includes(lead.source);
     if (!quotaFreeBuild && !isLovableEligible(lead)) {
+      const contacts = await enrichContacts(lead);
+      const hasPhone = Boolean(lead.phone || contacts.phone);
+      if (hasPhone) {
+        const hasAnyEmail = hasEmailContact({ ...lead, contacts });
+        const contactReview = {
+          ...(lead.contactReview ?? {}),
+          checkedAt: new Date().toISOString(),
+          status: hasAnyEmail ? 'invalid_email_phone_handoff' : 'phone_only_a1_handoff',
+          hasAnyEmail,
+          hasPhone,
+          sources: contacts.sources,
+          bestEmail: contacts.emailValidation?.best || null,
+          candidates: contacts.emailValidation?.candidates || [],
+        };
+        return this.handoffPhoneOnlyLeadToA1(lead, contacts, contactReview, hasAnyEmail);
+      }
       await this.store.transitionLead(lead.id, {
         pipelineStage: 'diagnosed',
         stageStatus: 'needs_email_enrichment',
@@ -994,6 +1011,7 @@ export class Orchestrator {
 
   async handoffPhoneOnlyLeadToA1(lead, contacts, contactReview, hasAnyEmail = false) {
     const now = new Date().toISOString();
+    const phoneEmailRequest = buildPhoneEmailRequestArtifact(lead, { phone: lead.phone || contacts.phone, preparedAt: now });
     let handedOff = await this.store.updateLead(lead.id, enrichLeadScore({
       ...lead,
       contacts,
@@ -1011,6 +1029,12 @@ export class Orchestrator {
         status: 'pending',
         requestedAt: now,
         reason: hasAnyEmail ? 'invalid_email_with_phone' : 'phone_only_no_email',
+      },
+      phoneEmailRequest: {
+        ...(lead.phoneEmailRequest ?? {}),
+        ...phoneEmailRequest,
+        status: 'prepared',
+        updatedAt: now,
       },
     }));
 
@@ -1042,16 +1066,23 @@ export class Orchestrator {
       'Если email получен, отправьте webhook lead.contact_updated / lead.email_found с externalId и email.',
       'Если клиент отказался, переведите лид в отказ/провал в A1, чтобы Web Studio получила webhook и закрыла его локально.',
     ].join('\n');
+    const taskDescription = [
+      description,
+      '',
+      'Короткий текст для связи:',
+      phoneEmailRequest.text,
+    ].join('\n');
     const task = await crmCreateManagerTask({
       a1LeadId,
       externalId: handedOff.id,
       dedupeKey: `webstudio:${handedOff.id}`,
       title,
-      description,
+      description: taskDescription,
       reason: 'phone_only_email_lookup',
       priority: Number(handedOff.fitScore || handedOff.priority || 0) >= 70 ? 'high' : 'normal',
       idempotencyKey: `webstudio:${handedOff.id}:manager-email-task:v1`,
       payload: {
+        phoneEmailRequest: phoneEmailRequestEventPayload(phoneEmailRequest),
         webstudioLead: {
           id: handedOff.id,
           name: handedOff.name,
@@ -1068,6 +1099,7 @@ export class Orchestrator {
     await this.addA1Event(handedOff, 'manager.email_required', 'Phone-only Scout lead handed to A1 manager to obtain email', {
       contacts,
       contactReview,
+      phoneEmailRequest: phoneEmailRequestEventPayload(phoneEmailRequest),
       managerTask: task,
     });
     const updated = await this.store.updateLead(handedOff.id, {

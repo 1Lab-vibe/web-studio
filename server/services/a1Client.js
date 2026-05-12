@@ -360,6 +360,7 @@ function publicLeadPayload(lead) {
     tone: lead.tone,
     message: lead.message,
     telegramFollowup: lead.telegramFollowup,
+    phoneEmailRequest: lead.phoneEmailRequest,
     fitScore: lead.fitScore,
     deal: lead.deal,
     mockup: publicMockupPayload(lead.mockup),
