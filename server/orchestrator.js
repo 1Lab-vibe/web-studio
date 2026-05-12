@@ -1249,6 +1249,63 @@ export class Orchestrator {
     return { ok: true, lead, outbound, stage };
   }
 
+  async enqueueTopDiagnosisBuilds({ limit = 50, batchId = '' } = {}) {
+    const max = Math.max(1, Math.min(100, Number(limit) || 50));
+    const activeBuildLeadIds = new Set(
+      this.store
+        .listJobs({})
+        .filter((job) => job.type === 'lovable_build' && ['queued', 'running', 'failed'].includes(job.status))
+        .map((job) => job.leadId)
+        .filter(Boolean),
+    );
+    const selected = this.store
+      .listLeads()
+      .filter((lead) => isDiagnosisLead(lead))
+      .filter((lead) => !activeBuildLeadIds.has(lead.id))
+      .filter((lead) => !['done', 'paused', 'waiting_approval', 'needs_review'].includes(String(lead.status || '')))
+      .filter((lead) => !lead.pitch?.queued && !['queued', 'sent', 'succeeded'].includes(String(lead.outboundStatus || '').toLowerCase()))
+      .filter((lead) => hasValidatedEmailContact(lead))
+      .map((lead) => enrichLeadScore({ ...lead }))
+      .sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0))
+      .slice(0, max);
+
+    const queued = [];
+    const id = batchId || new Date().toISOString().replace(/[:.]/g, '-');
+    let rank = 0;
+    for (const lead of selected) {
+      rank += 1;
+      const result = await this.enqueueJob('lovable_build', lead.id, {
+        idempotencyKey: `top_diagnosis_email_build:${id}:${lead.id}`,
+        priority: 2000 + Number(lead.fitScore ?? 0) - rank / 100,
+        maxAttempts: 2,
+        payload: {
+          action: 'top_diagnosis_email_batch',
+          batchId: id,
+          rank,
+          score: lead.fitScore ?? 0,
+        },
+      });
+      queued.push({
+        rank,
+        leadId: lead.id,
+        name: lead.name,
+        fitScore: lead.fitScore ?? 0,
+        email: lead.contacts?.emailValidation?.best?.value || lead.contacts?.emails?.[0] || lead.email || '',
+        jobId: result.job?.id || '',
+        deduped: Boolean(result.deduped),
+      });
+    }
+    return {
+      ok: true,
+      batchId: id,
+      requested: max,
+      selected: selected.length,
+      queued: queued.filter((item) => !item.deduped).length,
+      deduped: queued.filter((item) => item.deduped).length,
+      leads: queued,
+    };
+  }
+
   topActions(limit = 10) {
     const leads = this.store.listLeads();
     const topLovableIds = new Set(this.lovableCandidates().map((lead) => lead.id));
@@ -1740,6 +1797,11 @@ function scoutEnrichmentCandidates(leads = [], limit = 50) {
 function isScoutLane(lead = {}) {
   const lane = String(lead.lane || '');
   return lead.pipelineStage === 'scouted' || lead.pipelineStage === 'enriched' || lane === 'Разведка' || lane === 'Р Р°Р·РІРµРґРєР°';
+}
+
+function isDiagnosisLead(lead = {}) {
+  const lane = String(lead.lane || '');
+  return lead.pipelineStage === 'diagnosed' || lane === 'Диагноз' || lane === 'Р”РёР°РіРЅРѕР·';
 }
 
 function shouldReviewCustomerBriefBeforeAction(lead = {}) {

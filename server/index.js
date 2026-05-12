@@ -244,6 +244,14 @@ app.get('/api/orchestrator/top-actions', (req, res) => {
   res.json({ ok: true, data: orchestrator.topActions(Number(req.query.limit ?? 12)) });
 });
 
+app.post('/api/orchestrator/build-top-diagnosis', async (req, res) => {
+  const result = await orchestrator.enqueueTopDiagnosisBuilds({
+    limit: req.body?.limit ?? 50,
+    batchId: req.body?.batchId || '',
+  });
+  res.status(result.ok ? 200 : 409).json(result);
+});
+
 app.get('/api/lovable/tools', async (req, res) => {
   const result = await listLovableTools();
   res.status(result.ok || result.skipped ? 200 : 502).json(result);
