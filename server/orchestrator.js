@@ -814,11 +814,13 @@ export class Orchestrator {
     const packageGate = outboundPackageGate(lead);
     if (!packageGate.ok) {
       await this.store.updateLead(lead.id, { outboundPackage: packageGate, outboundStatus: 'blocked' });
+      const previewBlocked = packageGate.issues.some((issue) => /preview|quality|missing_preview/i.test(String(issue || '')));
       await this.store.transitionLead(lead.id, {
         pipelineStage: 'needs_review',
-        stageStatus: 'outbound_blocked',
-        lane: 'Отправка',
-        owner: 'Pitcher',
+        stageStatus: previewBlocked ? 'preview_quality_failed' : 'outbound_blocked',
+        artifactStatus: previewBlocked ? 'quality_failed' : lead.artifactStatus,
+        lane: previewBlocked ? 'Lovable' : lead.lane,
+        owner: previewBlocked ? 'Builder' : 'Pitcher',
         reason: packageGate.issues.join('; '),
       });
       throw new Error(`Outbound package blocked: ${packageGate.issues.join('; ')}`);

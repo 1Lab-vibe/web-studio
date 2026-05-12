@@ -12,6 +12,22 @@ function unique(values) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function invalidEmailSet(lead = {}) {
+  const validation = lead.contacts?.emailValidation || {};
+  const review = lead.contactReview || {};
+  return new Set(
+    [
+      ...(validation.invalid || []),
+      ...(validation.bouncedEmails || []),
+      ...(validation.invalidEmails || []),
+      ...(review.invalidEmails || []),
+      ...(review.bouncedEmails || []),
+    ]
+      .map(normalizeEmail)
+      .filter(Boolean),
+  );
+}
+
 async function fetchText(url, timeoutMs = 12000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -55,13 +71,17 @@ async function searchEmails(lead) {
 }
 
 export async function enrichContacts(lead) {
-  const existingEmails = unique([lead.email, ...(lead.contacts?.emails ?? [])].map(normalizeEmail));
-  const existingEmailChannels = (lead.contacts?.channels ?? []).filter((channel) => channel.type === 'email' && channel.value);
+  const invalidEmails = invalidEmailSet(lead);
+  const notInvalid = (email) => !invalidEmails.has(normalizeEmail(email));
+  const existingEmails = unique([lead.email, ...(lead.contacts?.emails ?? [])].map(normalizeEmail).filter(notInvalid));
+  const existingEmailChannels = (lead.contacts?.channels ?? []).filter(
+    (channel) => channel.type === 'email' && channel.value && notInvalid(channel.value),
+  );
   const websiteEmails = await findEmailsOnWebsite(lead.url);
   const a1Yandex = websiteEmails.length ? { emails: [], urls: [] } : await searchContactsViaA1Yandex(lead);
   const a1YandexEmails = unique((a1Yandex.text?.match(EMAIL_RE) || []).map(normalizeEmail));
   const searchEmailsFound = websiteEmails.length || a1YandexEmails.length ? [] : await searchEmails(lead);
-  const allCandidates = unique([...existingEmails, ...websiteEmails, ...a1YandexEmails, ...searchEmailsFound]);
+  const allCandidates = unique([...existingEmails, ...websiteEmails, ...a1YandexEmails, ...searchEmailsFound].filter(notInvalid));
 
   const validation = await pickBestEmail(allCandidates, { siteUrl: lead.url });
   const valid = validation.all.filter((entry) => entry.ok);
@@ -109,6 +129,7 @@ export async function enrichContacts(lead) {
         matchesSite: entry.matchesSite,
         reasons: entry.reasons,
       })),
+      invalid: Array.from(invalidEmails),
     },
     sources: {
       website: { emails: websiteEmails.length },

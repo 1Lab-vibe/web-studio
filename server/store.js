@@ -35,6 +35,12 @@ const initialState = {
   },
 };
 
+const readableLanes = {
+  scout: '\u0420\u0430\u0437\u0432\u0435\u0434\u043a\u0430',
+  lovable: 'Lovable',
+  replies: '\u041e\u0442\u0432\u0435\u0442\u044b',
+};
+
 const laneMap = new Map([
   ['Р Р°Р·РІРµРґРєР°', 'Разведка'],
   ['Р”РёР°РіРЅРѕР·', 'Диагноз'],
@@ -206,6 +212,91 @@ function compactOrchestratorRun(input = {}) {
   };
 }
 
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function leadHasInvalidOutboundEmail(lead = {}) {
+  const invalid = new Set(
+    [
+      ...(lead.contacts?.emailValidation?.invalid || []),
+      ...(lead.contacts?.emailValidation?.bouncedEmails || []),
+      ...(lead.contactReview?.invalidEmails || []),
+      ...(lead.contactReview?.bouncedEmails || []),
+    ]
+      .map(normalizeEmail)
+      .filter(Boolean),
+  );
+  const email = normalizeEmail(lead.contacts?.emails?.find?.(Boolean) || lead.email || lead.pitch?.to || '');
+  return Boolean(email && invalid.has(email));
+}
+
+function sentOutreachItemForLead(lead = {}, outreachQueue = []) {
+  return outreachQueue
+    .filter((item) => item.leadId === lead.id && !item.followupStage)
+    .filter((item) => ['sent', 'succeeded'].includes(String(item.status || '').toLowerCase()))
+    .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0))[0] || null;
+}
+
+function normalizeLegacyLeadState(lead = {}, outreachQueue = []) {
+  const stageStatus = String(lead.stageStatus || lead.status || '');
+  if (['awaiting_a1_email', 'a1_email_task_created', 'invalid_email_phone_handoff', 'phone_only_a1_handoff'].includes(stageStatus) || lead.status === 'a1_email_lookup') {
+    return {
+      ...lead,
+      lane: readableLanes.scout,
+      owner: 'Scout',
+      assignedAgent: 'Scout',
+      pipelineStage: 'scouted',
+      status: lead.status || 'a1_email_lookup',
+    };
+  }
+
+  const issues = [
+    lead.lastTransitionReason,
+    ...(lead.outboundPackage?.issues || []),
+    lead.qualityGate?.ok === false ? 'preview_quality_not_passed' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (
+    String(lead.outboundStatus || '').startsWith('blocked') &&
+    /preview_quality|missing_preview|quality_failed|build_failed/.test(issues)
+  ) {
+    return {
+      ...lead,
+      lane: readableLanes.lovable,
+      owner: 'Builder',
+      assignedAgent: 'Builder',
+      pipelineStage: 'needs_review',
+      stageStatus: lead.stageStatus || 'preview_quality_failed',
+    };
+  }
+
+  const sentItem = sentOutreachItemForLead(lead, outreachQueue);
+  const hasSentOutbound = Boolean(sentItem || lead.pitch?.sent || ['sent', 'succeeded'].includes(String(lead.outboundStatus || '').toLowerCase()));
+  if (hasSentOutbound && !leadHasInvalidOutboundEmail(lead) && !String(lead.outboundStatus || '').startsWith('failed')) {
+    const status = ['queued', 'ready', 'in_progress', ''].includes(String(lead.status || '')) ? 'sent' : lead.status;
+    return {
+      ...lead,
+      lane: readableLanes.replies,
+      owner: 'Mobile',
+      assignedAgent: 'Mobile',
+      pipelineStage: 'outbound_sent',
+      stageStatus: ['queued', 'ready', 'in_progress', ''].includes(stageStatus) ? 'sent' : stageStatus,
+      status,
+      outboundStatus: 'sent',
+      pitch: {
+        ...(lead.pitch || {}),
+        sent: true,
+        queued: false,
+        queueId: lead.pitch?.queueId || sentItem?.id || '',
+      },
+    };
+  }
+  return lead;
+}
+
 export class Store {
   constructor(dataDir) {
     this.dataDir = path.resolve(dataDir);
@@ -260,10 +351,11 @@ export class Store {
         priority: Number.isFinite(Number(normalizedLead.priority)) ? Number(normalizedLead.priority) : 50,
         publicLeadToken: normalizedLead.publicLeadToken || randomToken(),
       };
-      return {
+      const withConsent = {
         ...hydrated,
         consentSummary: this.consentSummaryForSubject(this.consentSubjectForLead(hydrated)),
       };
+      return normalizeLegacyLeadState(withConsent, this.state.outreachQueue);
     });
     this.state.jobs = this.state.jobs.map((job) => ({
       ...job,

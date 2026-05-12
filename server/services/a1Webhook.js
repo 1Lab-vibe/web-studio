@@ -1,6 +1,7 @@
 import { crmAddEvent, crmConvertLeadToDeal } from './a1Client.js';
 import { enrichLeadScore } from './scoring.js';
 import { recordSubjectReply } from './subjectAB.js';
+import { sendTelegram } from './telegram.js';
 
 const LANES = {
   scout: '\u0420\u0430\u0437\u0432\u0435\u0434\u043a\u0430',
@@ -26,6 +27,10 @@ const SUPPORTED_EVENTS = new Set([
   'deal.payment_paid',
   'outbound.message_sent',
   'outbound.message_failed',
+  'outbound.message_bounced',
+  'outbound.email_bounced',
+  'email.bounced',
+  'email.delivery_failed',
   'customer.telegram_started',
   'customer.brief_updated',
   'customer.revision_requested',
@@ -81,6 +86,48 @@ export async function handleA1Webhook(store, envelope, idempotencyKey = '') {
   }
   if (isFailureEvent(envelope)) {
     await store.cancelLeadJobs(updatedLead.id, ['enrich_lead', 'diagnose_lead', 'lovable_build', 'checker_eval', 'outbound_queue'], 'a1_lead_failed');
+  }
+  if (isOutboundDeliveryFailureEvent(envelope)) {
+    const payload = envelope.payload || {};
+    const failedEmail = extractFailedEmail(payload) || primaryEmail(lead) || primaryEmail(updatedLead);
+    const invalidRecipient = isInvalidRecipientFailure(payload);
+    const cancelled = await store.cancelLeadJobs(updatedLead.id, ['outbound_queue', 'outbound_followup_1', 'outbound_followup_2'], 'outbound_delivery_failed');
+    if (updatedLead.followups) {
+      const followups = { ...(updatedLead.followups || {}) };
+      for (const job of cancelled) {
+        const stage = job.payload?.stage || (job.type === 'outbound_followup_1' ? 1 : job.type === 'outbound_followup_2' ? 2 : 0);
+        if (!stage) continue;
+        const key = `stage_${stage}`;
+        if (followups[key] && !followups[key].sentAt) {
+          followups[key] = { ...followups[key], status: 'cancelled', cancelledReason: 'outbound_delivery_failed' };
+        }
+      }
+      for (const key of Object.keys(followups)) {
+        if (followups[key] && !followups[key].sentAt && !['sent', 'cancelled'].includes(String(followups[key].status || ''))) {
+          followups[key] = { ...followups[key], status: 'cancelled', cancelledReason: 'outbound_delivery_failed' };
+        }
+      }
+      updatedLead = await store.updateLead(updatedLead.id, { followups });
+    }
+    if (invalidRecipient && failedEmail && (updatedLead.contacts?.phone || updatedLead.phone)) {
+      await store.enqueueJob({
+        type: 'enrich_lead',
+        leadId: updatedLead.id,
+        priority: 470,
+        idempotencyKey: `enrich:${updatedLead.id}:email-bounced:${normalizeEmail(failedEmail)}`,
+        payload: { source: 'email_bounced', eventId, email: failedEmail },
+      });
+    }
+    await sendTelegram(
+      [
+        '<b>Outbound email failed</b>',
+        `${escapeHtml(updatedLead.name || updatedLead.id)}`,
+        failedEmail ? `Email: <code>${escapeHtml(failedEmail)}</code>` : '',
+        invalidRecipient ? 'Reason: invalid recipient / bounce. Follow-ups cancelled.' : `Reason: ${escapeHtml(payload.reason || payload.error || payload.message || 'A1 delivery failed')}`,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    );
   }
   if (envelope.eventType === 'lead.replied') {
     const subjectVariantId = updatedLead.subjectVariantId || updatedLead.pitch?.subjectVariantId || lead.subjectVariantId || lead.pitch?.subjectVariantId;
@@ -269,8 +316,8 @@ function patchForA1Event(lead, envelope) {
   if (envelope.eventType === 'outbound.message_sent') {
     return { ...base, pitch: { ...(lead.pitch ?? {}), sent: true, sentAt: envelope.occurredAt || new Date().toISOString(), provider: 'a1' } };
   }
-  if (envelope.eventType === 'outbound.message_failed') {
-    return { ...base, status: 'needs_review', pitch: { ...(lead.pitch ?? {}), sent: false, error: payload.error || 'A1 outbound failed' } };
+  if (isOutboundDeliveryFailureEvent(envelope)) {
+    return outboundFailurePatch(lead, base, payload, envelope);
   }
   if (envelope.eventType === 'customer.telegram_started') {
     return { ...base, customerTelegram: payload.customerTelegram || lead.customerTelegram || {}, status: 'customer_chat' };
@@ -294,6 +341,10 @@ function isFailureEvent(envelope = {}) {
   return ['lead.email_not_obtained', 'lead.disqualified', 'lead.failed'].includes(eventType) || (eventType === 'lead.stage_changed' && isFailureStage(envelope.payload || {}));
 }
 
+function isOutboundDeliveryFailureEvent(envelope = {}) {
+  return ['outbound.message_failed', 'outbound.message_bounced', 'outbound.email_bounced', 'email.bounced', 'email.delivery_failed'].includes(String(envelope.eventType || ''));
+}
+
 function isFailureStage(payload = {}) {
   const values = [
     payload.stage,
@@ -310,6 +361,139 @@ function extractEmail(payload = {}) {
   const fromContacts = Array.isArray(payload.contacts?.emails) ? payload.contacts.emails.find(Boolean) : '';
   const fromEmails = Array.isArray(payload.emails) ? payload.emails.find(Boolean) : '';
   return normalizeEmail(direct || fromContacts || fromEmails);
+}
+
+function outboundFailurePatch(lead, base, payload = {}, envelope = {}) {
+  const reason = payload.reason || payload.error || payload.message || payload.text || 'A1 outbound failed';
+  const failedEmail = extractFailedEmail(payload) || primaryEmail(lead);
+  const invalidRecipient = isInvalidRecipientFailure(payload);
+  const contacts = invalidRecipient && failedEmail ? markEmailInvalid(lead.contacts, failedEmail, payload, envelope) : lead.contacts;
+  const hasPhone = Boolean(contacts?.phone || lead.phone);
+  const pitch = {
+    ...(lead.pitch ?? {}),
+    queued: false,
+    sent: false,
+    error: reason,
+    failedAt: envelope.occurredAt || new Date().toISOString(),
+  };
+
+  if (invalidRecipient) {
+    return {
+      ...base,
+      contacts,
+      lane: LANES.scout,
+      owner: 'Scout',
+      pipelineStage: 'scouted',
+      stageStatus: hasPhone ? 'invalid_email_phone_handoff' : 'invalid_email_hold',
+      status: hasPhone ? 'a1_email_lookup' : 'contact_hold',
+      outboundStatus: 'email_bounced',
+      outboundScheduledAt: '',
+      pitch,
+      contactReview: {
+        ...(lead.contactReview || {}),
+        status: hasPhone ? 'invalid_email_phone_handoff' : 'invalid_email_hold',
+        bouncedAt: envelope.occurredAt || new Date().toISOString(),
+        invalidEmails: unique([...(lead.contactReview?.invalidEmails || []), failedEmail]),
+        reason,
+      },
+      a1EmailLookup: hasPhone
+        ? {
+            ...(lead.a1EmailLookup || {}),
+            status: 'pending',
+            requestedAt: envelope.occurredAt || new Date().toISOString(),
+            reason: 'email_bounced_phone_lookup',
+          }
+        : lead.a1EmailLookup,
+    };
+  }
+
+  return {
+    ...base,
+    lane: LANES.sending,
+    owner: 'Pitcher',
+    pipelineStage: 'needs_review',
+    stageStatus: 'outbound_failed',
+    status: 'needs_review',
+    outboundStatus: 'failed',
+    outboundScheduledAt: '',
+    pitch,
+  };
+}
+
+function extractFailedEmail(payload = {}) {
+  const direct = [
+    payload.email,
+    payload.to,
+    payload.toEmail,
+    payload.to_email,
+    payload.toAddress,
+    payload.to_address,
+    payload.recipient,
+    payload.failedEmail,
+    payload.failed_email,
+    payload?.message?.to_address,
+    payload?.message?.toAddress,
+    payload?.message?.to,
+    payload?.outbound?.to_address,
+  ].find(Boolean);
+  const fromArray = Array.isArray(payload.recipients) ? payload.recipients.find(Boolean) : '';
+  return normalizeEmail(direct || fromArray || '');
+}
+
+function primaryEmail(lead = {}) {
+  const emails = Array.isArray(lead.contacts?.emails) ? lead.contacts.emails.filter(Boolean) : [];
+  const channel = Array.isArray(lead.contacts?.channels)
+    ? lead.contacts.channels.find((item) => item?.type === 'email' && item?.value)
+    : null;
+  return normalizeEmail(emails[0] || channel?.value || lead.email || '');
+}
+
+function isInvalidRecipientFailure(payload = {}) {
+  const text = [
+    payload.reason,
+    payload.error,
+    payload.message,
+    payload.text,
+    payload.status,
+    payload.diagnostic,
+    payload.diagnosticCode,
+    payload.smtpResponse,
+    payload.error_message,
+    payload?.message?.error_message,
+    payload?.outbound?.error_message,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (!text && ['bounced', 'bounce'].includes(String(payload.status || '').toLowerCase())) return true;
+  return /bounce|bounced|undeliver|invalid|user unknown|mailbox unavailable|recipient|5\.1\.1|550|551|553|no such user|address rejected|does not exist|not found|не\s+существ|не\s+найден|адрес.*не|отбив|достав/i.test(text);
+}
+
+function markEmailInvalid(existing = {}, email, payload = {}, envelope = {}) {
+  const normalized = normalizeEmail(email);
+  const invalid = unique([...(existing.emailValidation?.invalid || []), ...(existing.emailValidation?.bouncedEmails || []), normalized]);
+  const emails = (existing.emails || []).map(normalizeEmail).filter((item) => item && item !== normalized);
+  const channels = Array.isArray(existing.channels)
+    ? existing.channels.filter((channel) => !(channel?.type === 'email' && normalizeEmail(channel.value) === normalized))
+    : [];
+  return {
+    ...existing,
+    emails,
+    channels,
+    emailValidation: {
+      ...(existing.emailValidation || {}),
+      best: normalizeEmail(existing.emailValidation?.best?.value) === normalized ? null : existing.emailValidation?.best || null,
+      invalid,
+      bouncedEmails: invalid,
+      lastBounce: {
+        email: normalized,
+        reason: payload.reason || payload.error || payload.message || payload.text || '',
+        eventType: envelope.eventType || '',
+        at: envelope.occurredAt || new Date().toISOString(),
+      },
+    },
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function mergeEmailIntoContacts(existing = {}, email, payload = {}) {
@@ -343,6 +527,14 @@ function mergeEmailIntoContacts(existing = {}, email, payload = {}) {
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function unique(values = []) {
