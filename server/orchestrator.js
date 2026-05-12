@@ -15,6 +15,7 @@ import { ensureQualityGate, runPreviewQualityGate } from './services/qualityGate
 import { listSubjectVariants, pickSubjectVariant, recordSubjectSend, variantId } from './services/subjectAB.js';
 import { discoverLeadSite } from './services/siteFinder.js';
 import { trackingUrl } from './services/clickTracker.js';
+import { buildTelegramFollowupArtifact, telegramFollowupEventPayload } from './services/telegramFollowup.js';
 
 const LOVABLE_HANDOFF_STALE_MS = 30 * 60 * 1000;
 
@@ -830,6 +831,7 @@ export class Orchestrator {
     const videoUrl = rawVideoUrl ? trackingUrl({ leadId: lead.id, kind: 'video', target: rawVideoUrl, variantId: subjectVariantId, stage: 0 }) : '';
     const trackedBotLink = botLink ? trackingUrl({ leadId: lead.id, kind: 'bot', target: botLink, variantId: subjectVariantId, stage: 0 }) : '';
     const message = outboundEmailBody(lead, { botLink: trackedBotLink, siteUrl, videoUrl });
+    const telegramFollowup = buildTelegramFollowupArtifact(lead, { email: emailChannel.value });
     const outbound = await outboundQueueMessage({
       a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
       externalId: lead.id,
@@ -866,6 +868,7 @@ export class Orchestrator {
       subjectVariantId,
       subjectVariantAngle: variant?.angle || '',
       trackedLinks: { preview: siteUrl, video: videoUrl, bot: trackedBotLink },
+      telegramFollowup,
     });
     lead = await this.store.updateLead(lead.id, {
       contacts: lead.contacts,
@@ -873,12 +876,24 @@ export class Orchestrator {
       outboundStatus: outbound.ok ? (sentNow ? 'sent' : 'queued') : 'failed',
       outboundScheduledAt: '',
       subjectVariantId,
+      telegramFollowup: {
+        ...(lead.telegramFollowup ?? {}),
+        ...telegramFollowup,
+        status: outbound.ok ? 'prepared' : 'not_prepared',
+        updatedAt: new Date().toISOString(),
+      },
     });
     if (!outbound.ok) throw new Error(outbound.error || outbound.reason || 'A1 outbound queue failed');
     if (sentNow) await recordSubjectSend(this.store, subjectVariantId);
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'outbound_sent', stageStatus: sentNow ? 'sent' : 'queued', reason: sentNow ? 'outbound_sent_by_a1' : 'outbound_queued_in_a1' });
     await this.store.addEvent(lead.id, sentNow ? 'pitch.sent' : 'pitch.queued', sentNow ? `Pitcher sent message via A1: ${item.channel} (subj=${variant?.angle || 'primary'})` : `Pitcher queued message: ${item.channel} (subj=${variant?.angle || 'primary'})`);
     await this.addA1Event(lead, sentNow ? 'outbound.sent' : 'outbound.queued', sentNow ? 'Pitcher sent outbound email via A1' : 'Pitcher queued outbound email in A1', { queueItem: item, outbound, subjectVariantId, subjectVariantAngle: variant?.angle || '' });
+    await this.store.addEvent(lead.id, 'outbound.telegram_followup_prepared', 'Pitcher prepared Telegram follow-up after email');
+    await this.addA1Event(lead, 'outbound.telegram_followup_prepared', 'Telegram follow-up message prepared after outbound email', {
+      telegramFollowup: telegramFollowupEventPayload(telegramFollowup),
+      queueItem: item,
+      subjectVariantId,
+    });
     if (sentNow) {
       await this.scheduleFollowups(lead);
     }
@@ -1410,6 +1425,7 @@ export class Orchestrator {
         const videoUrl = absolutePublicUrl(lead.video?.videoUrl || '');
         const message = outboundEmailBody(lead, { botLink, siteUrl, videoUrl });
         const subject = outboundEmailSubject(lead);
+        const telegramFollowup = buildTelegramFollowupArtifact(lead, { email: emailChannel?.value || lead.contacts.emails?.[0] || '' });
         const outbound = await outboundQueueMessage({
           a1LeadId: lead.a1LeadId || lead.a1?.leadId || '',
           externalId: lead.id,
@@ -1441,10 +1457,22 @@ export class Orchestrator {
           message,
           fitScore: lead.fitScore ?? 0,
           a1Outbound: outbound,
+          telegramFollowup,
         });
         lead.pitch = { ok: outbound.ok, queued: !sentNow, sent: sentNow, queueId: item.id, channel: item.channel, updatedAt: new Date().toISOString(), a1Outbound: outbound };
+        lead.telegramFollowup = {
+          ...(lead.telegramFollowup ?? {}),
+          ...telegramFollowup,
+          status: outbound.ok ? 'prepared' : 'not_prepared',
+          updatedAt: new Date().toISOString(),
+        };
         await this.store.addEvent(lead.id, sentNow ? 'pitch.sent' : 'pitch.queued', sentNow ? `Pitcher sent message via A1: ${item.channel}` : `Pitcher поставил сообщение в очередь: ${item.channel}`);
         await this.addA1Event(lead, sentNow ? 'outbound.sent' : 'outbound.queued', sentNow ? 'Pitcher sent outbound email via A1' : 'Pitcher queued outbound email in A1', { queueItem: item, outbound });
+        await this.store.addEvent(lead.id, 'outbound.telegram_followup_prepared', 'Pitcher prepared Telegram follow-up after email');
+        await this.addA1Event(lead, 'outbound.telegram_followup_prepared', 'Telegram follow-up message prepared after outbound email', {
+          telegramFollowup: telegramFollowupEventPayload(telegramFollowup),
+          queueItem: item,
+        });
       }
 
       const next = nextLane[lead.lane];
