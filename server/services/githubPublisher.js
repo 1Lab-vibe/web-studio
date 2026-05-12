@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { config, hasSecret } from '../config.js';
 
 const execFileAsync = promisify(execFile);
+const GITHUB_API_TIMEOUT_MS = 30_000;
 
 function isPublishableSourceFile(filePath) {
   const normalized = String(filePath || '').replace(/\\/g, '/');
@@ -32,16 +33,23 @@ function encodeContent(content) {
 }
 
 async function githubJson(url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...githubHeaders(),
-      ...(options.headers ?? {}),
-    },
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
-  return { response, data };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GITHUB_API_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: options.signal ?? controller.signal,
+      headers: {
+        ...githubHeaders(),
+        ...(options.headers ?? {}),
+      },
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
+    return { response, data };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function getRepo(owner, repo) {

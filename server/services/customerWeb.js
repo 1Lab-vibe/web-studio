@@ -11,6 +11,7 @@ import {
 } from './a1Client.js';
 import { LEGAL_DOCUMENT_VERSION } from './legalDocs.js';
 import { revisionIdempotencyKey } from './revisions.js';
+import { sendTelegram } from './telegram.js';
 
 const COOKIE_NAME = 'web_studio_customer_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -96,6 +97,14 @@ function absoluteUrl(value) {
   return `${config.PUBLIC_BASE_URL}${value.startsWith('/') ? '' : '/'}${value}`;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
 function leadEmails(lead = {}) {
   return Array.from(
     new Set([
@@ -130,9 +139,24 @@ function publicProject(lead = {}) {
     videoUrl: absoluteUrl(lead.video?.videoUrl || ''),
     paymentUrl: lead.payment?.paymentUrl || '',
     payment: lead.payment || {},
+    paymentOffer: paymentOfferForLead(lead),
     revision: lead.revision || {},
     customerBrief: lead.customerBrief || {},
     qualityGate: lead.qualityGate ? { ok: lead.qualityGate.ok, issues: lead.qualityGate.issues || [] } : null,
+  };
+}
+
+function paymentOfferForLead(lead = {}) {
+  const baseAmount = 30000;
+  const amountRub = Math.max(baseAmount, Number(lead.payment?.amountRub || 0) || baseAmount);
+  const fullEstimateRub = Math.max(baseAmount, Number(lead.payment?.fullEstimateRub || lead.deal || 0) || baseAmount);
+  return {
+    productCode: 'landing_site_setup',
+    title: 'Разработка сайта-визитки 1Lab Web Studio',
+    description: 'Первый экран, структура услуг, блок доверия, контакты, форма заявки, адаптивная версия и публикация после согласования.',
+    amountRub,
+    fullEstimateRub,
+    billingMode: 'one_time',
   };
 }
 
@@ -377,6 +401,60 @@ export function registerCustomerWebRoutes(app, store) {
     res.json({ ok: true });
   });
 
+  app.post('/api/customer/projects', async (req, res) => {
+    const context = requireCustomer(store, req, res);
+    if (!context) return;
+    const email = normalizeEmail(context.session.email);
+    const contactName = String(req.body?.name || '').trim().slice(0, 120);
+    const businessName = String(req.body?.businessName || '').trim().slice(0, 160);
+    const goal = String(req.body?.goal || '').trim().slice(0, 3000);
+    const phone = String(req.body?.phone || '').trim().slice(0, 80);
+    if (!businessName) return res.status(400).json({ ok: false, error: 'Укажите название бизнеса или проекта' });
+    if (!goal) return res.status(400).json({ ok: false, error: 'Коротко опишите задачу сайта' });
+
+    let lead = await store.upsertLead({
+      forceCreate: true,
+      name: businessName,
+      businessName,
+      contactName,
+      source: 'web_inbound',
+      sourceKey: `web:${email}:${Date.now()}`,
+      lane: 'Диагноз',
+      owner: 'Mobile',
+      status: 'brief_collecting',
+      pipelineStage: 'qualified',
+      stageStatus: 'brief_collecting',
+      priority: 82,
+      deal: 30000,
+      phone,
+      contacts: {
+        emails: [email],
+        phone,
+        channels: [{ type: 'email', value: email, confidence: 1, verified: true, source: 'web_cabinet' }],
+      },
+      payment: { amountRub: 30000, customerEmail: email, status: 'not_requested' },
+      customerWeb: {
+        email,
+        emailVerified: true,
+        contactName,
+        registeredAt: new Date().toISOString(),
+        mode: 'cabinet',
+      },
+      customerBrief: { webInitialGoal: goal, capture: [goal], webCapture: [{ text: goal, at: new Date().toISOString() }], updatedAt: new Date().toISOString() },
+    });
+    lead = await syncA1(store, lead, 'web_customer_project_created');
+    await store.addEvent(lead.id, 'customer.web_project_created', goal.slice(0, 500));
+    await crmAddEvent({
+      entityType: 'lead',
+      entityId: lead.a1LeadId || lead.a1?.leadId || lead.id,
+      eventType: 'customer.web_project_created',
+      text: goal,
+      payload: { webstudioLeadId: lead.id, email, businessName, source: 'web_cabinet' },
+      idempotencyKey: `webstudio:${lead.id}:web-project-created:${lead.updatedAt}`,
+    });
+    res.status(201).json({ ok: true, project: publicProject(lead), ...customerPayload(store, context.session) });
+  });
+
   app.post('/api/customer/projects/:id/brief', async (req, res) => {
     const context = requireProject(store, req, res);
     if (!context) return;
@@ -459,33 +537,39 @@ export function registerCustomerWebRoutes(app, store) {
     lead = await syncA1(store, lead, 'web_customer_payment_requested');
     const a1LeadId = lead.a1LeadId || lead.a1?.leadId || '';
     if (!a1LeadId) return res.status(409).json({ ok: false, error: 'Лид еще синхронизируется с A1', project: publicProject(lead) });
-    const amountRub = Number(lead.payment?.amountRub || lead.deal || 30000);
-    await crmConvertLeadToDeal({
-      a1LeadId,
-      dealTitle: `Site for ${lead.name}`,
-      customerContact: lead.customerWeb || {},
-      sourceLead: lead,
-      initialBrief: lead.customerBrief || {},
-      idempotencyKey: `webstudio:${lead.id}:convert:web-payment`,
-      reason: 'web_customer_payment_requested',
-    });
-    await dealAttachProduct({
-      leadId: a1LeadId,
-      productCode: 'landing_site_setup',
-      title: `Сайт для ${lead.name}`,
-      description: 'Разработка сайта с первым превью, публикацией и базовыми правками.',
-      amountRub,
-      idempotencyKey: `webstudio:${lead.id}:product:web-cabinet`,
-    });
-    const invoice = await invoiceCreateYookassaLink({
-      leadId: a1LeadId,
-      customerEmail: context.session.email,
-      items: [{ productCode: 'landing_site_setup', title: `Сайт для ${lead.name}`, amountRub, quantity: 1 }],
-      amountRub,
-      successUrl: `${config.PUBLIC_BASE_URL}/cabinet`,
-      metadata: { webstudioLeadId: lead.id, source: 'web_cabinet' },
-      idempotencyKey: `webstudio:${lead.id}:invoice:web-cabinet:${amountRub}`,
-    });
+    const offer = paymentOfferForLead(lead);
+    const amountRub = offer.amountRub;
+    let invoice;
+    try {
+      await crmConvertLeadToDeal({
+        a1LeadId,
+        dealTitle: `Site for ${lead.name}`,
+        customerContact: lead.customerWeb || {},
+        sourceLead: lead,
+        initialBrief: lead.customerBrief || {},
+        idempotencyKey: `webstudio:${lead.id}:convert:web-payment`,
+        reason: 'web_customer_payment_requested',
+      });
+      await dealAttachProduct({
+        leadId: a1LeadId,
+        productCode: offer.productCode,
+        title: offer.title,
+        description: offer.description,
+        amountRub,
+        idempotencyKey: `webstudio:${lead.id}:product:web-cabinet`,
+      });
+      invoice = await invoiceCreateYookassaLink({
+        leadId: a1LeadId,
+        customerEmail: context.session.email,
+        items: [{ productCode: offer.productCode, title: offer.title, description: offer.description, amountRub, quantity: 1 }],
+        amountRub,
+        successUrl: `${config.PUBLIC_BASE_URL}/cabinet`,
+        metadata: { webstudioLeadId: lead.id, source: 'web_cabinet' },
+        idempotencyKey: `webstudio:${lead.id}:invoice:web-cabinet:${amountRub}`,
+      });
+    } catch (error) {
+      invoice = { ok: false, error: error.message || String(error) };
+    }
     const data = paymentData(invoice);
     if (invoice.ok && data.paymentUrl) {
       lead = await store.updateLead(lead.id, {
@@ -493,10 +577,31 @@ export function registerCustomerWebRoutes(app, store) {
       });
       return res.json({ ok: true, project: publicProject(lead) });
     }
+    const rawError = invoice.error || invoice.reason || 'invoice_create_yookassa_link failed';
+    const userMessage = 'Счет не создался автоматически. Мы уже получили заявку и сформируем ссылку на оплату вручную.';
     lead = await store.updateLead(lead.id, {
-      payment: { ...(lead.payment || {}), amountRub, status: invoice.ok ? 'requested' : 'failed', error: invoice.ok ? '' : invoice.error || invoice.reason || 'invoice_create_yookassa_link failed' },
+      payment: {
+        ...(lead.payment || {}),
+        amountRub,
+        offer,
+        status: 'manual_invoice_requested',
+        error: rawError,
+        customerMessage: userMessage,
+        requestedAt: new Date().toISOString(),
+        customerEmail: context.session.email,
+      },
     });
-    res.status(502).json({ ok: false, error: lead.payment.error || 'Не удалось создать ссылку на оплату', project: publicProject(lead) });
+    await store.addEvent(lead.id, 'payment.manual_invoice_requested', rawError.slice(0, 500));
+    await sendTelegram(
+      [
+        '<b>Счет Web Studio требует ручного формирования</b>',
+        `Лид: <code>${escapeHtml(lead.name || lead.id)}</code>`,
+        `Email: <code>${escapeHtml(context.session.email)}</code>`,
+        `Сумма: <code>${amountRub.toLocaleString('ru-RU')} ₽</code>`,
+        `Ошибка: <code>${escapeHtml(rawError).slice(0, 900)}</code>`,
+      ].join('\n'),
+    );
+    res.status(202).json({ ok: true, warning: userMessage, project: publicProject(lead) });
   });
 }
 

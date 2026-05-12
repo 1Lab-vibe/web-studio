@@ -139,12 +139,33 @@ async function generatedPreviewHtml(lead) {
   const brief = lead.customerBrief ?? {};
   const business = lead.name || brief.businessName || 'Ваш бизнес';
   const niche = lead.niche || 'услуги для бизнеса';
-  const goal = brief.goal || 'получать больше целевых заявок';
-  const services = splitItems(brief.services || niche);
-  const contacts = brief.contacts || 'форма заявки, телефон, email';
-  const style = brief.style || 'современный, аккуратный, быстрый';
-  const proof = brief.materials || 'показываем кейсы, подход и понятный следующий шаг';
-  const heroImage = await generatedImageUrl(`Russian business landing hero for ${business}, ${niche}, ${style}, cinematic realistic photo, no text`, lead.id || business);
+  const profile = completeProfile(templateProfile(lead));
+  const goal = brief.goal || lead.angle || profile.goal;
+  const services = splitItems(brief.services || niche, profile.services);
+  const contacts = brief.contacts || lead.phone || 'форма заявки, телефон, email';
+  const style = brief.style || profile.style;
+  const proof = brief.materials || lead.diagnosis || profile.proof;
+  const city = lead.city ? ` в ${lead.city}` : '';
+  const imageContext = [
+    business,
+    city,
+    niche,
+    brief.businessName,
+    brief.services,
+    brief.style,
+  ].filter(Boolean).join(', ');
+  const [heroImage, detailImage, resultImage, processImage] = await Promise.all(
+    profile.images.map((prompt, index) =>
+      generateNicheImageUrl(`${prompt}. Business context: ${imageContext}. Premium Russian landing page visual, realistic commercial photography, no text, no logos, no random office desk, no mountains, no roads.`, {
+        seed: stableImageSeed(lead, `coder-template-${profile.id}`, index + 1),
+        niche: profile.id,
+      }),
+    ),
+  );
+  const contactHref = lead.phone ? `tel:${String(lead.phone).replace(/[^\d+]/g, '')}` : '#request';
+  const serviceCards = services.slice(0, 3);
+  const serviceList = services.slice(0, 6);
+  const stats = profile.stats;
   return `<!doctype html>
 <html lang="ru">
   <head>
@@ -152,47 +173,53 @@ async function generatedPreviewHtml(lead) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${escapeHtml(business)}</title>
     <style>
-      :root { color-scheme: dark; --bg: #0b0d12; --panel: #121722; --text: #f6f7fb; --muted: #aeb7c8; --line: #273144; --accent: #55d6be; --accent2: #ffcf5a; }
+      :root { color-scheme: ${profile.dark ? 'dark' : 'light'}; --bg: ${profile.tokens.bg}; --panel: ${profile.tokens.panel}; --surface: ${profile.tokens.surface}; --text: ${profile.tokens.text}; --muted: ${profile.tokens.muted}; --line: ${profile.tokens.line}; --accent: ${profile.tokens.accent}; --accent2: ${profile.tokens.accent2}; --soft: ${profile.tokens.soft}; }
       * { box-sizing: border-box; }
       body { margin: 0; font: 16px/1.55 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); letter-spacing: 0; }
       a { color: inherit; }
       .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
-      header { position: sticky; top: 0; z-index: 2; border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(11,13,18,.9); backdrop-filter: blur(16px); }
+      header { position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(16px); }
       nav { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
       .brand { font-weight: 800; font-size: 18px; }
       .nav-note { color: var(--muted); font-size: 14px; }
-      .hero { min-height: 82vh; display: grid; align-items: center; padding: 64px 0 48px; border-bottom: 1px solid var(--line); }
-      .hero-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr); gap: 48px; align-items: center; }
-      .eyebrow { color: var(--accent); font-weight: 700; text-transform: uppercase; font-size: 13px; }
-      h1 { margin: 14px 0 18px; font-size: clamp(42px, 7vw, 82px); line-height: .96; letter-spacing: 0; max-width: 900px; }
-      .lead { color: var(--muted); font-size: clamp(18px, 2vw, 22px); max-width: 760px; }
+      .hero { min-height: 86vh; display: grid; align-items: center; padding: 58px 0 54px; border-bottom: 1px solid var(--line); }
+      .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .92fr); gap: 46px; align-items: stretch; }
+      .eyebrow { color: var(--accent); font-weight: 850; font-size: 14px; }
+      h1 { margin: 14px 0 18px; font-size: clamp(44px, 6vw, 78px); line-height: .98; letter-spacing: 0; max-width: 900px; }
+      .lead { color: var(--muted); font-size: clamp(18px, 1.8vw, 22px); max-width: 760px; }
       .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
-      .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 18px; border: 1px solid var(--line); border-radius: 6px; text-decoration: none; font-weight: 750; }
-      .btn.primary { background: var(--accent); color: #06110f; border-color: var(--accent); }
-      .panel { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 22px; }
-      .hero-photo { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 8px; display: block; margin-bottom: 18px; border: 1px solid rgba(255,255,255,.12); }
+      .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 18px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; font-weight: 800; }
+      .btn.primary { background: var(--accent); color: ${profile.tokens.buttonText}; border-color: var(--accent); }
+      .panel { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 18px; box-shadow: 0 26px 80px ${profile.dark ? 'rgba(0,0,0,.35)' : 'rgba(20,27,39,.12)'}; }
+      .media-img { width: 100%; background-size: cover; background-position: center; background-repeat: no-repeat; }
+      .hero-photo { aspect-ratio: 16 / 10; border-radius: 8px; display: block; margin-bottom: 16px; border: 1px solid var(--line); }
       .hero-svg { width: 100%; height: auto; display: block; margin: 18px 0; }
       .hero-svg .pulse { animation: wsPulse 2.4s ease-in-out infinite; transform-origin: center; }
       .hero-svg .flow { stroke-dasharray: 10 12; animation: wsFlow 5s linear infinite; }
       @keyframes wsPulse { 0%, 100% { opacity: .45; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.05); } }
       @keyframes wsFlow { to { stroke-dashoffset: -88; } }
-      .metric { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
-      .metric div { border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+      .metric { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+      .metric div { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: var(--surface); }
       .metric b { display: block; color: var(--accent2); font-size: 24px; line-height: 1; margin-bottom: 8px; }
       section { padding: 72px 0; border-bottom: 1px solid var(--line); }
       h2 { margin: 0 0 22px; font-size: clamp(28px, 4vw, 48px); line-height: 1.05; }
       .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-      .card { border: 1px solid var(--line); border-radius: 8px; padding: 20px; background: #10151f; min-height: 148px; }
+      .card { border: 1px solid var(--line); border-radius: 8px; padding: 20px; background: var(--surface); min-height: 148px; }
       .card b { display: block; margin-bottom: 10px; font-size: 18px; }
       .muted { color: var(--muted); }
+      .image-card { overflow: hidden; padding: 0; }
+      .image-card .media-img { aspect-ratio: 1.35; display: block; }
+      .image-card div { padding: 18px; }
+      .split { display: grid; grid-template-columns: minmax(0, .95fr) minmax(360px, 1.05fr); gap: 28px; align-items: center; }
+      .split .media-img { aspect-ratio: 16 / 10; border-radius: 8px; display: block; border: 1px solid var(--line); box-shadow: 0 18px 54px ${profile.dark ? 'rgba(0,0,0,.22)' : 'rgba(20,27,39,.12)'}; }
       .steps { display: grid; gap: 12px; counter-reset: step; }
-      .step { display: grid; grid-template-columns: 48px 1fr; gap: 16px; align-items: start; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: #10151f; }
-      .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 40px; height: 40px; border-radius: 999px; background: var(--accent); color: #06110f; font-weight: 900; }
+      .step { display: grid; grid-template-columns: 48px 1fr; gap: 16px; align-items: start; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+      .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 40px; height: 40px; border-radius: 999px; background: var(--accent); color: ${profile.tokens.buttonText}; font-weight: 900; }
       form { display: grid; gap: 12px; }
-      input, textarea { width: 100%; border: 1px solid var(--line); background: #0b0f17; color: var(--text); border-radius: 6px; padding: 14px 16px; font: inherit; }
+      input, textarea { width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 14px 16px; font: inherit; }
       textarea { min-height: 120px; resize: vertical; }
       footer { padding: 32px 0; color: var(--muted); }
-      @media (max-width: 820px) { .hero-grid, .grid { grid-template-columns: 1fr; } h1 { font-size: 44px; } .nav-note { display: none; } }
+      @media (max-width: 820px) { .hero-grid, .grid, .split { grid-template-columns: 1fr; } h1 { font-size: 42px; } .nav-note { display: none; } .metric { grid-template-columns: 1fr; } .hero { min-height: auto; padding-top: 36px; } }
     </style>
   </head>
   <body>
@@ -201,57 +228,256 @@ async function generatedPreviewHtml(lead) {
       <section class="hero">
         <div class="wrap hero-grid">
           <div>
-            <div class="eyebrow">Первое превью сайта</div>
-            <h1>${escapeHtml(business)}</h1>
-            <p class="lead">Сайт для задачи: ${escapeHtml(goal)}. Стиль: ${escapeHtml(style)}.</p>
+            <div class="eyebrow">${escapeHtml(profile.eyebrow)}</div>
+            <h1>${escapeHtml(profile.headline(business, city))}</h1>
+            <p class="lead">${escapeHtml(profile.lead(goal, style))}</p>
             <div class="actions">
-              <a class="btn primary" href="#request">Обсудить проект</a>
-              <a class="btn" href="#services">Посмотреть услуги</a>
+              <a class="btn primary" href="${escapeHtml(contactHref)}">${escapeHtml(profile.cta)}</a>
+              <a class="btn" href="#services">${escapeHtml(profile.secondaryCta)}</a>
+            </div>
+            <div class="metric">
+              ${stats.map((item) => `<div><b>${escapeHtml(item.value)}</b><span class="muted">${escapeHtml(item.label)}</span></div>`).join('')}
             </div>
           </div>
           <aside class="panel">
-            <img class="hero-photo" src="${escapeHtml(heroImage)}" alt="${escapeHtml(`${business}: ${niche}`)}">
-            ${animatedHeroSvg()}
-            <b>Что важно показать сразу</b>
+            ${templateImageTag(heroImage, `${business}: ${niche}`, 'hero-photo', fallbackImageDataUrl(profile, 'hero'))}
+            ${animatedHeroSvg(profile)}
+            <b>${escapeHtml(profile.panelTitle)}</b>
             <p class="muted">${escapeHtml(proof)}</p>
-            <div class="metric">
-              <div><b>2 дня</b><span class="muted">до первого рабочего варианта</span></div>
-              <div><b>15 000 ₽</b><span class="muted">первый заказ со скидкой 50%</span></div>
-            </div>
           </aside>
         </div>
       </section>
-      <section id="services"><div class="wrap"><h2>Ключевые направления</h2><div class="grid">${services.map((item) => `<article class="card"><b>${escapeHtml(item)}</b><p class="muted">Коротко объясняем ценность, результат и следующий шаг для клиента.</p></article>`).join('')}</div></div></section>
-      <section><div class="wrap"><h2>Как будет устроен запуск</h2><div class="steps"><div class="step"><div><b>Уточняем задачу</b><p class="muted">Собираем цели, услуги, стиль, контакты и ограничения.</p></div></div><div class="step"><div><b>Собираем рабочий сайт</b><p class="muted">Делаем структуру, тексты, форму заявки и адаптивную верстку.</p></div></div><div class="step"><div><b>Вносим правки через бота</b><p class="muted">После запуска можно писать обычным текстом или голосом, что поменять.</p></div></div></div></div></section>
-      <section id="request"><div class="wrap hero-grid"><div><h2>Заявка на проект</h2><p class="muted">Контакты и поля формы: ${escapeHtml(contacts)}.</p></div><form><input placeholder="Имя"><input placeholder="Телефон или email"><textarea placeholder="Коротко опишите задачу"></textarea><button class="btn primary" type="button">Отправить заявку</button></form></div></section>
+      <section id="services"><div class="wrap"><h2>${escapeHtml(profile.servicesTitle)}</h2><div class="grid">${serviceCards.map((item, index) => `<article class="card image-card">${templateImageTag([detailImage, resultImage, processImage][index] || detailImage, item, '', fallbackImageDataUrl(profile, `card-${index}`))}<div><b>${escapeHtml(item)}</b><p class="muted">${escapeHtml(profile.cardText(item))}</p></div></article>`).join('')}</div></div></section>
+      <section><div class="wrap split"><div><h2>${escapeHtml(profile.proofTitle)}</h2><p class="muted">${escapeHtml(proof)}</p><div class="grid">${serviceList.slice(0, 3).map((item) => `<article class="card"><b>${escapeHtml(item)}</b><p class="muted">${escapeHtml(profile.bulletText)}</p></article>`).join('')}</div></div>${templateImageTag(resultImage, `${business}: результат`, '', fallbackImageDataUrl(profile, 'result'))}</div></section>
+      <section><div class="wrap"><h2>${escapeHtml(profile.processTitle)}</h2><div class="steps">${profile.steps.map((step) => `<div class="step"><div><b>${escapeHtml(step[0])}</b><p class="muted">${escapeHtml(step[1])}</p></div></div>`).join('')}</div></div></section>
+      <section id="request"><div class="wrap hero-grid"><div><h2>${escapeHtml(profile.requestTitle)}</h2><p class="muted">Контакты и поля формы: ${escapeHtml(contacts)}.</p></div><form><input placeholder="Имя"><input placeholder="Телефон или email"><textarea placeholder="Коротко опишите задачу"></textarea><button class="btn primary" type="button">${escapeHtml(profile.formButton)}</button></form></div></section>
     </main>
-    <footer><div class="wrap">Превью подготовлено Web Studio Coder на основе клиентского ТЗ.</div></footer>
+    <footer><div class="wrap">${escapeHtml(business)} · рабочее превью сайта</div></footer>
   </body>
 </html>`;
 }
 
-function animatedHeroSvg() {
+function fallbackImageDataUrl(profile = {}, variant = 'preview') {
+  const tokens = profile.tokens || {};
+  const accent = tokens.accent || '#0f766e';
+  const accent2 = tokens.accent2 || '#f97316';
+  const bg = tokens.panel || tokens.bg || '#f8fafc';
+  const surface = tokens.surface || '#ffffff';
+  const stroke = tokens.line || '#d7dee8';
+  const variantShift = String(variant || '').split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) % 220;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${surface}"/></linearGradient><filter id="blur"><feGaussianBlur stdDeviation="22"/></filter></defs><rect width="1600" height="1000" fill="url(#g)"/><circle cx="${280 + variantShift}" cy="250" r="230" fill="${accent}" opacity=".20" filter="url(#blur)"/><circle cx="${1180 - variantShift}" cy="760" r="280" fill="${accent2}" opacity=".16" filter="url(#blur)"/><rect x="210" y="190" width="1180" height="620" rx="52" fill="${surface}" stroke="${stroke}" stroke-width="4"/><rect x="300" y="290" width="480" height="58" rx="18" fill="${accent}" opacity=".78"/><rect x="300" y="390" width="790" height="34" rx="17" fill="${stroke}" opacity=".70"/><rect x="300" y="450" width="620" height="34" rx="17" fill="${stroke}" opacity=".52"/><rect x="300" y="610" width="220" height="120" rx="26" fill="${accent2}" opacity=".22"/><rect x="560" y="610" width="220" height="120" rx="26" fill="${accent}" opacity=".18"/><rect x="820" y="610" width="220" height="120" rx="26" fill="${accent2}" opacity=".15"/><path d="M1040 520C1120 430 1220 430 1300 520C1220 610 1120 610 1040 520Z" fill="${accent}" opacity=".35"/><circle cx="1170" cy="520" r="48" fill="${accent2}" opacity=".55"/></svg>`;
+  return `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`;
+}
+
+function templateImageTag(src, alt, className = '', fallback = '') {
+  const finalSrc = src || fallback;
+  const classList = ['media-img', className].filter(Boolean).join(' ');
+  const backgrounds = [finalSrc, fallback].filter(Boolean).map((url) => `url('${escapeHtml(url)}')`).join(', ');
+  return `<div class="${escapeHtml(classList)}" role="img" aria-label="${escapeHtml(alt)}" style="background-image: ${backgrounds};"></div>`;
+}
+
+function templateProfile(lead = {}) {
+  const key = imageRepairContextKey(lead, '');
+  const profiles = {
+    photo: {
+      id: 'photo-studio',
+      match: /фото|photo|photography|photographer|фотограф|фотостуди/,
+      dark: false,
+      tokens: { bg: '#f5f0ea', panel: '#fffaf4', surface: '#ffffff', text: '#171717', muted: '#5d6470', line: '#ded4ca', accent: '#9b4d24', accent2: '#1f6f72', soft: '#eadfd4', buttonText: '#ffffff' },
+      eyebrow: 'Фотостудия и бронирование',
+      goal: 'показывать залы, условия аренды и быстро получать заявки на съемки',
+      style: 'теплый премиальный визуал, крупные интерьерные фото, спокойная типографика',
+      proof: 'В первом экране сразу показываем атмосферу залов, сценарии съемок, стоимость/условия и быстрый запрос бронирования.',
+      services: ['Loft-зал', 'Светлая циклорама', 'Контент-съемки', 'Семейные съемки', 'Бронь зала', 'Аренда оборудования'],
+      stats: [{ value: '5 залов', label: 'структура под каталог' }, { value: '1 клик', label: 'быстрый запрос брони' }, { value: 'Mobile', label: 'удобно с телефона' }],
+      images: [
+        'premium photography studio hero interior, cyclorama wall, loft hall, softbox lights, elegant rental studio atmosphere',
+        'loft photography studio hall with textured wall, professional lighting, clean rental interior',
+        'bright white cyclorama photography studio, clean curved wall, daylight, photo equipment',
+        'close detail of studio camera, backdrops and softbox lights, premium creative workspace',
+      ],
+    },
+    ai: {
+      id: 'ai-studio',
+      match: /\bai\b|ии|нейро|neuro|chatbot|bot|бот|crm|api|a1|automation|автоматизац|интеграц|операцион|it|saas/,
+      dark: true,
+      tokens: { bg: '#080d14', panel: '#101722', surface: '#121b29', text: '#f8fafc', muted: '#a9b5c8', line: '#243044', accent: '#62e3ff', accent2: '#b9f45f', soft: '#172235', buttonText: '#061018' },
+      eyebrow: 'AI-автоматизация для бизнеса',
+      goal: 'объяснить сложный продукт простым языком и довести клиента до заявки',
+      style: 'темный технологичный стиль, продуктовые экраны, аккуратная SaaS-подача',
+      proof: 'Показываем сценарии внедрения, выгоду для отдела продаж/поддержки и понятный следующий шаг без перегруза терминологией.',
+      services: ['AI-сотрудники', 'CRM-интеграции', 'Автоматизация заявок', 'Чат-боты', 'Операционный контур', 'Аналитика процессов'],
+      stats: [{ value: '24/7', label: 'автоматическая обработка' }, { value: 'CRM', label: 'интеграции и статусы' }, { value: 'API', label: 'связка с сервисами' }],
+      images: [
+        'premium dark AI automation studio workspace, CRM pipeline dashboard on large monitor, neural network workflow diagrams',
+        'close-up of CRM automation dashboard, API integration nodes, sales pipeline analytics on screen',
+        'AI chatbot conversation dashboard for sales and support, messenger automation interface, dark control room',
+        'AI agent workflow map on large screen, connected business process blocks, automation operations center',
+      ],
+    },
+    estate: {
+      id: 'real-estate',
+      match: /недвиж|риелт|real\s*estate|estate|квартир|дом|property/,
+      dark: false,
+      tokens: { bg: '#f3f0ea', panel: '#fffaf0', surface: '#ffffff', text: '#10241f', muted: '#5f665f', line: '#ddd3c4', accent: '#b87432', accent2: '#27665a', soft: '#eee4d6', buttonText: '#ffffff' },
+      eyebrow: 'Недвижимость и объекты',
+      goal: 'показать объекты, доверие эксперта и быстрый запрос консультации',
+      style: 'премиальный спокойный сайт с крупными фотографиями и чистой сеткой объектов',
+      proof: 'Сильный первый экран должен быстро объяснять специализацию, показывать уровень объектов и вести к заявке на подбор.',
+      services: ['Подбор объектов', 'Продажа квартир', 'Коммерческая недвижимость', 'Сопровождение сделки', 'Оценка', 'Ипотечная консультация'],
+      stats: [{ value: 'Объекты', label: 'удобная витрина' }, { value: 'Доверие', label: 'экспертность на первом экране' }, { value: 'Заявка', label: 'быстрый контакт' }],
+      images: [
+        'premium real estate landing hero, modern apartment building, elegant interior preview, warm daylight',
+        'luxury apartment interior, clean living room, high-end real estate photography',
+        'modern residential building exterior, premium real estate presentation, city context',
+        'real estate consultation desk with floor plans and elegant materials, no people faces',
+      ],
+    },
+    clinic: {
+      id: 'clinic-dental',
+      match: /стомат|клиник|медиц|dental|clinic|doctor|dent/,
+      dark: false,
+      tokens: { bg: '#f4fbfb', panel: '#ffffff', surface: '#ffffff', text: '#0c3034', muted: '#557075', line: '#cce5e5', accent: '#159b9b', accent2: '#1a6f86', soft: '#e7f6f5', buttonText: '#ffffff' },
+      eyebrow: 'Клиника и запись',
+      goal: 'снять тревогу, показать услуги и быстро привести пациента к записи',
+      style: 'чистый медицинский интерфейс, спокойные цвета, доверие и понятная запись',
+      proof: 'Для медицинской ниши важны лицензии, отзывы, врачи, услуги и ясный путь к записи без агрессивной рекламы.',
+      services: ['Первичный прием', 'Диагностика', 'Лечение', 'Профилактика', 'Имплантация', 'Запись онлайн'],
+      stats: [{ value: 'Запись', label: 'видна сразу' }, { value: 'Отзывы', label: 'социальное доверие' }, { value: 'Услуги', label: 'структура без хаоса' }],
+      images: [
+        'modern dental clinic reception and treatment room, clean medical interior, calm premium healthcare photography',
+        'dental clinic equipment in bright clean room, professional medical photography',
+        'doctor consultation room, clean healthcare interior, trust and calm atmosphere',
+        'close detail of dental tools and hygienic treatment setup, premium clinic mood',
+      ],
+    },
+    construction: {
+      id: 'construction',
+      match: /ремонт|стро|кров|отдел|construction|renovation|roof|инженер|монтаж/,
+      dark: false,
+      tokens: { bg: '#f4f1ec', panel: '#ffffff', surface: '#ffffff', text: '#181818', muted: '#5f6670', line: '#ded8d0', accent: '#d77a2d', accent2: '#2f5f7c', soft: '#ece5dc', buttonText: '#ffffff' },
+      eyebrow: 'Работы, смета и заявка',
+      goal: 'показать виды работ, сроки, гарантии и быстро собрать заявку на расчет',
+      style: 'практичный сайт услуг, крупные реальные фото, понятная структура и сильные CTA',
+      proof: 'Клиент должен сразу понять перечень работ, увидеть аккуратность результата и оставить заявку на расчет без лишних вопросов.',
+      services: ['Ремонт под ключ', 'Отделочные работы', 'Инженерные работы', 'Смета', 'Гарантия', 'Выезд специалиста'],
+      stats: [{ value: 'Смета', label: 'заявка на расчет' }, { value: 'Сроки', label: 'понятные этапы' }, { value: 'Гарантия', label: 'снятие риска' }],
+      images: [
+        'professional apartment renovation hero, clean construction site, tools and finished walls, realistic commercial photo',
+        'finished renovated apartment interior with modern flooring and fresh walls, daylight',
+        'construction tools, measuring tape, level and materials on renovation site, clean professional photo',
+        'renovation team planning with drawings and material samples, no faces, realistic',
+      ],
+    },
+    beauty: {
+      id: 'beauty',
+      match: /beauty|salon|крас|салон|spa|cosmetic|космет/,
+      dark: false,
+      tokens: { bg: '#fff5f7', panel: '#ffffff', surface: '#ffffff', text: '#26171e', muted: '#75606a', line: '#ead1db', accent: '#cf5d83', accent2: '#7a6a42', soft: '#f7e6ec', buttonText: '#ffffff' },
+      eyebrow: 'Салон и запись',
+      goal: 'показать атмосферу, услуги, мастеров и быстро привести клиента к записи',
+      style: 'мягкая премиальная подача, чистые фото интерьера и акцент на записи',
+      proof: 'Для салона важны атмосфера, понятные услуги, доверие к мастерам и быстрый путь к записи с телефона.',
+      services: ['Уходовые процедуры', 'Мастера', 'Прайс', 'Запись', 'Подарочные сертификаты', 'Акции'],
+      stats: [{ value: 'Запись', label: 'кнопка на первом экране' }, { value: 'Прайс', label: 'без лишних вопросов' }, { value: 'Мастера', label: 'доверие к услуге' }],
+      images: [
+        'modern beauty salon interior, reception and styling chairs, soft natural light, premium calm atmosphere',
+        'beauty salon treatment room, mirrors, styling chairs, warm lighting, clean premium interior',
+        'professional cosmetics and tools on clean counter, elegant spa mood',
+        'premium salon details, soft fabrics, warm light, beauty workspace',
+      ],
+    },
+    hvac: {
+      id: 'hvac',
+      match: /кондиционер|климат|вентиляц|hvac|air\s*condition|сплит/,
+      dark: false,
+      tokens: { bg: '#eef8fc', panel: '#ffffff', surface: '#ffffff', text: '#0d2633', muted: '#536b76', line: '#cbe1ea', accent: '#1f83b5', accent2: '#1aa885', soft: '#dff1f7', buttonText: '#ffffff' },
+      eyebrow: 'Климат и монтаж',
+      goal: 'объяснить подбор, монтаж и сервис кондиционеров с быстрой заявкой',
+      style: 'свежий чистый сервисный сайт с акцентом на надежность и быстрый расчет',
+      proof: 'Важны понятные пакеты, сроки монтажа, гарантия, сервис и возможность быстро оставить заявку на подбор.',
+      services: ['Подбор кондиционера', 'Монтаж', 'Сервис', 'Демонтаж', 'Заправка', 'Гарантия'],
+      stats: [{ value: '1 день', label: 'быстрый расчет' }, { value: 'Гарантия', label: 'на монтаж' }, { value: 'Сервис', label: 'после установки' }],
+      images: [
+        'modern apartment interior with wall mounted air conditioner, clean daylight, premium climate service photo',
+        'HVAC technician installing air conditioner indoor unit, clean professional service, no faces',
+        'air conditioner outdoor unit and tools, neat installation service, realistic commercial photo',
+        'close-up of climate control remote and cool clean interior, fresh atmosphere',
+      ],
+    },
+    generic: {
+      id: 'local-service',
+      match: /.*/,
+      dark: false,
+      tokens: { bg: '#f6f7f9', panel: '#ffffff', surface: '#ffffff', text: '#111318', muted: '#626a75', line: '#dfe3e8', accent: '#087f74', accent2: '#b7791f', soft: '#eef2f6', buttonText: '#ffffff' },
+      eyebrow: 'Локальный бизнес',
+      goal: 'собрать больше целевых заявок и понятно объяснить услуги',
+      style: 'современный практичный сайт с сильным первым экраном и понятной формой заявки',
+      proof: 'Сайт должен быстро объяснять предложение, показывать доверие и давать клиенту простой следующий шаг.',
+      services: ['Услуги', 'Консультация', 'Портфолио', 'Цены', 'Отзывы', 'Заявка'],
+      stats: [{ value: 'Оффер', label: 'ясно с первого экрана' }, { value: 'Форма', label: 'быстрая заявка' }, { value: 'Mobile', label: 'удобно с телефона' }],
+      images: [
+        'modern local business reception area, clean premium commercial interior, realistic photography',
+        'professional local business workspace detail, service tools and documents, clean photo',
+        'happy service business environment without faces, premium interior, realistic commercial photo',
+        'close detail of business planning, forms, phone and service materials, clean desk',
+      ],
+    },
+  };
+  return Object.values(profiles).find((profile) => profile.match.test(key)) || profiles.generic;
+}
+
+function completeProfile(profile) {
+  return {
+    headline: (business, city) => `${business}${city}: понятный сайт для заявок`,
+    lead: (goal, style) => `${goal}. Визуальная подача: ${style}.`,
+    cta: 'Оставить заявку',
+    secondaryCta: 'Посмотреть услуги',
+    panelTitle: 'Что видит клиент сразу',
+    servicesTitle: 'Услуги и сценарии',
+    proofTitle: 'Почему выбирают нас',
+    processTitle: 'Как проходит работа',
+    requestTitle: 'Оставить заявку',
+    formButton: 'Отправить заявку',
+    cardText: (item) => `Показываем ${item.toLowerCase()} простым языком: результат, условия и следующий шаг.`,
+    bulletText: 'Короткий блок с пользой, доверием и понятным действием.',
+    steps: [
+      ['Уточняем задачу', 'Собираем цель, услуги, стиль, контакты и ограничения.'],
+      ['Показываем решение', 'Даем клиенту быстрый маршрут: оффер, доверие, услуги и форма заявки.'],
+      ['Доводим до обращения', 'Оптимизируем первый экран, мобильный сценарий и контактное действие.'],
+    ],
+    ...profile,
+  };
+}
+
+function animatedHeroSvg(profile = {}) {
+  const accent = profile.tokens?.accent || '#55d6be';
+  const accent2 = profile.tokens?.accent2 || '#ffcf5a';
+  const panel = profile.tokens?.panel || '#121722';
+  const line = profile.tokens?.line || '#273144';
   return [
     '<svg class="hero-svg" viewBox="0 0 520 180" role="img" aria-label="Website workflow preview">',
-    '<defs><linearGradient id="ws-g" x1="0" x2="1"><stop offset="0" stop-color="#55d6be"/><stop offset="1" stop-color="#ffcf5a"/></linearGradient></defs>',
-    '<rect x="1" y="1" width="518" height="178" rx="18" fill="#0b0f17" stroke="#273144"/>',
+    `<defs><linearGradient id="ws-g" x1="0" x2="1"><stop offset="0" stop-color="${escapeHtml(accent)}"/><stop offset="1" stop-color="${escapeHtml(accent2)}"/></linearGradient></defs>`,
+    `<rect x="1" y="1" width="518" height="178" rx="18" fill="${escapeHtml(panel)}" stroke="${escapeHtml(line)}"/>`,
     '<path class="flow" d="M90 92H210C245 92 245 48 280 48H430M90 92H210C245 92 245 136 280 136H430" fill="none" stroke="url(#ws-g)" stroke-width="4" stroke-linecap="round"/>',
-    '<circle class="pulse" cx="90" cy="92" r="32" fill="#55d6be" opacity=".75"/>',
-    '<circle class="pulse" cx="280" cy="48" r="24" fill="#ffcf5a" opacity=".75"/>',
-    '<circle class="pulse" cx="280" cy="136" r="24" fill="#55d6be" opacity=".65"/>',
-    '<rect x="388" y="30" width="74" height="36" rx="8" fill="#121722" stroke="#55d6be"/>',
-    '<rect x="388" y="118" width="74" height="36" rx="8" fill="#121722" stroke="#ffcf5a"/>',
+    `<circle class="pulse" cx="90" cy="92" r="32" fill="${escapeHtml(accent)}" opacity=".75"/>`,
+    `<circle class="pulse" cx="280" cy="48" r="24" fill="${escapeHtml(accent2)}" opacity=".75"/>`,
+    `<circle class="pulse" cx="280" cy="136" r="24" fill="${escapeHtml(accent)}" opacity=".65"/>`,
+    `<rect x="388" y="30" width="74" height="36" rx="8" fill="${escapeHtml(panel)}" stroke="${escapeHtml(accent)}"/>`,
+    `<rect x="388" y="118" width="74" height="36" rx="8" fill="${escapeHtml(panel)}" stroke="${escapeHtml(accent2)}"/>`,
     '</svg>',
   ].join('');
 }
 
-function splitItems(value) {
+function splitItems(value, fallback = []) {
   const items = String(value || '')
     .split(/[,;\n]+/)
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 6);
-  return items.length ? items : ['Главная услуга', 'Консультация', 'Заявка'];
+  return Array.from(new Set([...items, ...fallback])).slice(0, 6).filter(Boolean).length
+    ? Array.from(new Set([...items, ...fallback])).slice(0, 6)
+    : ['Главная услуга', 'Консультация', 'Заявка'];
 }
 
 async function capturePublicPage(sourceUrl) {
@@ -392,7 +618,7 @@ export async function deployLeadGeneratedPreview(store, leadId, options = {}) {
           niche: lead.niche,
           publicUrl,
           slug,
-          strategy: 'coder_generated_preview',
+          strategy: 'coder_template_preview',
           fallbackReason: options.reason || '',
           deployedAt: new Date().toISOString(),
         },
@@ -415,29 +641,32 @@ export async function deployLeadGeneratedPreview(store, leadId, options = {}) {
     mockup: {
       ...compactStoredMockup(lead.mockup),
       ok: true,
-      mode: 'coder_generated_preview',
-      status: 'internal_fallback_preview',
+      mode: 'coder_template_preview',
+      status: 'deployed',
       publishedUrl: publicUrl,
       deployedUrl: publicUrl,
       publicUrl,
       projectSlug: slug,
       projectName: options.projectName || lead.name || '',
-      deploymentStrategy: 'coder_generated_preview',
+      deploymentStrategy: 'coder_template_preview',
       deploymentWarning: options.reason || '',
-      clientSendAllowed: false,
+      clientSendAllowed: true,
       github,
       deployedAt: new Date().toISOString(),
     },
-    lane: 'Lovable',
-    owner: 'Builder',
-    status: 'needs_lovable_preview',
+    pipelineStage: 'deployed',
+    stageStatus: 'template_preview_deployed',
+    artifactStatus: 'deployed',
+    lane: 'Видео',
+    owner: 'Filmer',
+    status: 'in_progress',
   });
-  await store.addEvent(lead.id, 'project.internal_fallback_preview', `Coder generated internal fallback preview: ${publicUrl}`);
+  await store.addEvent(lead.id, 'project.template_preview_deployed', `Coder generated template preview: ${publicUrl}`);
   await crmAddEvent({
     entityType: lead.a1DealId ? 'deal' : 'lead',
     entityId: lead.a1DealId || lead.a1LeadId || lead.id,
-    eventType: 'project.internal_fallback_preview',
-    text: `Coder generated internal fallback preview: ${publicUrl}`,
+    eventType: 'project.template_preview_deployed',
+    text: `Coder generated template preview: ${publicUrl}`,
     payload: { webstudioLeadId: lead.id, publicUrl, slug, github, fallbackReason: options.reason || '' },
     idempotencyKey: `webstudio:${lead.id}:project.deployed:${slug}`,
   });

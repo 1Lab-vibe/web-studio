@@ -5,6 +5,7 @@ import { crmConvertLeadToDeal, customerBotLink, dealAttachProduct, invoiceCreate
 import { emitCustomerA1Event } from './a1Webhook.js';
 import { prepareLovableMockup } from './lovableMcp.js';
 import { deployLeadExportedProject, deployLeadGeneratedPreview, deployLeadPublicUrlProject } from './projectPublisher.js';
+import { runPreviewQualityGate } from './qualityGate.js';
 import { downloadTelegramFile, getTelegramFile, sendTelegram, sendTelegramTo } from './telegram.js';
 import { LEGAL_DOCUMENT_VERSION, legalLinks } from './legalDocs.js';
 import { classifyCustomerRevision, isRevisionPaymentOk, revisionIdempotencyKey, revisionPaymentRequiredText } from './revisions.js';
@@ -1464,7 +1465,18 @@ async function buildApprovedBriefPreview(store, lead, chatId) {
   await store.addEvent(updated.id, 'customer.preview_build_started', 'Customer approved brief; preview build started');
   await syncLeadToA1(store, updated, 'customer_preview_build_started');
 
-  const mockup = await prepareLovableMockup(updated);
+  let mockup;
+  try {
+    mockup = await prepareLovableMockup(updated);
+  } catch (error) {
+    mockup = {
+      ok: false,
+      status: 'failed',
+      mode: 'lovable_exception',
+      reason: error.message || String(error),
+      updatedAt: new Date().toISOString(),
+    };
+  }
   updated = await store.updateLead(updated.id, {
     mockup,
     status: mockup?.status === 'export_ready' ? 'export_ready' : mockup?.status || 'preview_waiting',
@@ -1484,14 +1496,22 @@ async function buildApprovedBriefPreview(store, lead, chatId) {
       },
     });
     await store.addEvent(updated.id, 'customer.preview_build_failed', reason);
-    await sendTelegramTo(chatId, 'Lovable сейчас не отдал проект. Я передал это администратору и не буду отправлять технический черновик вместо нормального превью.');
-    await sendTelegram(`<b>Ошибка сборки клиентского превью</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>\nОшибка: <code>${escapeHtml(reason)}</code>`);
+    await sendTelegramTo(chatId, 'Lovable сейчас не отдал проект. Собираю превью на нашем отраслевом шаблоне, чтобы не задерживать запуск.');
+    await sendTelegram(`<b>Lovable недоступен, запускаю Coder template fallback</b>\nЛид: ${escapeHtml(updated.name)}\nID: <code>${escapeHtml(updated.id)}</code>\nОшибка: <code>${escapeHtml(reason)}</code>`);
     const generated = await deployLeadGeneratedPreview(store, updated.id, { reason, projectName: updated.name, renderVideo: false });
     const finalLead = generated.lead || store.getLead(updated.id) || updated;
     if (generated.publicUrl || finalLead.mockup?.publicUrl) {
       const url = generated.publicUrl || finalLead.mockup.publicUrl;
-      await sendTelegram(`<b>Внутренний Coder fallback создан</b>\nЛид: ${escapeHtml(updated.name)}\nURL: ${escapeHtml(url)}\nКлиенту не отправлен. Нужно восстановить Lovable и собрать нормальное превью.`);
-      return { ok: true, lead: finalLead, publicUrl: url, fallback: true, reason, generated };
+      const quality = await runPreviewQualityGate(finalLead);
+      await store.updateLead(finalLead.id, { qualityGate: quality });
+      if (quality.ok) {
+        await sendTelegramTo(chatId, `Первое превью готово:\n${url}\n\nЯ собрал его на нашем отраслевом шаблоне. Если направление подходит — отправьте /approve еще раз, и я сформирую оплату. Если нужно поправить — напишите обычным сообщением.`);
+        await sendTelegram(`<b>Coder template fallback отправлен клиенту</b>\nЛид: ${escapeHtml(updated.name)}\nURL: ${escapeHtml(url)}`);
+        return { ok: true, lead: finalLead, publicUrl: url, fallback: true, reason, generated, quality };
+      }
+      await sendTelegram(`<b>Coder template fallback не прошел quality gate</b>\nЛид: ${escapeHtml(updated.name)}\nURL: ${escapeHtml(url)}\nПроблемы: <code>${escapeHtml((quality.issues || []).join('; '))}</code>`);
+      await sendTelegramTo(chatId, 'Собрал черновик, но проверка качества не прошла. Я передал это администратору.');
+      return { ok: false, lead: finalLead, publicUrl: url, fallback: true, reason, generated, quality };
     }
     await sendTelegramTo(chatId, 'Не смог собрать даже аварийное превью. Я передал это администратору.');
     return { ok: false, lead: finalLead, reason, mockup, generated };

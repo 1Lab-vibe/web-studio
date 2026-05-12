@@ -406,11 +406,16 @@ export class Store {
   }
 
   async upsertLead(input) {
-    const existing = this.state.leads.find(
-      (lead) => lead.sourceKey === input.sourceKey || lead.name?.toLowerCase() === input.name?.toLowerCase(),
-    );
+    const forceCreate = input.forceCreate === true;
+    const cleanInput = { ...input };
+    delete cleanInput.forceCreate;
+    const existing = forceCreate
+      ? null
+      : this.state.leads.find(
+          (lead) => lead.sourceKey === cleanInput.sourceKey || lead.name?.toLowerCase() === cleanInput.name?.toLowerCase(),
+        );
     if (existing) {
-      Object.assign(existing, { ...input, updatedAt: new Date().toISOString() });
+      Object.assign(existing, { ...cleanInput, updatedAt: new Date().toISOString() });
       await this.save();
       return existing;
     }
@@ -430,7 +435,7 @@ export class Store {
       priority: 50,
       status: 'new',
       publicLeadToken: randomToken(),
-      ...input,
+      ...cleanInput,
     };
     this.state.leads.push(lead);
     await this.addEvent(lead.id, 'lead.created', `Создан лид ${lead.name}`, { silent: true });

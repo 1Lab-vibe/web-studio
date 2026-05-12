@@ -656,6 +656,16 @@ button {
   font-size: 12px;
 }
 
+.project-list .new-project-button {
+  background: #111318;
+  border-color: #111318;
+  color: #ffffff;
+}
+
+.project-list .new-project-button span {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .project-workspace {
   display: grid;
   gap: 16px;
@@ -747,8 +757,93 @@ button {
   font-size: 18px;
 }
 
+.dialog-panel p,
 .dialog-panel small {
   color: #607084;
+}
+
+.dialog-panel label {
+  color: #5d6675;
+  display: grid;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 7px;
+}
+
+.dialog-panel input {
+  background: #fbfcfe;
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  color: #111318;
+  min-height: 42px;
+  outline: 0;
+  padding: 11px 12px;
+}
+
+.new-project-panel {
+  background: #ffffff;
+  border: 1px solid #dfe4ec;
+  border-radius: 8px;
+  box-shadow: 0 16px 44px rgba(20, 27, 39, 0.07);
+}
+
+.payment-offer-card {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dfe4ec;
+  border-radius: 8px;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 16px 18px;
+}
+
+.payment-offer-card > div:first-child {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.payment-offer-card svg {
+  color: #0b5d56;
+  margin-top: 2px;
+}
+
+.payment-offer-card p {
+  color: #607084;
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+
+.payment-offer-card small {
+  color: #607084;
+  display: block;
+  font-weight: 760;
+  margin-top: 8px;
+}
+
+.payment-offer-price {
+  background: #f6faf9;
+  border: 1px solid #cfe4df;
+  border-radius: 8px;
+  flex: 0 0 auto;
+  padding: 12px 14px;
+  text-align: right;
+}
+
+.payment-offer-price span {
+  color: #607084;
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.payment-offer-price strong {
+  display: block;
+  font-size: 24px;
+  margin-top: 4px;
 }
 
 @media (max-width: 900px) {
@@ -800,6 +895,21 @@ button {
 
   .preview-frame {
     aspect-ratio: 1.12;
+  }
+
+  .payment-offer-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .payment-offer-price {
+    text-align: left;
+  }
+
+  .preview-panel iframe {
+    height: 520px;
+    transform: none;
+    width: 100%;
   }
 }
 
@@ -881,13 +991,20 @@ button {
 }
 
 .studio-site .public-hero {
-  align-items: center;
-  gap: 52px;
-  grid-template-columns: minmax(430px, 0.82fr) minmax(560px, 1.18fr);
+  align-items: stretch;
+  gap: 44px;
+  grid-template-columns: minmax(0, 1fr) minmax(520px, 1fr);
   margin-top: 0;
   max-width: 1240px;
   min-height: auto;
-  padding: 54px 24px 66px;
+  padding: 42px 24px 58px;
+}
+
+.studio-site .hero-copy {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .hero-kicker,
@@ -904,30 +1021,29 @@ button {
 
 .studio-site .hero-copy h1 {
   color: var(--studio-ink);
-  font-size: clamp(42px, 4.4vw, 62px);
-  line-height: 1;
-  margin-top: 18px;
-  max-width: 660px;
+  font-size: clamp(40px, 3.8vw, 56px);
+  line-height: 1.03;
+  max-width: 620px;
 }
 
 .studio-site .hero-copy p {
   color: var(--studio-muted);
-  font-size: 19px;
-  line-height: 1.58;
-  max-width: 660px;
+  font-size: 18px;
+  line-height: 1.52;
+  max-width: 610px;
 }
 
 .studio-site .hero-actions {
   gap: 14px;
-  margin-top: 30px;
+  margin-top: 24px;
 }
 
 .studio-site .hero-proof {
   border-top: 1px solid var(--studio-line);
   color: #475161;
   gap: 16px;
-  margin-top: 26px;
-  padding-top: 20px;
+  margin-top: 22px;
+  padding-top: 16px;
 }
 
 .studio-site .hero-proof span {
@@ -941,7 +1057,7 @@ button {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 24px;
+  margin-top: 18px;
   max-width: 620px;
 }
 
@@ -967,7 +1083,9 @@ button {
 }
 
 .studio-site .hero-product {
-  display: block;
+  align-items: stretch;
+  align-self: stretch;
+  display: flex;
 }
 
 .hero-image-shell,
@@ -983,9 +1101,10 @@ button {
 .hero-image-shell {
   background: #101319;
   box-shadow: var(--studio-shadow-strong);
-  min-height: 620px;
+  min-height: 560px;
   overflow: hidden;
   position: relative;
+  width: 100%;
 }
 
 .hero-image-shell::after {
@@ -1000,7 +1119,8 @@ button {
 
 .hero-image-shell > img {
   display: block;
-  height: 620px;
+  height: 100%;
+  min-height: 560px;
   object-fit: cover;
   object-position: center center;
   width: 100%;
@@ -1386,6 +1506,87 @@ button {
   text-decoration: none;
 }
 
+.contacts-section {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  box-shadow: 0 16px 44px rgba(20, 27, 39, 0.07);
+  display: grid;
+  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.85fr);
+  margin: 0 auto 28px;
+  max-width: 1192px;
+  padding: 34px;
+}
+
+.contacts-copy h2 {
+  color: var(--studio-ink);
+  font-size: clamp(34px, 3.5vw, 52px);
+  line-height: 1;
+  margin: 12px 0 0;
+}
+
+.contacts-copy p {
+  color: var(--studio-muted);
+  font-size: 18px;
+  line-height: 1.55;
+  max-width: 680px;
+}
+
+.contacts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.contacts-actions a {
+  gap: 8px;
+}
+
+.contacts-card {
+  background: #f7f9fb;
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.contacts-card div {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px 10px;
+  grid-template-columns: 22px 90px minmax(0, 1fr);
+  padding: 12px;
+}
+
+.contacts-card svg {
+  color: var(--studio-accent);
+  grid-row: span 2;
+}
+
+.contacts-card span {
+  color: var(--studio-muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.contacts-card a,
+.contacts-card strong {
+  color: var(--studio-ink);
+  font-size: 15px;
+  font-weight: 900;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
 .final-cta {
   align-items: center;
   background: #111317;
@@ -1422,6 +1623,7 @@ button {
   .studio-site .cabinet-showcase,
   .studio-site .pricing-section,
   .documents-section,
+  .contacts-section,
   .final-cta {
     grid-template-columns: 1fr;
   }
@@ -1439,11 +1641,11 @@ button {
   }
 
   .hero-image-shell {
-    min-height: 520px;
+    min-height: 500px;
   }
 
   .hero-image-shell > img {
-    height: 520px;
+    min-height: 500px;
   }
 
   .portfolio-card,
@@ -1495,11 +1697,11 @@ button {
   }
 
   .hero-image-shell {
-    min-height: 360px;
+    min-height: 340px;
   }
 
   .hero-image-shell > img {
-    height: 360px;
+    min-height: 340px;
   }
 
   .hero-visual-card {
@@ -1529,9 +1731,35 @@ button {
   .portfolio-section,
   .testimonials-section,
   .documents-section,
+  .contacts-section,
   .final-cta {
     padding-left: 16px;
     padding-right: 16px;
+  }
+
+  .contacts-section {
+    margin-left: 16px;
+    margin-right: 16px;
+    padding-bottom: 22px;
+    padding-top: 22px;
+  }
+
+  .contacts-card div {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .contacts-card span,
+  .contacts-card a,
+  .contacts-card strong {
+    grid-column: 2;
+  }
+
+  .payment-offer-card {
+    padding: 14px;
+  }
+
+  .payment-offer-price strong {
+    font-size: 21px;
   }
 
   .portfolio-grid {

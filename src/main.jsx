@@ -255,6 +255,7 @@ function PublicSite() {
           <a href="#cabinet">Кабинет</a>
           <a href="#process">Процесс</a>
           <a href="#pricing">Стоимость</a>
+          <a href="#contacts">Контакты</a>
         </nav>
         <div className="public-nav-actions">
           <a className="public-link" href="#documents">Документы</a>
@@ -264,14 +265,10 @@ function PublicSite() {
 
       <section className="public-hero">
         <div className="hero-copy">
-          <div className="hero-kicker">
-            <Sparkles size={16} />
-            <span>Первое рабочее превью до оплаты</span>
-          </div>
-          <h1>Сайт, который продает, пока вы занимаетесь бизнесом</h1>
+          <h1>Сайт, который приводит заявки</h1>
           <p>
-            Показываем живое превью до оплаты, доводим первый экран, форму заявки, доверие и мобильную версию, а затем оставляем кабинет,
-            где сайт можно развивать обычным сообщением.
+            Не просто красивый экран: сначала показываем рабочее превью до оплаты, затем доводим оффер, форму заявки, доверие, контакты и мобильную версию.
+            После запуска сайт можно развивать через кабинет или Telegram.
           </p>
           <div className="hero-actions">
             <a className="public-button" href="/cabinet">Получить превью сайта</a>
@@ -453,6 +450,44 @@ function PublicSite() {
         </div>
       </section>
 
+      <section className="contacts-section" id="contacts">
+        <div className="contacts-copy">
+          <span className="section-eyebrow">Контакты</span>
+          <h2>Можно начать через кабинет, Telegram или прямой контакт</h2>
+          <p>Для проекта сайта достаточно описать бизнес и задачу. Если удобнее обсудить вручную, напишите в Telegram или позвоните.</p>
+          <div className="contacts-actions">
+            <a className="public-button" href="https://t.me/a1_web_studio_bot" target="_blank" rel="noreferrer">
+              <Send size={18} /> Открыть Telegram-бота
+            </a>
+            <a className="public-ghost" href="https://t.me/Van_true777" target="_blank" rel="noreferrer">
+              <MessageSquareText size={18} /> Написать Ивану
+            </a>
+          </div>
+        </div>
+        <div className="contacts-card">
+          <div>
+            <Mail size={19} />
+            <span>Почта</span>
+            <a href="mailto:1lab@1true.ru">1lab@1true.ru</a>
+          </div>
+          <div>
+            <PhoneCall size={19} />
+            <span>Телефон</span>
+            <a href="tel:+79057777672">8-905-777-76-72</a>
+          </div>
+          <div>
+            <Send size={19} />
+            <span>Telegram</span>
+            <a href="https://t.me/Van_true777" target="_blank" rel="noreferrer">@Van_true777</a>
+          </div>
+          <div>
+            <FileText size={19} />
+            <span>Реквизиты</span>
+            <strong>ИП Трушков Иван Алексеевич · ИНН 500804863530</strong>
+          </div>
+        </div>
+      </section>
+
       <section className="final-cta">
         <div>
           <span className="section-eyebrow">Старт проекта</span>
@@ -470,6 +505,7 @@ function PublicSite() {
           <a href="/marketing-consent">Маркетинг</a>
           <a href="/offer">Оферта</a>
           <a href="/disclaimer">Дисклеймер</a>
+          <a href="#contacts">Контакты</a>
         </nav>
       </footer>
     </main>
@@ -480,6 +516,8 @@ function CustomerCabinet() {
   const [session, setSession] = useState({ loading: true, authenticated: false, projects: [] });
   const [adminSession, setAdminSession] = useState({ authenticated: false });
   const [activeProjectId, setActiveProjectId] = useState('');
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [newProject, setNewProject] = useState({ businessName: '', phone: '', goal: '' });
   const [message, setMessage] = useState('');
   const [revision, setRevision] = useState('');
   const [notice, setNotice] = useState('');
@@ -514,7 +552,7 @@ function CustomerCabinet() {
       const response = await request();
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result.ok === false) throw new Error(result.error || 'Не удалось выполнить действие');
-      setNotice(successText);
+      setNotice(result.warning || successText);
       await loadSession();
     } catch (error) {
       setNotice(error.message);
@@ -526,6 +564,31 @@ function CustomerCabinet() {
   const logout = async () => {
     await apiFetch('/api/customer/logout', { method: 'POST', credentials: 'include' });
     setSession({ loading: false, authenticated: false, projects: [] });
+  };
+
+  const createProject = async (event) => {
+    event.preventDefault();
+    setBusy('newProject');
+    setNotice('');
+    try {
+      const response = await apiFetch('/api/customer/projects', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProject),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false) throw new Error(result.error || 'Не удалось создать проект');
+      setNotice('Новый сайт создан. Теперь можно утвердить ТЗ и собрать превью.');
+      setNewProject({ businessName: '', phone: '', goal: '' });
+      setShowNewProject(false);
+      await loadSession();
+      if (result.project?.id) setActiveProjectId(result.project.id);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy('');
+    }
   };
 
   if (session.loading) return <main className="customer-shell loading" />;
@@ -554,9 +617,16 @@ function CustomerCabinet() {
   }
 
   const activeProject = session.projects.find((project) => project.id === activeProjectId) || session.projects[0] || null;
+  const normalizedSessionEmail = String(session.email || '').trim().toLowerCase();
+  const normalizedAdminUser = String(adminSession.user || '').trim().toLowerCase();
+  const showAdminLink = Boolean(adminSession.authenticated && normalizedSessionEmail === '1lab@1true.ru' && normalizedAdminUser === '1lab@1true.ru');
+  const activeOffer = activeProject?.paymentOffer || {};
+  const paymentStatus = String(activeProject?.payment?.status || '').toLowerCase();
+  const paymentPending = ['manual_invoice_requested', 'requested', 'invoice_requested'].includes(paymentStatus);
+  const paymentLabel = paymentPending ? 'Счет запрошен' : 'Получить счет';
   return (
     <main className="customer-shell">
-      <CustomerHeader email={session.email} onLogout={logout} showAdmin={adminSession.authenticated} />
+      <CustomerHeader email={session.email} onLogout={logout} showAdmin={showAdminLink} />
       {notice && <div className="customer-notice">{notice}</div>}
       <section className="customer-dashboard">
         <aside className="project-list">
@@ -564,6 +634,10 @@ function CustomerCabinet() {
             <LayoutDashboard size={18} />
             <strong>Мои сайты</strong>
           </div>
+          <button className="new-project-button" type="button" onClick={() => setShowNewProject((current) => !current)}>
+            <strong>+ Новый сайт</strong>
+            <span>создать проект в кабинете</span>
+          </button>
           {session.projects.length ? (
             session.projects.map((project) => (
               <button className={project.id === activeProject?.id ? 'active' : ''} type="button" key={project.id} onClick={() => setActiveProjectId(project.id)}>
@@ -577,6 +651,25 @@ function CustomerCabinet() {
         </aside>
 
         <section className="project-workspace">
+          {showNewProject && (
+            <form className="dialog-panel new-project-panel" onSubmit={createProject}>
+              <strong>Новый сайт</strong>
+              <p>Опишите бизнес и задачу. Проект появится в списке, а после утверждения ТЗ мы соберем первое превью.</p>
+              <label>
+                <span>Название бизнеса</span>
+                <input value={newProject.businessName} onChange={(event) => setNewProject((current) => ({ ...current, businessName: event.target.value }))} required />
+              </label>
+              <label>
+                <span>Телефон для связи</span>
+                <input value={newProject.phone} onChange={(event) => setNewProject((current) => ({ ...current, phone: event.target.value }))} />
+              </label>
+              <label>
+                <span>Что нужно сделать</span>
+                <textarea value={newProject.goal} onChange={(event) => setNewProject((current) => ({ ...current, goal: event.target.value }))} placeholder="Например: сайт для студии, услуги, портфолио, форма заявки, карта, подключить домен..." required />
+              </label>
+              <button type="submit" disabled={busy === 'newProject' || !newProject.businessName.trim() || !newProject.goal.trim()}>Создать сайт</button>
+            </form>
+          )}
           {activeProject ? (
             <>
               <div className="project-hero-card">
@@ -590,12 +683,30 @@ function CustomerCabinet() {
                   {activeProject.paymentUrl ? <a className="public-button small dark" href={activeProject.paymentUrl} target="_blank" rel="noreferrer">Оплатить</a> : (
                     <button
                       type="button"
-                      disabled={Boolean(busy) || !activeProject.previewUrl}
+                      disabled={Boolean(busy) || !activeProject.previewUrl || paymentPending}
                       onClick={() => runCustomerAction('payment', () => apiFetch(`/api/customer/projects/${activeProject.id}/payment`, { method: 'POST', credentials: 'include' }), 'Запросили ссылку на оплату')}
                     >
-                      Получить счет
+                      {paymentLabel}
                     </button>
                   )}
+                </div>
+              </div>
+
+              <div className="payment-offer-card">
+                <div>
+                  <CreditCard size={21} />
+                  <div>
+                    <strong>{activeOffer.title || 'Разработка сайта-визитки 1Lab Web Studio'}</strong>
+                    <p>{activeOffer.description || 'Первый экран, структура услуг, контакты, форма заявки, адаптивная версия и публикация после согласования.'}</p>
+                    {activeOffer.fullEstimateRub > activeOffer.amountRub && (
+                      <small>Расширенный сайт с дополнительными модулями предварительно оценивается от {formatRub(activeOffer.fullEstimateRub)}. Первый счет формируется за стартовый этап.</small>
+                    )}
+                    {activeProject.payment?.customerMessage && <small>{activeProject.payment.customerMessage}</small>}
+                  </div>
+                </div>
+                <div className="payment-offer-price">
+                  <span>Сумма счета</span>
+                  <strong>{formatRub(activeOffer.amountRub || 30000)}</strong>
                 </div>
               </div>
 
@@ -664,7 +775,7 @@ function CustomerCabinet() {
             <div className="preview-empty">
               <UserRound size={34} />
               <strong>Проектов пока нет</strong>
-              <span>Создайте заявку через форму регистрации.</span>
+              <span>Нажмите “Новый сайт”, чтобы создать проект и описать задачу.</span>
             </div>
           )}
         </section>

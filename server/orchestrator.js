@@ -10,7 +10,7 @@ import { approvalKeyboard, sendTelegram, sendTelegramTo } from './services/teleg
 import { customerBriefSafetyIssues } from './services/customerTelegram.js';
 import { classifyCustomerRevision, isRevisionPaymentOk, revisionPaymentRequiredText } from './services/revisions.js';
 import { enrichLeadScore, hasEmailContact, hasValidatedEmailContact, isLovableEligible, topLovableCandidates } from './services/scoring.js';
-import { applySimpleRevisionToSourceProject, deployLeadExportedProject, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
+import { applySimpleRevisionToSourceProject, deployLeadExportedProject, deployLeadGeneratedPreview, deployLeadPublicUrlProject, repairLeadSourceProject } from './services/projectPublisher.js';
 import { ensureQualityGate, runPreviewQualityGate } from './services/qualityGate.js';
 import { listSubjectVariants, pickSubjectVariant, recordSubjectSend, variantId } from './services/subjectAB.js';
 import { discoverLeadSite } from './services/siteFinder.js';
@@ -440,7 +440,18 @@ export class Orchestrator {
       }
     }
     lead = await this.store.transitionLead(lead.id, { pipelineStage: 'lovable_building', stageStatus: 'running', artifactStatus: 'building', reason: 'lovable_job_started' });
-    const mockup = await prepareLovableMockup(lead);
+    let mockup;
+    try {
+      mockup = await prepareLovableMockup(lead);
+    } catch (error) {
+      mockup = {
+        ok: false,
+        mode: 'lovable_exception',
+        status: 'failed',
+        reason: error.message || String(error),
+        updatedAt: new Date().toISOString(),
+      };
+    }
     if (quotaFreeBuild) {
       this.store.state.metrics.customerMockupsToday = Number(this.store.state.metrics.customerMockupsToday ?? 0) + 1;
     } else {
@@ -472,9 +483,26 @@ export class Orchestrator {
       return { ok: true, lead };
     }
     if (mockup?.status === 'failed') {
-      await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'lovable_failed', artifactStatus: 'failed', lane: 'Lovable', owner: 'Builder', reason: mockup.reason || 'lovable_failed' });
-      await sendTelegram(`<b>Lovable build failed</b>\n${lead.name}\n${mockup.reason || 'unknown error'}`);
-      throw new Error(mockup.reason || 'Lovable build failed');
+      const reason = mockup.reason || 'Lovable build failed';
+      await this.store.addEvent(lead.id, 'lovable.failed_template_fallback', reason);
+      const generated = await deployLeadGeneratedPreview(this.store, lead.id, {
+        reason,
+        projectName: lead.name,
+        renderVideo: false,
+      });
+      lead = generated.lead || this.store.getLead(lead.id) || lead;
+      const quality = await runPreviewQualityGate(lead);
+      lead = await this.store.updateLead(lead.id, { qualityGate: quality });
+      if (!generated.ok || !quality.ok) {
+        await this.store.transitionLead(lead.id, { pipelineStage: 'needs_review', stageStatus: 'template_preview_failed', artifactStatus: 'quality_failed', lane: 'Lovable', owner: 'Builder', reason: quality.issues?.join('; ') || generated.error || reason });
+        await sendTelegram(`<b>Lovable failed and Coder template fallback failed</b>\n${lead.name}\nLovable: ${reason}\nTemplate: ${quality.issues?.join('; ') || generated.error || 'unknown'}`);
+        throw new Error(`Template fallback failed: ${quality.issues?.join('; ') || generated.error || reason}`);
+      }
+      lead = await this.store.transitionLead(lead.id, { pipelineStage: 'deployed', stageStatus: 'template_quality_passed', artifactStatus: 'deployed', reason: 'coder_template_fallback_after_lovable_failed' });
+      await this.enqueueJob('filmer_render', lead.id, { idempotencyKey: `filmer:${lead.id}:${lead.mockup?.publicUrl || lead.updatedAt}`, priority: pipelineJobPriority(lead, 800) });
+      await this.addA1Event(lead, 'project.template_preview_deployed', 'Coder template fallback deployed after Lovable failed', { reason, qualityGate: quality, publicUrl: lead.mockup?.publicUrl || '' });
+      await sendTelegram(`<b>Lovable недоступен, Coder собрал шаблонное превью</b>\n${lead.name}\n${lead.mockup?.publicUrl || ''}\nПричина Lovable: <code>${escapeHtml(reason).slice(0, 500)}</code>`);
+      return { ok: true, lead, fallback: 'coder_template_preview', reason };
     }
     await this.store.transitionLead(lead.id, { pipelineStage: 'lovable_building', stageStatus: 'handoff_required', artifactStatus: mockup?.status || 'waiting', reason: 'waiting_lovable_handoff' });
     return { ok: true, lead: this.store.getLead(lead.id), waiting: true };
