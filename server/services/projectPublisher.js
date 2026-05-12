@@ -186,8 +186,11 @@ async function generatedPreviewHtml(lead) {
       .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
       header { position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(16px); }
       nav { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-      .brand { font-weight: 800; font-size: 18px; }
+      .brand { font-weight: 800; font-size: 18px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .nav-note { color: var(--muted); font-size: 14px; }
+      .nav-menu { display: flex; align-items: center; justify-content: flex-end; gap: 16px; color: var(--muted); font-size: 14px; font-weight: 750; }
+      .nav-menu a { text-decoration: none; white-space: nowrap; }
+      .nav-menu a:hover { color: var(--text); }
       .hero { min-height: 86vh; display: grid; align-items: center; padding: 58px 0 54px; border-bottom: 1px solid var(--line); }
       .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .92fr); gap: 46px; align-items: stretch; }
       .eyebrow { color: var(--accent); font-weight: 850; font-size: 14px; }
@@ -235,11 +238,14 @@ async function generatedPreviewHtml(lead) {
       input, textarea { width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 14px 16px; font: inherit; }
       textarea { min-height: 120px; resize: vertical; }
       footer { padding: 32px 0; color: var(--muted); }
-      @media (max-width: 820px) { .hero-grid, .grid, .split, .review-grid, .map-block { grid-template-columns: 1fr; } h1 { font-size: 34px; } .nav-note { display: none; } .metric { grid-template-columns: 1fr; } .hero { min-height: auto; padding-top: 36px; } }
+      .footer-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+      .footer-links { display: flex; gap: 14px; flex-wrap: wrap; font-weight: 750; }
+      .footer-links a { text-decoration: none; }
+      @media (max-width: 820px) { .hero-grid, .grid, .split, .review-grid, .map-block { grid-template-columns: 1fr; } h1 { font-size: 34px; } .nav-note, .nav-menu { display: none; } .metric { grid-template-columns: 1fr; } .hero { min-height: auto; padding-top: 36px; } }
     </style>
   </head>
   <body>
-    <header><nav class="wrap"><div class="brand">${escapeHtml(business)}</div><div class="nav-note">${escapeHtml(niche)}</div></nav></header>
+    <header><nav class="wrap"><div class="brand">${escapeHtml(business)}</div><div class="nav-menu"><a href="#services">&#1059;&#1089;&#1083;&#1091;&#1075;&#1080;</a><a href="#proof">&#1044;&#1086;&#1074;&#1077;&#1088;&#1080;&#1077;</a><a href="#reviews">&#1054;&#1090;&#1079;&#1099;&#1074;&#1099;</a><a href="#contacts">&#1050;&#1086;&#1085;&#1090;&#1072;&#1082;&#1090;&#1099;</a><a href="#request">&#1047;&#1072;&#1103;&#1074;&#1082;&#1072;</a></div></nav></header>
     <main>
       <section class="hero">
         <div class="wrap hero-grid">
@@ -265,13 +271,13 @@ async function generatedPreviewHtml(lead) {
         </div>
       </section>
       <section id="services"><div class="wrap"><h2>${escapeHtml(profile.servicesTitle)}</h2><div class="grid">${serviceCards.map((item, index) => `<article class="card image-card">${templateImageTag([detailImage, resultImage, processImage][index] || detailImage, item, '', fallbackImageDataUrl(profile, `card-${index}`))}<div><b>${escapeHtml(item)}</b><p class="muted">${escapeHtml(profile.cardText(item))}</p></div></article>`).join('')}</div></div></section>
-      <section><div class="wrap split"><div><h2>${escapeHtml(profile.proofTitle)}</h2><p class="muted">${escapeHtml(proof)}</p><div class="grid">${serviceList.slice(0, 3).map((item) => `<article class="card"><b>${escapeHtml(item)}</b><p class="muted">${escapeHtml(profile.bulletText)}</p></article>`).join('')}</div></div>${templateImageTag(resultImage, `${business}: результат`, '', fallbackImageDataUrl(profile, 'result'))}</div></section>
-      <section><div class="wrap"><h2>Отзывы и доверие</h2><div class="review-grid">${reviews.map((item) => `<article class="review-card"><strong>${escapeHtml(item.value)}</strong><b>${escapeHtml(item.title)}</b><p class="muted">${escapeHtml(item.text)}</p></article>`).join('')}</div></div></section>
-      <section><div class="wrap map-block"><div><h2>Как вас найти</h2><p class="muted">Блок контактов нужен не “для галочки”: он помогает клиенту быстро сверить адрес, позвонить и оставить заявку без поиска по другим сайтам.</p><div class="contact-lines">${leadAddress ? `<div class="contact-line"><span>Адрес</span>${escapeHtml(leadAddress)}</div>` : ''}${lead.phone ? `<div class="contact-line"><span>Телефон</span>${escapeHtml(lead.phone)}</div>` : ''}<div class="contact-line"><span>Следующий шаг</span>Оставить заявку или запросить консультацию</div></div></div><div class="map-frame">${mapUrl ? `<iframe title="Яндекс Карта" src="${escapeHtml(mapUrl)}" loading="lazy"></iframe>` : `<div style="padding:24px"><b>Карта подключается после уточнения адреса</b><p class="muted">В рабочем сайте здесь будет точка на Яндекс Картах и быстрый маршрут для клиентов.</p></div>`}</div></div></section>
-      <section><div class="wrap"><h2>${escapeHtml(profile.processTitle)}</h2><div class="steps">${profile.steps.map((step) => `<div class="step"><div><b>${escapeHtml(step[0])}</b><p class="muted">${escapeHtml(step[1])}</p></div></div>`).join('')}</div></div></section>
+      <section id="proof"><div class="wrap split"><div><h2>${escapeHtml(profile.proofTitle)}</h2><p class="muted">${escapeHtml(proof)}</p><div class="grid">${serviceList.slice(0, 3).map((item) => `<article class="card"><b>${escapeHtml(item)}</b><p class="muted">${escapeHtml(profile.bulletText)}</p></article>`).join('')}</div></div>${templateImageTag(resultImage, `${business}: результат`, '', fallbackImageDataUrl(profile, 'result'))}</div></section>
+      <section id="reviews"><div class="wrap"><h2>&#1054;&#1090;&#1079;&#1099;&#1074;&#1099; &#1080; &#1076;&#1086;&#1074;&#1077;&#1088;&#1080;&#1077;</h2><div class="review-grid">${reviews.map((item) => `<article class="review-card"><strong>${escapeHtml(item.value)}</strong><b>${escapeHtml(item.title)}</b><p class="muted">${escapeHtml(item.text)}</p></article>`).join('')}</div></div></section>
+      <section id="contacts"><div class="wrap map-block"><div><h2>&#1050;&#1072;&#1082; &#1074;&#1072;&#1089; &#1085;&#1072;&#1081;&#1090;&#1080;</h2><p class="muted">Блок контактов нужен не “для галочки”: он помогает клиенту быстро сверить адрес, позвонить и оставить заявку без поиска по другим сайтам.</p><div class="contact-lines">${leadAddress ? `<div class="contact-line"><span>Адрес</span>${escapeHtml(leadAddress)}</div>` : ''}${lead.phone ? `<div class="contact-line"><span>Телефон</span>${escapeHtml(lead.phone)}</div>` : ''}<div class="contact-line"><span>Следующий шаг</span>Оставить заявку или запросить консультацию</div></div></div><div class="map-frame">${mapUrl ? `<iframe title="Яндекс Карта" src="${escapeHtml(mapUrl)}" loading="lazy"></iframe>` : `<div style="padding:24px"><b>Карта подключается после уточнения адреса</b><p class="muted">В рабочем сайте здесь будет точка на Яндекс Картах и быстрый маршрут для клиентов.</p></div>`}</div></div></section>
+      <section id="process"><div class="wrap"><h2>${escapeHtml(profile.processTitle)}</h2><div class="steps">${profile.steps.map((step) => `<div class="step"><div><b>${escapeHtml(step[0])}</b><p class="muted">${escapeHtml(step[1])}</p></div></div>`).join('')}</div></div></section>
       <section id="request"><div class="wrap hero-grid"><div><h2>${escapeHtml(profile.requestTitle)}</h2><p class="muted">Контакты и поля формы: ${escapeHtml(contacts)}.</p></div><form><input placeholder="Имя"><input placeholder="Телефон или email"><textarea placeholder="Коротко опишите задачу"></textarea><button class="btn primary" type="button">${escapeHtml(profile.formButton)}</button></form></div></section>
     </main>
-    <footer><div class="wrap">${escapeHtml(business)} · рабочее превью сайта</div></footer>
+    <footer><div class="wrap footer-row"><div>${escapeHtml(business)} &#183; &#1088;&#1072;&#1073;&#1086;&#1095;&#1077;&#1077; &#1087;&#1088;&#1077;&#1074;&#1100;&#1102; &#1089;&#1072;&#1081;&#1090;&#1072;</div><div class="footer-links"><a href="#services">&#1059;&#1089;&#1083;&#1091;&#1075;&#1080;</a><a href="#reviews">&#1054;&#1090;&#1079;&#1099;&#1074;&#1099;</a><a href="#contacts">&#1050;&#1086;&#1085;&#1090;&#1072;&#1082;&#1090;&#1099;</a><a href="#request">&#1047;&#1072;&#1103;&#1074;&#1082;&#1072;</a></div></div></footer>
   </body>
 </html>`;
 }
