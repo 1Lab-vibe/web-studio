@@ -19,6 +19,10 @@ function textFiles(files) {
   return files.filter((file) => !file.binary && typeof file.content === 'string' && isPublishableSourceFile(file.path));
 }
 
+function isMetadataFile(filePath) {
+  return String(filePath || '').replace(/\\/g, '/').toLowerCase() === 'webstudio-project.json';
+}
+
 function githubHeaders() {
   return {
     Accept: 'application/vnd.github+json',
@@ -116,7 +120,7 @@ async function publishWithApi({ repoName, description, files, metadata }) {
   const created = existing || (await createRepo(owner, repo, description));
   const targetOwner = created.owner?.login || owner;
   const commitMessage = `Publish Web Studio project ${metadata.leadId || ''}`.trim();
-  const publishable = textFiles(files);
+  const publishable = textFiles(files).filter((file) => !isMetadataFile(file.path));
   for (const file of publishable) {
     await putFile(targetOwner, repo, file.path, file.content, commitMessage);
   }
@@ -157,7 +161,7 @@ async function git(args, options) {
 }
 
 async function writeFilesToRepo(root, files, metadata) {
-  for (const file of textFiles(files)) {
+  for (const file of textFiles(files).filter((item) => !isMetadataFile(item.path))) {
     const target = path.resolve(root, file.path);
     if (!target.startsWith(path.resolve(root) + path.sep)) throw new Error(`Unsafe GitHub file path: ${file.path}`);
     await mkdir(path.dirname(target), { recursive: true });
