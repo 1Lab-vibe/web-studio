@@ -178,7 +178,7 @@ function App() {
     return () => window.removeEventListener('popstate', syncPath);
   }, []);
 
-  if (path.startsWith('/admin_cabinet')) return <CentralAdminRedirect />;
+  if (path.startsWith('/admin_cabinet') || path.startsWith('/admin-cabinet')) return <CentralAdminRedirect />;
   if (path.startsWith('/cabinet')) return <CustomerCabinet />;
   return <PublicSite />;
 }
@@ -810,7 +810,7 @@ function CustomerHeader({ email, onLogout, showAdmin = false }) {
       </a>
       <nav>
         <a href="/legal">Документы</a>
-        {showAdmin && <a href="/admin_cabinet">Админка</a>}
+        {showAdmin && <a href="/admin-cabinet">Админка</a>}
         {email ? <button type="button" onClick={onLogout}>{email} · выйти</button> : <a href="/cabinet/login">Войти</a>}
       </nav>
     </header>

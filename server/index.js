@@ -377,6 +377,10 @@ app.post('/api/telegram/webhook', async (req, res) => {
   });
 });
 
+app.get(/^\/admin[-_]cabinet(?:\/.*)?$/, (req, res) => {
+  res.redirect(302, 'https://pf.1true.ru/');
+});
+
 if (config.NODE_ENV === 'production') {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const distDir = path.join(root, 'dist');
