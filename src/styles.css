@@ -1618,6 +1618,143 @@ button {
   padding-top: 28px;
 }
 
+.studio-site {
+  --studio-bg: #07090d;
+  --studio-bg-soft: #0d1118;
+  --studio-surface: rgba(16, 19, 26, 0.9);
+  --studio-ink: #f8fafc;
+  --studio-ink-2: #ffffff;
+  --studio-muted: #aeb8c8;
+  --studio-soft: rgba(255, 255, 255, 0.09);
+  --studio-line: rgba(255, 255, 255, 0.14);
+  --studio-accent: #f5c45f;
+  --studio-accent-2: #d99a28;
+  --studio-green: #43d6bc;
+  --studio-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  --studio-shadow-strong: 0 38px 120px rgba(0, 0, 0, 0.48);
+  background:
+    radial-gradient(circle at 78% 8%, rgba(245, 196, 95, 0.18), transparent 30%),
+    radial-gradient(circle at 12% 28%, rgba(67, 214, 188, 0.12), transparent 24%),
+    linear-gradient(180deg, #07090d 0, #0b0f16 560px, #0f131a 100%);
+}
+
+.studio-site .public-nav {
+  background: rgba(7, 9, 13, 0.78);
+  border-color: rgba(245, 196, 95, 0.18);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+}
+
+.studio-site .public-brand-mark {
+  background: linear-gradient(135deg, #f9db84, #d4931d);
+  box-shadow: 0 10px 28px rgba(217, 154, 40, 0.26);
+  color: #090b10;
+}
+
+.studio-site .public-nav nav a,
+.studio-site .public-link {
+  color: #c9d2df;
+}
+
+.studio-site .public-button {
+  background: linear-gradient(135deg, #f9dc85, #d79622);
+  border-color: rgba(255, 222, 139, 0.66);
+  box-shadow: 0 16px 38px rgba(217, 154, 40, 0.25);
+  color: #080a0e;
+}
+
+.studio-site .public-ghost,
+.studio-site .hero-proof span,
+.hero-metrics div,
+.contacts-card div,
+.document-links a {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--studio-line);
+  color: #f8fafc;
+}
+
+.studio-site a.public-ghost,
+.studio-site .public-shell a.public-ghost {
+  color: #f8fafc;
+}
+
+.studio-site .hero-proof {
+  color: #d7dfeb;
+}
+
+.hero-image-shell {
+  background: #090c12;
+  border: 1px solid rgba(245, 196, 95, 0.17);
+}
+
+.hero-visual-card {
+  background: rgba(9, 12, 18, 0.82);
+  border-color: rgba(245, 196, 95, 0.18);
+  color: #f8fafc;
+}
+
+.hero-visual-card span {
+  color: #aeb8c8;
+}
+
+.portfolio-card,
+.testimonial-card,
+.studio-site .pricing-card,
+.contacts-section {
+  background: rgba(16, 19, 26, 0.9);
+  border-color: var(--studio-line);
+  color: #f8fafc;
+}
+
+.portfolio-card div {
+  background: rgba(12, 15, 21, 0.96);
+}
+
+.portfolio-card h3,
+.contacts-card a,
+.contacts-card strong {
+  color: #ffffff;
+}
+
+.studio-site .cabinet-showcase {
+  background:
+    radial-gradient(circle at 82% 12%, rgba(245, 196, 95, 0.16), transparent 28%),
+    #080a0f;
+}
+
+.studio-site .cabinet-showcase .public-button {
+  background: linear-gradient(135deg, #f9dc85, #d79622);
+  border-color: rgba(255, 222, 139, 0.66);
+  color: #080a0e;
+}
+
+.studio-site .showcase-panel {
+  background: rgba(16, 19, 26, 0.94);
+  border: 1px solid rgba(245, 196, 95, 0.16);
+  color: #f8fafc;
+}
+
+.showcase-row,
+.pricing-card li,
+.process-step p {
+  color: #cbd5e1;
+}
+
+.studio-site .pricing-section {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid var(--studio-line);
+}
+
+.documents-section,
+.final-cta {
+  background:
+    linear-gradient(135deg, rgba(245, 196, 95, 0.16), transparent 42%),
+    #080a0f;
+}
+
+.contacts-card {
+  background: rgba(255, 255, 255, 0.055);
+}
+
 @media (max-width: 1080px) {
   .studio-site .public-hero,
   .studio-site .cabinet-showcase,

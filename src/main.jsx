@@ -178,9 +178,26 @@ function App() {
     return () => window.removeEventListener('popstate', syncPath);
   }, []);
 
-  if (path.startsWith('/admin_cabinet')) return <AdminApp />;
+  if (path.startsWith('/admin_cabinet')) return <CentralAdminRedirect />;
   if (path.startsWith('/cabinet')) return <CustomerCabinet />;
   return <PublicSite />;
+}
+
+function CentralAdminRedirect() {
+  useEffect(() => {
+    window.location.replace('https://pf.1true.ru/');
+  }, []);
+  return (
+    <main className="customer-shell">
+      <CustomerHeader />
+      <section className="preview-empty" style={{ minHeight: '58vh' }}>
+        <LayoutDashboard size={38} />
+        <strong>Админка переехала в единый центр</strong>
+        <span>Открываем pf.1true.ru, где собраны проекты, inbox, outbound, modules, agents и runs.</span>
+        <a className="public-button" href="https://pf.1true.ru/">Открыть админку</a>
+      </section>
+    </main>
+  );
 }
 
 const publicPortfolioItems = [
@@ -247,50 +264,50 @@ function PublicSite() {
           <span className="public-brand-mark">1L</span>
           <span>
             1Lab Web Studio
-            <small>сайты, превью и личный кабинет</small>
+            <small>AI-лендинги, сайты и кабинет проекта</small>
           </span>
         </a>
         <nav>
           <a href="#portfolio">Работы</a>
           <a href="#cabinet">Кабинет</a>
-          <a href="#process">Процесс</a>
+          <a href="#process">Как работаем</a>
           <a href="#pricing">Стоимость</a>
           <a href="#contacts">Контакты</a>
         </nav>
         <div className="public-nav-actions">
-          <a className="public-link" href="#documents">Документы</a>
+          <a className="public-link" href="#documents">152-ФЗ</a>
           <a className="public-button small" href="/cabinet">Личный кабинет</a>
         </div>
       </header>
 
       <section className="public-hero">
         <div className="hero-copy">
-          <h1>Сайт, который приводит заявки</h1>
+          <h1>Сайт, который продает еще до первого созвона</h1>
           <p>
-            Не просто красивый экран: сначала показываем рабочее превью до оплаты, затем доводим оффер, форму заявки, доверие, контакты и мобильную версию.
-            После запуска сайт можно развивать через кабинет или Telegram.
+            Собираем быстрые, красивые и понятные сайты для услуг, студий, клиник, недвижимости и локального бизнеса. Сначала даем рабочее превью по вашей нише,
+            потом доводим оффер, доверие, форму заявки, контакты, мобильную версию и публикацию на домене.
           </p>
           <div className="hero-actions">
             <a className="public-button" href="/cabinet">Получить превью сайта</a>
             <a className="public-ghost" href="#portfolio">Смотреть примеры</a>
           </div>
           <div className="hero-proof">
-            <span><CheckCircle2 size={16} /> оплата после согласованного превью</span>
-            <span><MonitorSmartphone size={16} /> мобильная версия сразу</span>
-            <span><MessageSquareText size={16} /> правки текстом или через кабинет</span>
+            <span><CheckCircle2 size={16} /> сначала рабочее превью, потом оплата</span>
+            <span><MonitorSmartphone size={16} /> дизайн, тексты и мобильная версия в одном цикле</span>
+            <span><MessageSquareText size={16} /> правки обычным текстом в кабинете</span>
           </div>
           <div className="hero-metrics" aria-label="Преимущества 1Lab Web Studio">
             <div>
               <strong>30 000 ₽</strong>
-              <span>старт сайта-визитки</span>
+              <span>старт продающего сайта</span>
             </div>
             <div>
               <strong>2</strong>
-              <span>правки включены</span>
+              <span>итерации до согласования</span>
             </div>
             <div>
               <strong>24/7</strong>
-              <span>кабинет проекта</span>
+              <span>прозрачный кабинет</span>
             </div>
           </div>
         </div>
@@ -298,14 +315,14 @@ function PublicSite() {
           <div className="hero-image-shell">
             <img src="/hero/1lab-webstudio-hero.png" alt="1Lab Web Studio: рабочее превью сайта и кабинет проекта" />
             <div className="hero-visual-card top">
-              <small>из идеи в ссылку</small>
+              <small>AI-first workflow</small>
               <strong>Превью сайта</strong>
-              <span>первый экран, заявка, доверие</span>
+              <span>оффер, визуал, заявка, доверие</span>
             </div>
             <div className="hero-visual-card bottom">
-              <small>после запуска</small>
-              <strong>Правки диалогом</strong>
-              <span>контент, блоки, карта, формы</span>
+              <small>без лишней админки</small>
+              <strong>Кабинет клиента</strong>
+              <span>ТЗ, ссылки, документы, правки</span>
             </div>
           </div>
         </div>
@@ -313,9 +330,9 @@ function PublicSite() {
 
       <section className="portfolio-section" id="portfolio">
         <div className="section-title wide">
-          <span className="section-eyebrow">Наши работы</span>
-          <h2>Показываем не макет в вакууме, а рабочую ссылку под конкретный бизнес</h2>
-          <p>Для каждого проекта собираем первый экран, структуру заявки, доверие, контакты и мобильный сценарий. Ниже реальные превью из нашего контура публикации.</p>
+          <span className="section-eyebrow">Примеры и кейсы</span>
+          <h2>Каждый проект собирается под конкретную нишу, а не по пустому шаблону</h2>
+          <p>Берем контекст бизнеса, сильный первый экран, структуру услуг, доказательства, контакты и понятный путь к заявке. Ниже рабочие превью из текущего контура публикации.</p>
         </div>
         <div className="portfolio-grid">
           {publicPortfolioItems.map((item, index) => (
@@ -334,10 +351,10 @@ function PublicSite() {
       <section className="cabinet-showcase" id="cabinet">
         <div className="cabinet-copy">
           <span className="section-eyebrow">Личный кабинет</span>
-          <h2>После запуска сайт не превращается в закрытую коробку</h2>
+          <h2>Для клиента оставляем только то, что реально нужно</h2>
           <p>
-            Владелец видит проекты, превью, оплату, документы и историю задач. Новую правку можно написать обычным текстом: обновить контакты, добавить зал,
-            поменять фото, подключить карту с точкой, вставить новый блок или подготовить отдельную посадочную страницу.
+            Владелец видит проекты, превью, оплату, документы и историю задач. Без раздутой админки: новую правку можно написать обычным текстом,
+            а внутренняя операционная часть остается в едином центре 1Lab.
           </p>
           <div className="cabinet-actions">
             <a className="public-button" href="/cabinet">Открыть кабинет</a>
@@ -375,15 +392,15 @@ function PublicSite() {
       <section className="public-band process-band" id="process">
         <div className="section-title">
           <span className="section-eyebrow">Процесс</span>
-          <h2>От идеи до публикации без потери контекста</h2>
-          <p>Сначала показываем направление, затем доводим контент, правки, оплату и домен до рабочего состояния.</p>
+          <h2>Из заявки в опубликованный сайт без недель переписок</h2>
+          <p>Сначала показываем направление, затем фиксируем правки, оплату, документы и домен в одном понятном процессе.</p>
         </div>
         <div className="process-grid">
           {[
-            ['01', 'Бриф и согласия', 'Клиент регистрируется, подтверждает email и явно принимает документы.'],
-            ['02', 'Превью сайта', 'Собираем первый вариант с реальными текстами, hero, формой заявки и мобильной версией.'],
-            ['03', 'Согласование', 'Клиент пишет правки в кабинете или Telegram, а система сохраняет историю и статус.'],
-            ['04', 'Оплата и домен', 'После согласованного превью формируется оплата, затем сайт публикуется на домене клиента.'],
+            ['01', 'Бриф и ниша', 'Фиксируем задачу, аудиторию, услуги, контакты, примеры и юридические согласия.'],
+            ['02', 'AI-превью', 'Собираем первый рабочий вариант с оффером, визуалом, формой заявки и мобильной версией.'],
+            ['03', 'Правки в кабинете', 'Клиент пишет изменения обычным текстом, а вся история проекта остается в одном месте.'],
+            ['04', 'Запуск и развитие', 'Публикуем сайт, подключаем домен, аналитику, заявки и добавляем новые посадочные страницы.'],
           ].map(([num, title, text]) => (
             <article className="process-step" key={num}>
               <span>{num}</span>
